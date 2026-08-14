@@ -1,14 +1,19 @@
 import {
+  useMemo,
+} from 'react'
+import {
   ClipboardCopy,
   ClipboardPaste,
   Copy,
   CopyPlus,
+  Lock,
   Plus,
   Redo2,
   Save,
   ShieldCheck,
   Trash2,
   Undo2,
+  Unlock,
   Upload,
   UserRoundPlus,
 } from 'lucide-react'
@@ -65,6 +70,7 @@ export type NodeContextAction =
   | 'compliance'
   | 'save-asset'
   | 'create-subject'
+  | 'toggle-lock'
   | 'copy-node'
   | 'duplicate'
   | 'paste'
@@ -72,31 +78,42 @@ export type NodeContextAction =
   | 'copy-to-clipboard'
 
 export interface NodeContextMenuProps extends ControlledOverlayProps {
+  isLocked?: boolean
   onAction?: (action: NodeContextAction) => void
   position?: OverlayPosition
 }
 
-const nodeContextItems: ReadonlyArray<MenuItemSpec<NodeContextAction>> = [
-  { action: 'compliance', disabled: true, icon: ShieldCheck, label: '内容合规检测' },
-  { action: 'save-asset', disabled: true, icon: Save, label: '保存到我的资产' },
-  { action: 'create-subject', disabled: true, icon: UserRoundPlus, label: '创建主体' },
-  { action: 'copy-node', icon: Copy, label: '复制节点', separatorBefore: true, shortcut: 'Ctrl C' },
-  { action: 'duplicate', icon: CopyPlus, label: '生成副本', shortcut: 'Ctrl D' },
-  { action: 'paste', icon: ClipboardPaste, label: '粘贴', shortcut: 'Ctrl V' },
-  { action: 'delete', danger: true, icon: Trash2, label: '删除', separatorBefore: true, shortcut: 'Delete' },
-  { action: 'copy-to-clipboard', icon: ClipboardCopy, label: '复制到剪贴板', separatorBefore: true },
-]
-
 export function NodeContextMenu({
+  isLocked = false,
   onAction,
   onClose,
   open,
   position,
 }: NodeContextMenuProps) {
+  const items: ReadonlyArray<MenuItemSpec<NodeContextAction>> = useMemo(
+    () => [
+      { action: 'compliance', disabled: true, icon: ShieldCheck, label: '内容合规检测' },
+      { action: 'save-asset', disabled: true, icon: Save, label: '保存到我的资产' },
+      { action: 'create-subject', disabled: true, icon: UserRoundPlus, label: '创建主体' },
+      {
+        action: 'toggle-lock',
+        icon: isLocked ? Unlock : Lock,
+        label: isLocked ? '解除固定' : '固定',
+        separatorBefore: true,
+      },
+      { action: 'copy-node', icon: Copy, label: '复制节点', separatorBefore: true, shortcut: 'Ctrl C' },
+      { action: 'duplicate', icon: CopyPlus, label: '生成副本', shortcut: 'Ctrl D' },
+      { action: 'paste', icon: ClipboardPaste, label: '粘贴', shortcut: 'Ctrl V' },
+      { action: 'delete', danger: true, icon: Trash2, label: '删除', separatorBefore: true, shortcut: 'Delete' },
+      { action: 'copy-to-clipboard', icon: ClipboardCopy, label: '复制到剪贴板', separatorBefore: true },
+    ],
+    [isLocked],
+  )
+
   return (
     <ActionMenu
       className="node-context-menu"
-      items={nodeContextItems}
+      items={items}
       label="节点快捷菜单"
       onAction={(action) => onAction?.(action)}
       onClose={onClose}

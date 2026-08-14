@@ -1222,6 +1222,16 @@ export default function App({
   const handleNodeContextAction = (action: NodeContextAction) => {
     if (readOnly && action !== 'copy-node' && action !== 'copy-to-clipboard') return
     const selectedIds = canvasStore.getState().selectedNodeIds
+    if (action === 'toggle-lock') {
+      const snapshot = canvasStore.getState().snapshot
+      const isAnyLocked = selectedIds.some((id) => snapshot.nodes.find((n) => n.id === id)?.locked)
+      const nextLocked = !isAnyLocked
+      for (const id of selectedIds) {
+        canvasStore.getState().setNodeLocked(id, nextLocked)
+      }
+      notify(nextLocked ? '已固定节点' : '已解除固定', 'info')
+      return
+    }
     if (action === 'delete') {
       canvasStore.getState().deleteNodes(selectedIds)
       return
@@ -1697,6 +1707,7 @@ export default function App({
         position={contextPosition}
       />
       <NodeContextMenu
+        isLocked={Boolean(selectedNodeIds.length > 0 && snapshot.nodes.find((n) => n.id === selectedNodeIds[0])?.locked)}
         onAction={handleNodeContextAction}
         onClose={dismissContextMenu}
         open={contextMenu === 'node'}

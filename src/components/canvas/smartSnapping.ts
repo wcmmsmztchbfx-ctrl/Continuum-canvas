@@ -3,7 +3,7 @@ import type { Point } from '../../model/project'
 export interface SnapRect { id?: string; x: number; y: number; width: number; height: number; kind?: 'node' | 'frame' }
 export interface SnapGuide { axis: 'x' | 'y'; value: number; from: number; to: number; label?: string }
 export interface SnapDistance { axis: 'x' | 'y'; from: number; to: number; cross: number; value: number }
-export interface SnapState { x?: { target: number; source: number }; y?: { target: number; source: number } }
+export interface SnapState { x?: { target: number; source: number; candidateId?: string }; y?: { target: number; source: number; candidateId?: string } }
 export interface SnapResult { rect: SnapRect; guides: SnapGuide[]; distances: SnapDistance[]; state: SnapState }
 export interface ResizeDirection { x: -1 | 0 | 1; y: -1 | 0 | 1 }
 
@@ -18,21 +18,45 @@ export function rotatedBounds(rect: SnapRect, degrees = 0): SnapRect {
   return { ...rect, x: rect.x + (rect.width - width) / 2, y: rect.y + (rect.height - height) / 2, width, height }
 }
 
-function nearestAxis(source: number[], candidates: SnapRect[], axis: 'x' | 'y', threshold: number, previous?: { target: number; source: number }) {
+function nearestAxis(
+  rect: SnapRect,
+  source: number[],
+  candidates: SnapRect[],
+  axis: 'x' | 'y',
+  threshold: number,
+  previous?: { target: number; source: number; candidateId?: string },
+) {
   const releaseThreshold = threshold + 2
   if (previous) {
     const current = source[previous.source]
     if (current !== undefined && Math.abs(previous.target - current) <= releaseThreshold) {
-      return { delta: previous.target - current, target: previous.target, source: previous.source }
+      const prevCandidate = candidates.find((c) => c.id === previous.candidateId)
+      return { delta: previous.target - current, target: previous.target, source: previous.source, candidate: prevCandidate }
     }
   }
-  let best: { delta: number; target: number; source: number } | undefined
+  let best: { delta: number; target: number; source: number; candidate: SnapRect; orthogonalDist: number } | undefined
   for (let sourceIndex = 0; sourceIndex < source.length; sourceIndex += 1) {
+    const srcVal = source[sourceIndex]!
     for (const candidate of candidates) {
+      const orthogonalDist = axis === 'x'
+        ? Math.abs((candidate.y + candidate.height / 2) - (rect.y + rect.height / 2))
+        : Math.abs((candidate.x + candidate.width / 2) - (rect.x + rect.width / 2))
+
+      // Skip candidates that are extremely far away orthogonally (> 2000px) to prevent distant jitter
+      if (orthogonalDist > 2000) continue
+
       const targets = axis === 'x' ? anchorsX(candidate) : anchorsY(candidate)
       for (const target of targets) {
-        const delta = target - source[sourceIndex]!
-        if (Math.abs(delta) <= threshold && (!best || Math.abs(delta) < Math.abs(best.delta))) best = { delta, target, source: sourceIndex }
+        const delta = target - srcVal
+        if (Math.abs(delta) <= threshold) {
+          if (
+            !best ||
+            Math.abs(delta) < Math.abs(best.delta) - 0.5 ||
+            (Math.abs(Math.abs(delta) - Math.abs(best.delta)) <= 0.5 && orthogonalDist < best.orthogonalDist)
+          ) {
+            best = { delta, target, source: sourceIndex, candidate, orthogonalDist }
+          }
+        }
       }
     }
   }
@@ -54,7 +78,14 @@ function nearestDistances(rect: SnapRect, candidates: SnapRect[]): SnapDistance[
 }
 
 function equalGapDelta(rect: SnapRect, candidates: SnapRect[], axis: 'x' | 'y', threshold: number) {
-  const sorted = [...candidates].sort((a, b) => axis === 'x' ? a.x - b.x : a.y - b.y)
+  // Proximity filter: only consider candidates within 1200px orthogonally
+  const nearby = candidates.filter((item) => {
+    const dist = axis === 'x'
+      ? Math.abs((item.y + item.height / 2) - (rect.y + rect.height / 2))
+      : Math.abs((item.x + item.width / 2) - (rect.x + rect.width / 2))
+    return dist <= 1200
+  })
+  const sorted = [...nearby].sort((a, b) => axis === 'x' ? a.x - b.x : a.y - b.y)
   let best: number | undefined
   for (let index = 0; index < sorted.length - 1; index += 1) {
     const first = sorted[index]!
@@ -75,8 +106,8 @@ export function snapRect(input: { rect: SnapRect; candidates: SnapRect[]; zoom: 
   const threshold = 6 / Math.max(input.zoom, 0.01)
   const original = input.rect
   if (input.disable) return { rect: { ...original }, guides: [], distances: input.measure ? nearestDistances(original, input.candidates) : [], state: {} }
-  const x = input.enabled ? nearestAxis(anchorsX(original), input.candidates, 'x', threshold, input.previous?.x) : undefined
-  const y = input.enabled ? nearestAxis(anchorsY(original), input.candidates, 'y', threshold, input.previous?.y) : undefined
+  const x = input.enabled ? nearestAxis(original, anchorsX(original), input.candidates, 'x', threshold, input.previous?.x) : undefined
+  const y = input.enabled ? nearestAxis(original, anchorsY(original), input.candidates, 'y', threshold, input.previous?.y) : undefined
   const gapX = input.enabled && !x ? equalGapDelta(original, input.candidates, 'x', threshold) : undefined
   const gapY = input.enabled && !y ? equalGapDelta(original, input.candidates, 'y', threshold) : undefined
   let dx = x?.delta ?? gapX ?? 0
@@ -87,19 +118,49 @@ export function snapRect(input: { rect: SnapRect; candidates: SnapRect[]; zoom: 
   }
   const rect = { ...original, x: original.x + dx, y: original.y + dy }
   const guides: SnapGuide[] = []
-  if (x) guides.push({ axis: 'x', value: x.target, from: Math.min(rect.y, ...input.candidates.map((item) => item.y)), to: Math.max(rect.y + rect.height, ...input.candidates.map((item) => item.y + item.height)) })
-  if (y) guides.push({ axis: 'y', value: y.target, from: Math.min(rect.x, ...input.candidates.map((item) => item.x)), to: Math.max(rect.x + rect.width, ...input.candidates.map((item) => item.x + item.width)) })
+  if (x) {
+    const fromY = x.candidate ? Math.min(rect.y, x.candidate.y) : rect.y
+    const toY = x.candidate ? Math.max(rect.y + rect.height, x.candidate.y + x.candidate.height) : rect.y + rect.height
+    guides.push({ axis: 'x', value: x.target, from: fromY, to: toY })
+  }
+  if (y) {
+    const fromX = y.candidate ? Math.min(rect.x, y.candidate.x) : rect.x
+    const toX = y.candidate ? Math.max(rect.x + rect.width, y.candidate.x + y.candidate.width) : rect.x + rect.width
+    guides.push({ axis: 'y', value: y.target, from: fromX, to: toX })
+  }
   if (gapX !== undefined) guides.push({ axis: 'x', value: rect.x, from: rect.y, to: rect.y + rect.height, label: '等间距' })
   if (gapY !== undefined) guides.push({ axis: 'y', value: rect.y, from: rect.x, to: rect.x + rect.width, label: '等间距' })
-  return { rect, guides, distances: input.measure ? nearestDistances(rect, input.candidates) : [], state: { ...(x ? { x: { target: x.target, source: x.source } } : {}), ...(y ? { y: { target: y.target, source: y.source } } : {}) } }
+  return {
+    rect,
+    guides,
+    distances: input.measure ? nearestDistances(rect, input.candidates) : [],
+    state: {
+      ...(x ? { x: { target: x.target, source: x.source, candidateId: x.candidate?.id } } : {}),
+      ...(y ? { y: { target: y.target, source: y.source, candidateId: y.candidate?.id } } : {}),
+    },
+  }
 }
 
-function nearestTarget(value: number, candidates: SnapRect[], axis: 'x' | 'y', threshold: number) {
-  let best: { value: number; delta: number } | undefined
+function nearestTarget(rect: SnapRect, value: number, candidates: SnapRect[], axis: 'x' | 'y', threshold: number) {
+  let best: { value: number; delta: number; candidate: SnapRect; orthogonalDist: number } | undefined
   for (const candidate of candidates) {
+    const orthogonalDist = axis === 'x'
+      ? Math.abs((candidate.y + candidate.height / 2) - (rect.y + rect.height / 2))
+      : Math.abs((candidate.x + candidate.width / 2) - (rect.x + rect.width / 2))
+
+    if (orthogonalDist > 2000) continue
+
     for (const target of axis === 'x' ? anchorsX(candidate) : anchorsY(candidate)) {
       const delta = target - value
-      if (Math.abs(delta) <= threshold && (!best || Math.abs(delta) < Math.abs(best.delta))) best = { value: target, delta }
+      if (Math.abs(delta) <= threshold) {
+        if (
+          !best ||
+          Math.abs(delta) < Math.abs(best.delta) - 0.5 ||
+          (Math.abs(Math.abs(delta) - Math.abs(best.delta)) <= 0.5 && orthogonalDist < best.orthogonalDist)
+        ) {
+          best = { value: target, delta, candidate, orthogonalDist }
+        }
+      }
     }
   }
   return best
@@ -116,7 +177,7 @@ export function snapResizeRect(input: { rect: SnapRect; direction: ResizeDirecti
       const start = rect[axis]
       const lengthKey = axis === 'x' ? 'width' : 'height'
       const movingEdge = direction < 0 ? start : start + rect[lengthKey]
-      const match = input.enabled ? nearestTarget(movingEdge, input.candidates, axis, threshold) : undefined
+      const match = input.enabled ? nearestTarget(rect, movingEdge, input.candidates, axis, threshold) : undefined
       const target = match?.value ?? (input.grid ? Math.round(movingEdge / input.grid) * input.grid : movingEdge)
       if (direction < 0) {
         const fixedEdge = start + rect[lengthKey]
@@ -124,9 +185,10 @@ export function snapResizeRect(input: { rect: SnapRect; direction: ResizeDirecti
         rect[lengthKey] = fixedEdge - rect[axis]
       } else rect[lengthKey] = Math.max(16, target - start)
       if (match) {
-        const starts = input.candidates.map((item) => axis === 'x' ? item.y : item.x)
-        const ends = input.candidates.map((item) => axis === 'x' ? item.y + item.height : item.x + item.width)
-        guides.push({ axis, value: target, from: Math.min(axis === 'x' ? rect.y : rect.x, ...starts), to: Math.max(axis === 'x' ? rect.y + rect.height : rect.x + rect.width, ...ends) })
+        const cand = match.candidate
+        const from = axis === 'x' ? Math.min(rect.y, cand.y) : Math.min(rect.x, cand.x)
+        const to = axis === 'x' ? Math.max(rect.y + rect.height, cand.y + cand.height) : Math.max(rect.x + rect.width, cand.x + cand.width)
+        guides.push({ axis, value: target, from, to })
       }
     }
   }

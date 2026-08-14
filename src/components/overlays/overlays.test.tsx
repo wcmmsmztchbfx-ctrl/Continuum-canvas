@@ -431,14 +431,26 @@ describe('contextual controls', () => {
     expect(screen.getByRole('menuitem', { name: '内容合规检测' })).toBeDisabled()
     expect(screen.getByRole('menuitem', { name: '保存到我的资产' })).toBeDisabled()
     expect(screen.getByRole('menuitem', { name: '创建主体' })).toBeDisabled()
+    expect(screen.getByRole('menuitem', { name: '固定' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '复制节点' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '生成副本' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '粘贴' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '删除' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '复制到剪贴板' })).toBeVisible()
 
-    fireEvent.click(screen.getByRole('menuitem', { name: '生成副本' }))
-    expect(onAction).toHaveBeenCalledWith('duplicate')
+    fireEvent.click(screen.getByRole('menuitem', { name: '固定' }))
+    expect(onAction).toHaveBeenCalledWith('toggle-lock')
+  })
+
+  it('renders unlock action when the node is already locked', () => {
+    const onAction = vi.fn()
+    render(
+      <NodeContextMenu isLocked onAction={onAction} onClose={vi.fn()} open />,
+    )
+
+    expect(screen.getByRole('menuitem', { name: '解除固定' })).toBeVisible()
+    fireEvent.click(screen.getByRole('menuitem', { name: '解除固定' }))
+    expect(onAction).toHaveBeenCalledWith('toggle-lock')
   })
 
   it('exposes the original-style multi-selection commands', () => {
