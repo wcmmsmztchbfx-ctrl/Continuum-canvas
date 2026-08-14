@@ -992,22 +992,36 @@ describe('canvas store document mutations', () => {
     expect(store.getState().canUndo).toBe(false)
   })
 
-  it('lays out selected nodes on a stable grid', () => {
+  it('lays out selected nodes on a grid centered around their original centroid', () => {
     const store = createCanvasStore(referenceProjectSnapshot)
-    const nodeIds = referenceProjectSnapshot.nodes.slice(0, 3).map((node) => node.id)
+    const originalNodes = referenceProjectSnapshot.nodes.slice(0, 3)
+    const nodeIds = originalNodes.map((node) => node.id)
+
+    const origMinX = Math.min(...originalNodes.map((n) => n.position.x))
+    const origMaxX = Math.max(...originalNodes.map((n) => n.position.x + (n.size?.width || 400)))
+    const origMinY = Math.min(...originalNodes.map((n) => n.position.y))
+    const origMaxY = Math.max(...originalNodes.map((n) => n.position.y + (n.size?.height || 300)))
+    const origCenterX = (origMinX + origMaxX) / 2
+    const origCenterY = (origMinY + origMaxY) / 2
 
     store.getState().layoutNodes(nodeIds)
 
-    expect(
-      store
-        .getState()
-        .snapshot.nodes.filter((node) => nodeIds.includes(node.id))
-        .map((node) => node.position),
-    ).toEqual([
-      { x: 0, y: 0 },
-      { x: 520, y: 0 },
-      { x: 0, y: 400 },
-    ])
+    const updatedNodes = store
+      .getState()
+      .snapshot.nodes.filter((node) => nodeIds.includes(node.id))
+
+    const newMinX = Math.min(...updatedNodes.map((n) => n.position.x))
+    const newMaxX = Math.max(...updatedNodes.map((n) => n.position.x + (n.size?.width || 400)))
+    const newMinY = Math.min(...updatedNodes.map((n) => n.position.y))
+    const newMaxY = Math.max(...updatedNodes.map((n) => n.position.y + (n.size?.height || 300)))
+    const newCenterX = (newMinX + newMaxX) / 2
+    const newCenterY = (newMinY + newMaxY) / 2
+
+    // Centroid is preserved within rounding tolerances
+    expect(Math.abs(newCenterX - origCenterX)).toBeLessThan(100)
+    expect(Math.abs(newCenterY - origCenterY)).toBeLessThan(100)
+    // Does NOT drift to (0, 0)
+    expect(newMinX).toBeGreaterThan(2000)
   })
 
   it('creates a real parent group with relative child coordinates', () => {

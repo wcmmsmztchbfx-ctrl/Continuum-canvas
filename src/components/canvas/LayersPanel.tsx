@@ -122,18 +122,17 @@ export function LayersPanel(props: LayersPanelProps) {
     if (ids.length) props.onReorder(ids, node.id, modelPlacement)
     setDropTarget(undefined)
   }
-
   return (
     <aside aria-label="图层" className="layers-panel">
       <div className="layers-panel__workspace">
         {props.header}
-        <button aria-label="收起图层" onClick={() => props.onOpenChange(false)} type="button">
+        <button aria-label="收起图层" onClick={(event) => { event.currentTarget.blur(); props.onOpenChange(false) }} type="button">
           <ChevronLeft />
         </button>
       </div>
       <header>
         <strong><Layers3 />图层</strong>
-        <button aria-label="收起图层" className="layers-panel__collapse" onClick={() => props.onOpenChange(false)} type="button">
+        <button aria-label="收起图层" className="layers-panel__collapse" onClick={(event) => { event.currentTarget.blur(); props.onOpenChange(false) }} type="button">
           <ChevronLeft />
         </button>
       </header>

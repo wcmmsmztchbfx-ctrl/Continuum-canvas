@@ -277,6 +277,7 @@
 
 .canvas-video-preview__toggle {
   position: absolute;
+  z-index: 5;
   top: 50%;
   left: 50%;
   display: flex;
@@ -288,18 +289,28 @@
   border: 0;
   border-radius: 50%;
   color: rgba(235, 235, 235, 0.72);
-  background: rgba(18, 18, 18, 0.36);
+  background: rgba(18, 18, 18, 0.48);
   cursor: pointer;
   transform: translate(-50%, -50%);
+  opacity: 0;
+  pointer-events: none;
   transition:
+    opacity 150ms ease,
     color 150ms ease,
     background 150ms ease,
     transform 150ms ease;
 }
 
+.canvas-media-node__frame:hover .canvas-video-preview__toggle,
+.canvas-video-preview__toggle:focus-visible,
+.canvas-video-preview__toggle:hover {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .canvas-video-preview__toggle:hover {
   color: #ffffff;
-  background: rgba(18, 18, 18, 0.56);
+  background: rgba(18, 18, 18, 0.68);
   transform: translate(-50%, -50%) scale(1.05);
 }
 
@@ -319,15 +330,17 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 6px;
   color: #ededed;
-  opacity: 0.85;
+  opacity: 0;
+  pointer-events: none;
   transition: opacity 150ms ease, background 150ms ease;
-  pointer-events: auto;
 }
 
+.canvas-media-node__frame:hover .canvas-video-scrubber,
 .canvas-media-node:hover .canvas-video-scrubber,
-.canvas-video-scrubber:hover,
-.canvas-media-node[data-selected="true"] .canvas-video-scrubber {
+.canvas-video-scrubber:focus-within,
+.canvas-video-scrubber:hover {
   opacity: 1;
+  pointer-events: auto;
   background: rgba(18, 18, 18, 0.92);
 }
 
@@ -603,6 +616,47 @@
   height: 100%;
   object-fit: contain;
   background: #0d0d0d;
+}
+
+.canvas-media-node__poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0d0d0d;
+  pointer-events: none;
+}
+
+.canvas-video-element {
+  position: relative;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+
+.canvas-video-element.is-ready {
+  opacity: 1;
+}
+
+.canvas-image-thumbnail {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0d0d0d;
+}
+
+.canvas-image-highres {
+  position: relative;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+
+.canvas-image-highres.is-loaded {
+  opacity: 1;
 }
 
 .canvas-media-placeholder {

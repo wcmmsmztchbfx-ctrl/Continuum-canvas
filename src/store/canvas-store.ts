@@ -1549,20 +1549,69 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
     layoutNodes: (nodeIds) => {
       const current = get().snapshot
       const ids = nodeIds ? new Set(nodeIds) : null
-      let layoutIndex = 0
+      const targetNodes = current.nodes.filter((node) => !ids || ids.has(node.id))
+      if (targetNodes.length === 0) return
+
+      // Calculate centroid / bounding box of target nodes
+      const minX = Math.min(...targetNodes.map((n) => n.position.x))
+      const minY = Math.min(...targetNodes.map((n) => n.position.y))
+      const maxX = Math.max(...targetNodes.map((n) => n.position.x + (n.size?.width || 400)))
+      const maxY = Math.max(...targetNodes.map((n) => n.position.y + (n.size?.height || 300)))
+      const centerOrigX = (minX + maxX) / 2
+      const centerOrigY = (minY + maxY) / 2
+
+      // Determine grid dimensions
+      const count = targetNodes.length
+      const cols = count <= 3 ? count : Math.ceil(Math.sqrt(count))
+      const rows = Math.ceil(count / cols)
+      const gapX = 48
+      const gapY = 48
+
+      // Determine column widths and row heights
+      const colWidths = new Array(cols).fill(0)
+      const rowHeights = new Array(rows).fill(0)
+
+      targetNodes.forEach((node, i) => {
+        const col = i % cols
+        const row = Math.floor(i / cols)
+        const w = node.size?.width || 400
+        const h = node.size?.height || 300
+        if (w > colWidths[col]) colWidths[col] = w
+        if (h > rowHeights[row]) rowHeights[row] = h
+      })
+
+      const totalWidth = colWidths.reduce((a, b) => a + b, 0) + (cols - 1) * gapX
+      const totalHeight = rowHeights.reduce((a, b) => a + b, 0) + (rows - 1) * gapY
+      const startX = centerOrigX - totalWidth / 2
+      const startY = centerOrigY - totalHeight / 2
+
+      const colOffsets = [0]
+      for (let c = 0; c < cols - 1; c += 1) {
+        colOffsets.push(colOffsets[c] + colWidths[c] + gapX)
+      }
+      const rowOffsets = [0]
+      for (let r = 0; r < rows - 1; r += 1) {
+        rowOffsets.push(rowOffsets[r] + rowHeights[r] + gapY)
+      }
+
+      const positionMap = new Map<string, Point>()
+      targetNodes.forEach((node, i) => {
+        const col = i % cols
+        const row = Math.floor(i / cols)
+        positionMap.set(node.id, {
+          x: Math.round(startX + colOffsets[col]),
+          y: Math.round(startY + rowOffsets[row]),
+        })
+      })
+
       let changed = false
       const nodes = current.nodes.map((node) => {
-        if (ids && !ids.has(node.id)) return node
-        const position = {
-          x: (layoutIndex % 2) * 520,
-          y: Math.floor(layoutIndex / 2) * 400,
-        }
-        layoutIndex += 1
-        if (node.position.x === position.x && node.position.y === position.y) {
+        const nextPos = positionMap.get(node.id)
+        if (!nextPos || (node.position.x === nextPos.x && node.position.y === nextPos.y)) {
           return node
         }
         changed = true
-        return { ...node, position }
+        return { ...node, position: nextPos }
       })
       if (changed) commitDocument({ ...current, nodes })
     },

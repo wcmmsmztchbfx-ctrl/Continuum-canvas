@@ -219,6 +219,7 @@ export interface MediaSource {
 
 export interface ImageNodeData {
   url: string
+  thumbnailUrl?: string
   assetId?: string
   alt?: string
   promptDraft?: string
@@ -696,6 +697,7 @@ function isCanvasNode(value: unknown): boolean {
     case 'image':
       return (
         typeof value.data.url === 'string' &&
+        hasOptionalString(value.data, 'thumbnailUrl') &&
         hasOptionalString(value.data, 'assetId') &&
         hasOptionalString(value.data, 'alt') &&
         hasOptionalString(value.data, 'promptDraft') &&
@@ -904,8 +906,8 @@ export function normalizeCanvasHierarchy(nodes: readonly CanvasNode[]): CanvasNo
   const normalized = new Map<string, CanvasNode>()
   for (const node of nodes) {
     const parentId = parentById.get(node.id)
-    const legacyHidden = 'hidden' in node.data && node.data.hidden === true
-    const legacyLocked = 'locked' in node.data && node.data.locked === true
+    const legacyHidden = Boolean(node.data && 'hidden' in node.data && node.data.hidden === true)
+    const legacyLocked = Boolean(node.data && 'locked' in node.data && node.data.locked === true)
     const { parentId: _legacyParentId, ...nodeWithoutParent } = node
     const base = {
       ...nodeWithoutParent,
