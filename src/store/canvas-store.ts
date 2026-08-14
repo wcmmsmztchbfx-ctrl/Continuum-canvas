@@ -891,9 +891,7 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
       const duplicateEdges = current.edges.flatMap((edge) => {
         const sourceDuplicated = duplicateIds.has(edge.source)
         const targetDuplicated = duplicateIds.has(edge.target)
-        const preservesExternalReference =
-          edge.relation === 'reference' && targetDuplicated
-        if (!(sourceDuplicated && targetDuplicated) && !preservesExternalReference) {
+        if (!sourceDuplicated && !targetDuplicated) {
           return []
         }
 

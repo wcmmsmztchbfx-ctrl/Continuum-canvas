@@ -27,7 +27,10 @@ export function TextNode({
 
   useEffect(() => {
     setText(data.text ?? '')
-  }, [data.text])
+    if (editorRef.current && editing) {
+      editorRef.current.innerHTML = data.text ?? ''
+    }
+  }, [data.text, editing])
 
   useEffect(() => {
     if (
@@ -149,7 +152,7 @@ export function TextNode({
               minHeight: '100%',
               width: '100%',
               boxSizing: 'border-box',
-              padding: '8px',
+              padding: '4px 6px',
               wordBreak: 'break-word',
               whiteSpace: 'pre-wrap',
             }}
@@ -208,17 +211,17 @@ export function TextNode({
               cursor: 'text',
               width: '100%',
               height: '100%',
-              padding: '8px',
+              padding: '4px 6px',
               wordBreak: 'break-word',
               whiteSpace: 'pre-wrap',
             }}
           >
             {/<[a-z][\s\S]*>/i.test(text) ? (
-              <div style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit' }} dangerouslySetInnerHTML={{ __html: text }} />
+              <div style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit', display: 'inline' }} dangerouslySetInnerHTML={{ __html: text }} />
             ) : (
-              <p style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit' }}>
+              <span style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit' }}>
                 {text || '文本节点'}
-              </p>
+              </span>
             )}
           </div>
         )}
