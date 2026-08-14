@@ -1,5 +1,5 @@
 import {
-  useLayoutEffect,
+  useEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -281,7 +281,7 @@ export function GenerationSettingsPopover({
   const isImage = kind === 'image' && settings.kind === 'image'
   const isVideo = kind === 'video' && settings.kind === 'video'
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const update = () => {
       const anchorBounds = anchor?.getBoundingClientRect() ?? {
         left: 8,
@@ -299,12 +299,12 @@ export function GenerationSettingsPopover({
         preferred: 'above',
         viewport: { width: window.innerWidth, height: window.innerHeight },
       })
-      setPosition({
+      setPosition((prev) => (prev.left === placement.left && prev.top === placement.top ? prev : {
         bottom: 'auto',
         left: placement.left,
         position: 'fixed',
         top: placement.top,
-      })
+      }))
     }
     update()
     window.addEventListener('resize', update)

@@ -47,6 +47,16 @@
   transition: none;
 }
 
+.canvas-workspace .react-flow__viewport {
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.canvas-workspace[data-viewport-moving="true"] .react-flow__viewport * {
+  pointer-events: none !important;
+}
+
 .canvas-workspace[data-viewport-moving="true"] .react-flow__viewport
   .canvas-media-node__download,
 .canvas-workspace[data-viewport-moving="true"] .react-flow__viewport
@@ -373,6 +383,21 @@
   background: #0d99ff;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.canvas-video-scrubber__slider:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.canvas-video-scrubber__slider:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.canvas-video-scrubber__slider:disabled::-moz-range-thumb {
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.35);
 }
 
 .canvas-video-scrubber__time {
@@ -2096,6 +2121,13 @@
 .canvas-creation-preview span { position: absolute; left: 50%; top: calc(100% + 7px); padding: 3px 5px; color: #fff; background: #0d99ff; border-radius: 3px; font-size: 10px; transform: translateX(-50%); white-space: nowrap; }
 .canvas-brush-preview { position: absolute; z-index: 21; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .canvas-brush-preview path { fill: none; stroke: #f4f4f4; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+.canvas-workspace[data-active-tool="brush"] { cursor: crosshair !important; }
+.canvas-workspace[data-active-tool="brush"] .react-flow__pane { cursor: crosshair !important; }
+.canvas-workspace[data-active-tool="brush"] .react-flow__node { pointer-events: none !important; }
+.canvas-workspace[data-active-tool="brush"] .react-flow__edge { pointer-events: none !important; }
+.canvas-workspace[data-active-tool="brush"] .canvas-node-resizer__handle,
+.canvas-workspace[data-active-tool="brush"] .creative-properties,
+.canvas-workspace[data-active-tool="brush"] .creative-rotation-handle { display: none !important; }
 .image-editor-backdrop { position: fixed; z-index: 200; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.72); }
 .image-editor { width: min(1100px, 92vw); height: min(820px, 90vh); display: grid; grid-template-rows: 54px 48px 1fr 62px; color: #eee; background: #202020; border: 1px solid #484848; border-radius: 14px; overflow: hidden; box-shadow: 0 24px 70px #000b; }
 .image-editor header,.image-editor footer,.image-editor__toolbar { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid #383838; }

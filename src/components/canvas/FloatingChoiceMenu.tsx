@@ -1,5 +1,5 @@
 import {
-  useLayoutEffect,
+  useEffect,
   useState,
   type CSSProperties,
   type KeyboardEventHandler,
@@ -36,7 +36,7 @@ export function FloatingChoiceMenu({
     top: 70,
   })
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     let frame = 0
     const update = () => {
       window.cancelAnimationFrame(frame)
@@ -53,12 +53,12 @@ export function FloatingChoiceMenu({
           preferred: 'above',
           viewport: { width: window.innerWidth, height: window.innerHeight },
         })
-        setPosition({
+        setPosition((prev) => (prev.left === placement.left && prev.top === placement.top ? prev : {
           bottom: 'auto',
           left: placement.left,
           position: 'fixed',
           top: placement.top,
-        })
+        }))
       })
     }
     update()

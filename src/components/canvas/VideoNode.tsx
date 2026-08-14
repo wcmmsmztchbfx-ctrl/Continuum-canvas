@@ -31,18 +31,57 @@ function VideoNodeContent({
 }: NodeProps<CanvasFlowNode>) {
   const [failed, setFailed] = useState(false)
   const [playing, setPlaying] = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [muted, setMuted] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const sliderRef = useRef<HTMLInputElement | null>(null)
+  const timeDisplayRef = useRef<HTMLSpanElement | null>(null)
   const isSeeking = useRef(false)
   const resizeGranted = useRef(false)
+  const currentTimeRef = useRef(0)
+
+  const updateScrubberDom = (time: number, dur: number) => {
+    const vDur = Number.isFinite(dur) && dur > 0 ? dur : 0
+    const max = vDur > 0 ? vDur : (time > 0 ? time : 1)
+    const val = vDur > 0 ? Math.min(time, vDur) : 0
+    const pct = vDur > 0 ? Math.min(100, Math.max(0, (val / vDur) * 100)) : 0
+    if (sliderRef.current) {
+      sliderRef.current.max = String(max)
+      sliderRef.current.value = String(val)
+      sliderRef.current.style.background = `linear-gradient(to right, #0d99ff 0%, #0d99ff ${pct}%, rgba(255, 255, 255, 0.24) ${pct}%, rgba(255, 255, 255, 0.24) 100%)`
+    }
+    if (timeDisplayRef.current) {
+      timeDisplayRef.current.textContent = `${formatVideoTime(time)} / ${formatVideoTime(vDur)}`
+    }
+  }
+
+  const syncDuration = () => {
+    const video = videoRef.current
+    if (video && Number.isFinite(video.duration) && video.duration > 0) {
+      const newDur = video.duration
+      setDuration((prev) => (Math.abs(prev - newDur) > 0.01 ? newDur : prev))
+      updateScrubberDom(currentTimeRef.current, newDur)
+    }
+  }
+
   useEffect(() => {
     setFailed(false)
     setPlaying(false)
-    setCurrentTime(0)
-    setDuration(0)
+    currentTimeRef.current = 0
+    const video = videoRef.current
+    if (video && Number.isFinite(video.duration) && video.duration > 0) {
+      setDuration(video.duration)
+      updateScrubberDom(0, video.duration)
+    } else {
+      setDuration(0)
+      updateScrubberDom(0, 0)
+    }
   }, [data.url])
+
+  useEffect(() => {
+    updateScrubberDom(currentTimeRef.current, duration)
+  }, [duration])
+
   const hasVideo = Boolean(data.url) && !failed
   const hasPoster = !hasVideo && Boolean(data.poster)
   const showDetails = selected && data.isSoleSelection !== false
@@ -65,10 +104,19 @@ function VideoNodeContent({
     setMuted(video.muted)
   }
 
+  const validDuration = Number.isFinite(duration) && duration > 0 ? duration : 0
+  const sliderMax = validDuration > 0 ? validDuration : 1
+
   const handleSeek = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const time = Number(event.target.value)
-    setCurrentTime(time)
-    if (videoRef.current) videoRef.current.currentTime = time
+    const targetTime = Number(event.target.value)
+    if (!Number.isFinite(targetTime)) return
+    const validDur = Number.isFinite(duration) && duration > 0 ? duration : (videoRef.current?.duration || 0)
+    const clampedTime = validDur > 0 ? Math.min(Math.max(0, targetTime), validDur) : Math.max(0, targetTime)
+    currentTimeRef.current = clampedTime
+    updateScrubberDom(clampedTime, validDur)
+    if (videoRef.current && Number.isFinite(clampedTime)) {
+      videoRef.current.currentTime = clampedTime
+    }
   }
 
   return (
@@ -114,16 +162,30 @@ function VideoNodeContent({
           <video
             className="canvas-media-node__content"
             draggable={false}
-            onDurationChange={() => {
-              if (videoRef.current) setDuration(videoRef.current.duration || 0)
+            onCanPlay={syncDuration}
+            onDurationChange={syncDuration}
+            onEnded={() => {
+              setPlaying(false)
+              const video = videoRef.current
+              if (video && Number.isFinite(video.duration) && video.duration > 0) {
+                currentTimeRef.current = video.duration
+                updateScrubberDom(video.duration, video.duration)
+              }
             }}
-            onEnded={() => setPlaying(false)}
-            onLoadedMetadata={() => {
-              if (videoRef.current) setDuration(videoRef.current.duration || 0)
+            onLoadedData={syncDuration}
+            onLoadedMetadata={syncDuration}
+            onPause={() => setPlaying(false)}
+            onPlay={() => {
+              setPlaying(true)
+              syncDuration()
             }}
             onTimeUpdate={() => {
-              if (!isSeeking.current && videoRef.current) {
-                setCurrentTime(videoRef.current.currentTime)
+              const video = videoRef.current
+              if (!video) return
+              if (!duration || duration <= 0) syncDuration()
+              if (!isSeeking.current) {
+                currentTimeRef.current = video.currentTime
+                updateScrubberDom(video.currentTime, video.duration || duration)
               }
             }}
             src={data.url}
@@ -171,22 +233,32 @@ function VideoNodeContent({
               <input
                 aria-label="播放进度"
                 className="canvas-video-scrubber__slider"
-                max={duration > 0 ? duration : 100}
+                defaultValue={0}
+                disabled={!hasVideo || validDuration === 0}
+                max={sliderMax}
                 min={0}
                 onChange={handleSeek}
                 onPointerDown={() => {
                   isSeeking.current = true
                 }}
-                onPointerUp={() => {
+                onPointerUp={(event) => {
                   isSeeking.current = false
+                  const time = Number((event.target as HTMLInputElement).value)
+                  if (Number.isFinite(time)) {
+                    const validDur = Number.isFinite(duration) && duration > 0 ? duration : (videoRef.current?.duration || 0)
+                    const clamped = validDur > 0 ? Math.min(time, validDur) : time
+                    currentTimeRef.current = clamped
+                    updateScrubberDom(clamped, validDur)
+                    if (videoRef.current) videoRef.current.currentTime = clamped
+                  }
                 }}
-                step={0.05}
+                ref={sliderRef}
+                step={validDuration > 0 ? Math.min(0.05, Math.max(0.001, validDuration / 1000)) : 0.05}
                 type="range"
-                value={currentTime}
               />
             </div>
-            <span className="canvas-video-scrubber__time">
-              {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
+            <span className="canvas-video-scrubber__time" ref={timeDisplayRef}>
+              {formatVideoTime(0)} / {formatVideoTime(validDuration)}
             </span>
             <button
               aria-label={muted ? '取消静音' : '静音'}
