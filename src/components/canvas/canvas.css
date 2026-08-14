@@ -47,6 +47,16 @@
   transition: none;
 }
 
+.canvas-workspace .react-flow__viewport {
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.canvas-workspace[data-viewport-moving="true"] .react-flow__viewport * {
+  pointer-events: none !important;
+}
+
 .canvas-workspace[data-viewport-moving="true"] .react-flow__viewport
   .canvas-media-node__download,
 .canvas-workspace[data-viewport-moving="true"] .react-flow__viewport

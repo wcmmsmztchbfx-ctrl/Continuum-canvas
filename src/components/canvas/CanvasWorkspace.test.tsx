@@ -1848,4 +1848,48 @@ describe('CanvasWorkspace', () => {
     expect(brushNodes).toHaveLength(2)
     expect(store.getState().selectedNodeIds).toHaveLength(0)
   })
+
+  it('cleans up brush state and releases pointer capture when activeTool switches or pointer cancels', () => {
+    const store = createCanvasStore(referenceProjectSnapshot)
+    const { container, rerender } = render(
+      <CanvasWorkspace
+        activeTool="brush"
+        store={store}
+      />,
+    )
+
+    const workspace = container.querySelector('.canvas-workspace') as HTMLElement
+    expect(workspace).not.toBeNull()
+
+    // Start drawing a stroke with brush
+    fireEvent.pointerDown(workspace, { button: 0, clientX: 100, clientY: 100, pointerId: 3 })
+    fireEvent.pointerMove(workspace, { clientX: 120, clientY: 120, pointerId: 3 })
+
+    // Simulate switching activeTool to 'select' (e.g. user pressed V)
+    rerender(
+      <CanvasWorkspace
+        activeTool="select"
+        store={store}
+      />,
+    )
+
+    // Pointer up should not commit broken stroke or leave pointer capture locked
+    fireEvent.pointerUp(workspace, { pointerId: 3 })
+
+    // Re-activate 'brush' mode
+    rerender(
+      <CanvasWorkspace
+        activeTool="brush"
+        store={store}
+      />,
+    )
+
+    // Drawing a new stroke now works cleanly
+    fireEvent.pointerDown(workspace, { button: 0, clientX: 200, clientY: 200, pointerId: 4 })
+    fireEvent.pointerMove(workspace, { clientX: 250, clientY: 250, pointerId: 4 })
+    fireEvent.pointerUp(workspace, { pointerId: 4 })
+
+    const brushNodes = store.getState().snapshot.nodes.filter((n) => n.type === 'path' && n.data.kind === 'brush')
+    expect(brushNodes).toHaveLength(1)
+  })
 })

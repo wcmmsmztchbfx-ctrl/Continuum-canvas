@@ -517,6 +517,7 @@ export function CanvasWorkspace({
     },
   }), [editingImageNodeId, imageEditorDirty, onImageEditingStateChange])
   const drawingPoints = useRef<Point[]>([])
+  const activeBrushPointerId = useRef<number | undefined>(undefined)
   const penPoints = useRef<Point[]>([])
   const [brushPreview, setBrushPreview] = useState<Point[]>([])
   const [creationPreview, setCreationPreview] = useState<{
@@ -525,6 +526,20 @@ export function CanvasWorkspace({
   const creationPreviewRef = useRef<typeof creationPreview>(undefined)
   const creationPointerId = useRef<number | undefined>(undefined)
   const suppressPaneClick = useRef(false)
+
+  useEffect(() => {
+    if (activeBrushPointerId.current !== undefined) {
+      const pointerId = activeBrushPointerId.current
+      activeBrushPointerId.current = undefined
+      try {
+        if (workspaceRef.current?.hasPointerCapture?.(pointerId)) {
+          workspaceRef.current.releasePointerCapture(pointerId)
+        }
+      } catch {}
+    }
+    drawingPoints.current = []
+    setBrushPreview([])
+  }, [activeTool])
 
   const addCreativeNode = useCallback((tool: 'frame' | 'shape' | 'text', position: Point, size?: NodeSize, dragged = false) => {
     const id = createCanvasId(tool === 'frame' ? 'g' : 't')
@@ -2122,17 +2137,48 @@ export function CanvasWorkspace({
           const preview = { tool: activeTool as 'frame' | 'shape' | 'text', start: point, current: point, constrained: event.shiftKey }
           creationPreviewRef.current = preview
           setCreationPreview(preview)
-          event.currentTarget.setPointerCapture?.(event.pointerId)
+          try {
+            event.currentTarget.setPointerCapture?.(event.pointerId)
+          } catch {}
         }
-        if (event.button === 0 && !readOnly && activeTool === 'brush' && flowInstance) {
+        const isInteractiveOverlay = event.target instanceof Element &&
+          event.target.closest('.canvas-minimap, .comments-panel, .layers-panel, .canvas-video-scrubber, .canvas-video-preview__toggle, button, input, select, textarea, [role="button"], [role="toolbar"]') !== null
+        if (event.button === 0 && !readOnly && activeTool === 'brush' && flowInstance && !isInteractiveOverlay) {
           event.stopPropagation()
           const startPoint = flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
           drawingPoints.current = [startPoint]
           setBrushPreview([startPoint])
-          event.currentTarget.setPointerCapture?.(event.pointerId)
+          activeBrushPointerId.current = event.pointerId
+          try {
+            event.currentTarget.setPointerCapture?.(event.pointerId)
+          } catch {}
         }
       }}
       onPointerLeave={() => setCollaborationCursor?.(null)}
+      onPointerCancel={(event) => {
+        if (activeBrushPointerId.current !== undefined) {
+          const pointerId = activeBrushPointerId.current
+          activeBrushPointerId.current = undefined
+          try {
+            if (event.currentTarget.hasPointerCapture?.(pointerId)) {
+              event.currentTarget.releasePointerCapture(pointerId)
+            }
+          } catch {}
+          drawingPoints.current = []
+          setBrushPreview([])
+        }
+        if (creationPointerId.current !== undefined) {
+          const pointerId = creationPointerId.current
+          creationPointerId.current = undefined
+          try {
+            if (event.currentTarget.hasPointerCapture?.(pointerId)) {
+              event.currentTarget.releasePointerCapture(pointerId)
+            }
+          } catch {}
+          setCreationPreview(undefined)
+          creationPreviewRef.current = undefined
+        }
+      }}
       onPointerMove={(event) => {
         if (creationPreviewRef.current && flowInstance && creationPointerId.current === event.pointerId) {
           const rawCurrent = flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
@@ -2169,6 +2215,13 @@ export function CanvasWorkspace({
       onPointerUp={(event) => {
         const pendingCreation = creationPreviewRef.current
         if (pendingCreation && creationPointerId.current === event.pointerId) {
+          const pointerId = creationPointerId.current
+          creationPointerId.current = undefined
+          try {
+            if (event.currentTarget.hasPointerCapture?.(pointerId)) {
+              event.currentTarget.releasePointerCapture(pointerId)
+            }
+          } catch {}
           const dx = pendingCreation.current.x - pendingCreation.start.x
           const dy = pendingCreation.current.y - pendingCreation.start.y
           const dragged = Math.hypot(dx, dy) >= 4 / Math.max(viewportRef.current.zoom, CANVAS_MIN_ZOOM)
@@ -2184,16 +2237,33 @@ export function CanvasWorkspace({
           suppressPaneClick.current = true
           setCreationPreview(undefined)
           creationPreviewRef.current = undefined
-          creationPointerId.current = undefined
           setSnapOverlay({ guides: [], distances: [] })
-          if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
           return
         }
-        if (activeTool !== 'brush' || drawingPoints.current.length === 0) return
-        commitPath(drawingPoints.current, 'brush')
-        drawingPoints.current = []
-        setBrushPreview([])
-        if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+        if (activeBrushPointerId.current !== undefined && activeBrushPointerId.current === event.pointerId) {
+          const pointerId = activeBrushPointerId.current
+          activeBrushPointerId.current = undefined
+          try {
+            if (event.currentTarget.hasPointerCapture?.(pointerId)) {
+              event.currentTarget.releasePointerCapture(pointerId)
+            }
+          } catch {}
+          if (drawingPoints.current.length >= 2) {
+            commitPath(drawingPoints.current, 'brush')
+          }
+          drawingPoints.current = []
+          setBrushPreview([])
+          return
+        }
+        if (activeTool === 'brush') {
+          drawingPoints.current = []
+          setBrushPreview([])
+          try {
+            if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId)
+            }
+          } catch {}
+        }
       }}
       onWheelCapture={() => {
         if (collaborationFollowingMemberId) {
