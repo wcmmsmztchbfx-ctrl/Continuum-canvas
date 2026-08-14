@@ -96,6 +96,7 @@ interface StoredRoomMetadata {
 interface ActiveRoom {
   metadata: StoredRoomMetadata
   document: ReturnType<typeof createCollaborativeCanvasDocument>
+  validationDocument?: ReturnType<typeof createCollaborativeCanvasDocument>
   directory: string
   updateCount: number
   updateBytes: number
@@ -954,6 +955,7 @@ export class CollaborationService {
     if (this.activeRoomIdsByScope.get(scope) === input.roomId) {
       this.activeRoomIdsByScope.delete(scope)
     }
+    room.validationDocument?.destroy()
     room.document.destroy()
   }
 
@@ -1019,7 +1021,22 @@ export class CollaborationService {
         if (request.aspectRatio) generation.set('outputAspectRatio', request.aspectRatio)
       }
     }, SERVER_TASK_ORIGIN)
+    if (room.validationDocument) {
+      room.validationDocument.destroy()
+      room.validationDocument = undefined
+    }
     return true
+  }
+
+  private getOrCreateValidationDocument(
+    room: ActiveRoom,
+  ): ReturnType<typeof createCollaborativeCanvasDocument> {
+    if (room.validationDocument) return room.validationDocument
+    const validationDoc = new Y.Doc()
+    const validationDocument = createCollaborativeCanvasDocument(undefined, { doc: validationDoc })
+    Y.applyUpdate(validationDoc, Y.encodeStateAsUpdate(room.document.doc), 'validation-init')
+    room.validationDocument = validationDocument
+    return validationDocument
   }
 
   applyValidatedUpdate(roomId: string, update: Uint8Array, origin: unknown): void {
@@ -1028,20 +1045,17 @@ export class CollaborationService {
     if (update.byteLength > this.maxCandidateUpdateBytes) {
       throw new CollaborationUpdateError()
     }
-    const candidate = new Y.Doc()
-    const candidateDocument = createCollaborativeCanvasDocument(undefined, { doc: candidate })
+    const candidateDocument = this.getOrCreateValidationDocument(room)
     try {
-      Y.applyUpdate(candidate, Y.encodeStateAsUpdate(room.document.doc), 'validation')
-      Y.applyUpdate(candidate, update, 'validation')
+      Y.applyUpdate(candidateDocument.doc, update, 'validation')
       exportCollaborativeCanvasSnapshot(candidateDocument)
-      if (Y.encodeStateAsUpdate(candidate).byteLength > this.maxDocumentBytes) {
+      if (Y.encodeStateAsUpdate(candidateDocument.doc).byteLength > this.maxDocumentBytes) {
         throw new Error('Collaborative canvas document exceeds maximum encoded size')
       }
     } catch (error) {
+      room.validationDocument?.destroy()
+      room.validationDocument = undefined
       throw error instanceof CollaborationUpdateError ? error : new CollaborationUpdateError(error)
-    } finally {
-      candidateDocument.destroy()
-      candidate.destroy()
     }
     Y.applyUpdate(room.document.doc, update, origin)
   }
@@ -1104,7 +1118,10 @@ export class CollaborationService {
       } catch (error) {
         failure = error
       } finally {
-        for (const { room } of closingRooms) room.document.destroy()
+        for (const { room } of closingRooms) {
+          room.validationDocument?.destroy()
+          room.document.destroy()
+        }
         this.rooms.clear()
         this.activeRoomIdsByScope.clear()
         this.lifecycle = 'closed'

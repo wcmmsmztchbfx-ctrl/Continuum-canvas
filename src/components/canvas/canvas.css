@@ -121,6 +121,8 @@
   display: flex;
   align-items: flex-start;
   pointer-events: none;
+  transition: transform 55ms linear;
+  will-change: transform;
 }
 
 .collaboration-remote-cursor > svg {
@@ -161,6 +163,8 @@
 .collaboration-remote-preview {
   background: color-mix(in srgb, var(--presence-color) 10%, transparent);
   border-style: dashed;
+  transition: transform 55ms linear, width 55ms linear, height 55ms linear;
+  will-change: transform;
 }
 
 .collaboration-remote-lock > span {
@@ -1944,6 +1948,11 @@
   .canvas-generation-overlay__track i,
   .canvas-connection-menu {
     animation: none;
+  }
+
+  .collaboration-remote-cursor,
+  .collaboration-remote-preview {
+    transition: none;
   }
 }
 
