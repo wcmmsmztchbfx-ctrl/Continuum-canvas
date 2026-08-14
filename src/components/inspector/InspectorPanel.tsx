@@ -122,22 +122,7 @@ export function InspectorPanel({
   }
 
   if (collapsed) {
-    return (
-      <>
-        <aside className="inspector-panel inspector-panel--collapsed" />
-        {onToggleCollapse ? (
-          <button
-            aria-label="展开属性面板"
-            className="inspector-toggle-float-btn"
-            onClick={onToggleCollapse}
-            title="展开属性面板"
-            type="button"
-          >
-            <Sliders size={15} />
-          </button>
-        ) : null}
-      </>
-    )
+    return <aside className="inspector-panel inspector-panel--collapsed" />
   }
 
   // 1. Multi-selection mode
