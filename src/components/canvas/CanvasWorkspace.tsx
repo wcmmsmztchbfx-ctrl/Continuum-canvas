@@ -2529,7 +2529,7 @@ export function CanvasWorkspace({
         deleteKeyCode={isSelectMode && !readOnly ? deleteKeys : null}
         snapToGrid={false}
         snapGrid={canvasSnapGrid}
-        onlyRenderVisibleElements={true}
+        onlyRenderVisibleElements={false}
         proOptions={{ hideAttribution: true }}
       >
         {creationPreview ? <CreationPreview preview={creationPreview} /> : null}

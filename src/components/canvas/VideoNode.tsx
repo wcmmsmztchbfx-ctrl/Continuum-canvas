@@ -5,7 +5,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { NodeResizer, Position, type NodeProps } from '@xyflow/react'
+import { NodeResizer, Position, useViewport, type NodeProps } from '@xyflow/react'
 
 import { EmptyMediaPlaceholder } from './EmptyMediaPlaceholder'
 import { EditableNodeLabel } from './EditableNodeLabel'
@@ -41,6 +41,14 @@ function VideoNodeContent({
   const isSeeking = useRef(false)
   const resizeGranted = useRef(false)
   const currentTimeRef = useRef(0)
+
+  let zoom = 1
+  try {
+    const vp = useViewport()
+    zoom = vp.zoom
+  } catch {
+    zoom = 1
+  }
 
   const updateScrubberDom = (time: number, dur: number) => {
     const vDur = Number.isFinite(dur) && dur > 0 ? dur : 0
@@ -91,7 +99,8 @@ function VideoNodeContent({
   const showResizer = selected && data.isSoleSelection !== false
   const showDetails = showResizer && !isLayerMode
   const modelData = data.node?.type === 'video' ? data.node.data : undefined
-  const shouldMountVideo = hasVideo && (selected || isHovered || playing || data.generation?.status === 'generating')
+  const isLowResMode = zoom <= 0.35
+  const shouldMountVideo = hasVideo && (!isLowResMode || playing || selected) && (selected || isHovered || playing || data.generation?.status === 'generating')
 
   const togglePlayback = () => {
     if (!hasVideo) return

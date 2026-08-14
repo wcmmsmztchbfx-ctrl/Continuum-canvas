@@ -8,6 +8,10 @@ import { MediaDownloadButton } from './MediaDownloadButton'
 import type { CanvasFlowNode } from './mapping'
 import { NodeGeneratorPanel } from './NodeGeneratorPanel'
 import { NodeHandle } from './NodeHandle'
+import {
+  getFastThumbnailUrl,
+  subscribeThumbnailReady,
+} from '../../services/imageThumbnailCache'
 import './canvas.css'
 
 function ImageNodeContent({
@@ -18,6 +22,7 @@ function ImageNodeContent({
 }: NodeProps<CanvasFlowNode>) {
   const [failed, setFailed] = useState(false)
   const [highResLoaded, setHighResLoaded] = useState(false)
+  const [generatedThumbnail, setGeneratedThumbnail] = useState<string | undefined>(undefined)
   const resizeGranted = useRef(false)
 
   let zoom = 1
@@ -33,18 +38,30 @@ function ImageNodeContent({
     setHighResLoaded(false)
   }, [data.url])
 
+  useEffect(() => {
+    if (!data.url) return
+    const initialThumb = getFastThumbnailUrl(data.url, data.thumbnailUrl)
+    setGeneratedThumbnail(initialThumb)
+    return subscribeThumbnailReady((url, thumb) => {
+      if (url === data.url) {
+        setGeneratedThumbnail(thumb)
+      }
+    })
+  }, [data.url, data.thumbnailUrl])
+
   const hasImage = Boolean(data.url) && !failed
   const isLayerMode = data.node?.type === 'image' && data.node.data.displayMode === 'layer'
   const showResizer = isLayerMode && selected && data.isSoleSelection !== false
   const showDetails = selected && data.isSoleSelection !== false && !isLayerMode
   const modelData = data.node?.type === 'image' ? data.node.data : undefined
 
-  const thumbnailUrl =
+  const explicitThumbnail =
     data.thumbnailUrl ||
     (data.url && data.versions?.[0]?.url && data.versions[0].url !== data.url
       ? data.versions[0].url
       : undefined)
-  const hasThumbnail = Boolean(thumbnailUrl)
+  const effectiveThumbnailUrl = explicitThumbnail || generatedThumbnail
+  const hasThumbnail = Boolean(effectiveThumbnailUrl)
   const isLowResMode = zoom <= 0.35
   const shouldRenderHighRes = !isLowResMode || !hasThumbnail
 
@@ -106,7 +123,7 @@ function ImageNodeContent({
             alt={data.alt ?? data.name}
             className="canvas-media-node__content canvas-image-thumbnail"
             draggable={false}
-            src={thumbnailUrl}
+            src={effectiveThumbnailUrl}
             style={{
               objectFit: modelData?.objectFit ?? 'cover',
               borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
