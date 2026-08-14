@@ -203,6 +203,7 @@ interface BaseNode<TType extends CanvasNodeType, TData> {
 
 export interface ImageNodeData {
   url: string
+  thumbnailUrl?: string
   assetId?: string
   alt?: string
   promptDraft?: string
@@ -681,6 +682,7 @@ function isCanvasNode(value: unknown): boolean {
     case 'image':
       return (
         typeof value.data.url === 'string' &&
+        hasOptionalString(value.data, 'thumbnailUrl') &&
         hasOptionalString(value.data, 'assetId') &&
         hasOptionalString(value.data, 'alt') &&
         hasOptionalString(value.data, 'promptDraft') &&

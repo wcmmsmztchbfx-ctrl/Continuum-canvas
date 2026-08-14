@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from 'react'
-import { Position, type NodeProps } from '@xyflow/react'
+import { Position, useViewport, type NodeProps } from '@xyflow/react'
 
 import { EmptyMediaPlaceholder } from './EmptyMediaPlaceholder'
 import { EditableNodeLabel } from './EditableNodeLabel'
@@ -17,9 +17,32 @@ function ImageNodeContent({
   isConnectable,
 }: NodeProps<CanvasFlowNode>) {
   const [failed, setFailed] = useState(false)
-  useEffect(() => setFailed(false), [data.url])
+  const [highResLoaded, setHighResLoaded] = useState(false)
+
+  let zoom = 1
+  try {
+    const vp = useViewport()
+    zoom = vp.zoom
+  } catch {
+    zoom = 1
+  }
+
+  useEffect(() => {
+    setFailed(false)
+    setHighResLoaded(false)
+  }, [data.url])
+
   const hasImage = Boolean(data.url) && !failed
   const showDetails = selected && data.isSoleSelection !== false
+
+  const thumbnailUrl =
+    data.thumbnailUrl ||
+    (data.url && data.versions?.[0]?.url && data.versions[0].url !== data.url
+      ? data.versions[0].url
+      : undefined)
+  const hasThumbnail = Boolean(thumbnailUrl)
+  const isLowResMode = zoom <= 0.35
+  const shouldRenderHighRes = !isLowResMode || !hasThumbnail
 
   return (
     <article
@@ -43,24 +66,37 @@ function ImageNodeContent({
         onPointerDown={data.onConnectionPointerDown}
       />
       <div className="canvas-media-node__frame">
-        {hasImage ? (
+        {hasThumbnail ? (
           <img
-            className="canvas-media-node__content"
+            alt={data.alt ?? data.name}
+            className="canvas-media-node__content canvas-image-thumbnail"
+            draggable={false}
+            src={thumbnailUrl}
+          />
+        ) : null}
+        {hasImage && shouldRenderHighRes ? (
+          <img
+            className={`canvas-media-node__content ${hasThumbnail ? 'canvas-image-highres' : ''} ${highResLoaded ? 'is-loaded' : ''}`}
             src={data.url}
             alt={data.alt ?? data.name}
             draggable={false}
             onLoad={(event) => {
+              setHighResLoaded(true)
               data.onImageNaturalSize?.(
                 id,
                 event.currentTarget.naturalWidth,
                 event.currentTarget.naturalHeight,
               )
             }}
-            onError={() => setFailed(true)}
+            onError={() => {
+              if (!hasThumbnail) {
+                setFailed(true)
+              }
+            }}
           />
-        ) : (
+        ) : !hasThumbnail && !hasImage ? (
           <EmptyMediaPlaceholder kind="image" />
-        )}
+        ) : null}
         {data.generation?.status === 'generating' ? (
           <GenerationOverlay />
         ) : null}
