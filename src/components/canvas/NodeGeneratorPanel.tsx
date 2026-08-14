@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -579,19 +578,19 @@ export function NodeGeneratorPanel({
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [modelMenuOpen, providerMenuOpen, settingsOpen, videoModeOpen])
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (modelMenuOpen) focusMenuItem(modelMenuRef.current, modelInitialFocusRef.current)
   }, [modelMenuOpen])
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (videoModeOpen) focusMenuItem(modeMenuRef.current, modeInitialFocusRef.current)
   }, [videoModeOpen])
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (providerMenuOpen) focusMenuItem(providerMenuRef.current, providerInitialFocusRef.current)
   }, [providerMenuOpen])
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     let frame = 0
     const update = () => {
       window.cancelAnimationFrame(frame)

@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -247,10 +246,10 @@ function LiveSelectionToolbar({
     height: window.innerHeight,
   }))
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const bounds = toolbarRef.current?.getBoundingClientRect()
     if (!bounds?.width || !bounds.height) return
-    setToolbarSize({ width: bounds.width, height: bounds.height })
+    setToolbarSize((prev) => (prev.width === bounds.width && prev.height === bounds.height ? prev : { width: bounds.width, height: bounds.height }))
   }, [grouped, nodeIds])
 
   useEffect(() => {
