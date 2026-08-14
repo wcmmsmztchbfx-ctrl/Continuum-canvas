@@ -26,12 +26,13 @@ src/
 │   └── canvas-store.ts            # 全局 Zustand 画布状态库 (CRUD、变换、图层管理、多选、编组、历史记录)
 ├── components/
 │   ├── shell/
-│   │   ├── ActivityBar.tsx        # 左侧 48px 快速导航条 (图层、素材、API 接入、设置)
 │   │   ├── TopBar.tsx             # 顶部栏 (多人协作、Agent 助手、在线成员头像)
+│   │   ├── WorkspaceMenu.tsx      # 左上角浮动胶囊 (工作区切换、画布选择、展开图层 [ ▤ ])
 │   │   ├── BottomStatusBar.tsx    # 底部状态栏 (缩放、网格、对齐吸附、全局全屏/全显)
 │   │   └── ToolDock.tsx           # 底部/浮动工具栏 (选择、移动、画框F、矩形/圆形R、画笔P、文字T)
 │   ├── inspector/
 │   │   ├── InspectorPanel.tsx     # 右侧 Figma 风格属性检查器 (变换、字号、填充、描边、圆角、模式切换)
+│   │   ├── ScrubbableLabel.tsx    # 左右拖拽滑动手感数字标签 (X, Y, W, H, 字号, 圆角, 线宽, 透明度)
 │   │   └── inspector.css          # 检查器暗色主题样式
 │   ├── canvas/
 │   │   ├── CanvasWorkspace.tsx    # 画布主工作区 (ReactFlow 实例、拖拽吸附、选区、快捷键绑定)
@@ -67,7 +68,10 @@ src/
   - `displayMode === 'generation'` (默认): 经典 AI 创作卡片，带有提示词框、参考图拾取、版本切换和生成按钮。
   - `displayMode === 'layer'` (自由图层): 纯媒体无边框图层，配合 8 控制点 `NodeResizer`，支持自由拉伸缩放、圆角、透明度、描边与旋转，受右侧 `InspectorPanel` 控制。
 
-### 3.2 Figma 风格右侧属性检查器 (`src/components/inspector/InspectorPanel.tsx`)
+### 3.2 Figma 风格右侧属性检查器 (`src/components/inspector/InspectorPanel.tsx` & `ScrubbableLabel.tsx`)
+- **数值标签拖拽滑动调节 (Scrubbable Drag Inputs)**:
+  - 鼠标悬停于 X, Y, W, H, 旋转, 字号, 圆角, 线宽, 透明度标签时显示 `ew-resize` (↔) 光标。
+  - 按住鼠标左右拖拽即可以极佳手感平滑增减数值，按住 `Shift` 支持 10 倍步长加速。
 - **选区响应**:
   - **无选中**: 显示画布全局属性 (名称、缩放比例、对象总数、设置入口)。
   - **单选节点**:
@@ -77,14 +81,13 @@ src/
     - **填充与描边 (Fill & Stroke)**: 原生色彩选择器、十六进制颜色代码、描边粗细。
     - **外观与图层 (Layer & Opacity)**: 透明度滑动调节、上移置顶、下移置底、可见性切换、锁定切换。
   - **多选节点**: 显示选中数量、批量编组 (Ctrl+G)、批量删除。
+- **完全 0px 折叠**: 支持点击面板右上角按钮或快捷方式折叠至 0px，并在右上角提供浮动微型展开按钮。
 
-### 3.3 左侧活动导航条 (`src/components/shell/ActivityBar.tsx`)
-- 宽度为 48px，位于界面最左侧。
-- 负责切换主视图抽屉：
-  - `图层 (Layers)`: 展开/折叠图层侧边栏。
-  - `素材 (Assets)`: 呼出资产库。
-  - `API (Providers)`: 呼出 API 接入与模型服务抽屉。
-  - `设置 (Settings)`: 呼出全局设置与快捷键说明。
+### 3.3 左侧侧边栏与顶部胶囊架构 (`src/components/shell/` & `src/App.tsx`)
+- **0px 极致无痕折叠**: 折叠时左侧图层栏完全收缩至 0px（无任何常驻黑条），画布 100% 满屏无遮挡。
+- **左上角浮动胶囊 (`WorkspaceMenu`)**:
+  - 提供工作区切换、画布名称展示、一键展开/折叠图层面板 `[ ▤ ]`。
+  - 采用原生品牌标识与简洁面板图标，拒绝冗余和外部 Logo。
 
 ### 3.4 多人实时协作引擎 (`src/collaboration/` & `server/collaboration-service.ts`)
 - **租约机制 (Lease System)**: 节点编辑时客户端向服务端申请短期交互租约 (`runWithNodeLease` / `withBulkLease`)，防止多人同时修改同一节点产生冲突。

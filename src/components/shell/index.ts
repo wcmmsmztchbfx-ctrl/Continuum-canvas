@@ -14,5 +14,4 @@ export { TopBar } from './TopBar'
 export type { TopBarProps } from './TopBar'
 export { WorkspaceMenu } from './WorkspaceMenu'
 export type { WorkspaceMenuProps } from './WorkspaceMenu'
-export { ActivityBar } from './ActivityBar'
-export type { ActivityBarTab } from './ActivityBar'
+

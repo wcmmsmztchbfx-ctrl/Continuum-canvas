@@ -26,10 +26,12 @@ import {
   ChevronRight,
   Maximize2,
   Settings,
+  PanelRightClose,
 } from 'lucide-react'
 
 import type { CanvasStore, CanvasStoreState } from '../../store/canvas-store'
 import type { CanvasNode, TextNode, ImageNodeData, VideoNodeData } from '../../model/project'
+import { ScrubbableLabel } from './ScrubbableLabel'
 import './inspector.css'
 
 interface InspectorPanelProps {
@@ -53,6 +55,7 @@ export function InspectorPanel({
   store,
   readOnly = false,
   collapsed = false,
+  onToggleCollapse,
   onOpenSettings,
 }: InspectorPanelProps) {
   const snapshot = useStore(store, (state: CanvasStoreState) => state.snapshot)
@@ -119,7 +122,22 @@ export function InspectorPanel({
   }
 
   if (collapsed) {
-    return <aside className="inspector-panel inspector-panel--collapsed" />
+    return (
+      <>
+        <aside className="inspector-panel inspector-panel--collapsed" />
+        {onToggleCollapse ? (
+          <button
+            aria-label="展开属性面板"
+            className="inspector-toggle-float-btn"
+            onClick={onToggleCollapse}
+            title="展开属性面板"
+            type="button"
+          >
+            <Sliders size={15} />
+          </button>
+        ) : null}
+      </>
+    )
   }
 
   // 1. Multi-selection mode
@@ -142,6 +160,17 @@ export function InspectorPanel({
             >
               <Trash2 size={13} />
             </button>
+            {onToggleCollapse ? (
+              <button
+                aria-label="收起属性面板"
+                className="inspector-icon-btn"
+                onClick={onToggleCollapse}
+                title="收起属性面板"
+                type="button"
+              >
+                <PanelRightClose size={13} />
+              </button>
+            ) : null}
           </div>
         </div>
         <div className="inspector-body">
@@ -180,6 +209,19 @@ export function InspectorPanel({
             <span className="inspector-header__icon"><Sliders size={14} /></span>
             <span style={{ fontWeight: 600, fontSize: '12px' }}>画布属性</span>
           </div>
+          {onToggleCollapse ? (
+            <div className="inspector-header__actions">
+              <button
+                aria-label="收起属性面板"
+                className="inspector-icon-btn"
+                onClick={onToggleCollapse}
+                title="收起属性面板"
+                type="button"
+              >
+                <PanelRightClose size={13} />
+              </button>
+            </div>
+          ) : null}
         </div>
         <div className="inspector-body">
           <div className="inspector-section">
@@ -237,7 +279,7 @@ export function InspectorPanel({
           <div className="inspector-empty">
             <Sliders className="inspector-empty__icon" size={28} />
             <p style={{ margin: 0, fontSize: '11px', color: '#888' }}>
-              选择画布上的任意节点，即可在此处查看并编辑其完整尺寸、样式与排版属性。
+              选择画布上的任意节点，即可在此处查看并编辑其完整尺寸、样式与排版属性。按住标签可左右拖拽快速微调数值。
             </p>
           </div>
         </div>
@@ -313,6 +355,17 @@ export function InspectorPanel({
           >
             <Trash2 size={13} />
           </button>
+          {onToggleCollapse ? (
+            <button
+              aria-label="收起属性面板"
+              className="inspector-icon-btn"
+              onClick={onToggleCollapse}
+              title="收起属性面板"
+              type="button"
+            >
+              <PanelRightClose size={13} />
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -333,18 +386,26 @@ export function InspectorPanel({
           </div>
           <div className="inspector-row">
             <div className="inspector-field">
-              <span className="inspector-field__label">X</span>
+              <ScrubbableLabel
+                label="X"
+                onChange={(val) => handlePosChange('x', val)}
+                value={Math.round(activeNode.position.x)}
+              />
               <input
                 aria-label="X 坐标"
                 className="inspector-field__input"
                 disabled={readOnly || isLocked}
                 onChange={(e) => handlePosChange('x', Number(e.target.value))}
                 type="number"
-                value={Math.round(activeNode.position.x)}
+                value={Math.round(activeNode.position.y ? activeNode.position.x : activeNode.position.x)}
               />
             </div>
             <div className="inspector-field">
-              <span className="inspector-field__label">Y</span>
+              <ScrubbableLabel
+                label="Y"
+                onChange={(val) => handlePosChange('y', val)}
+                value={Math.round(activeNode.position.y)}
+              />
               <input
                 aria-label="Y 坐标"
                 className="inspector-field__input"
@@ -357,7 +418,12 @@ export function InspectorPanel({
           </div>
           <div className="inspector-row">
             <div className="inspector-field">
-              <span className="inspector-field__label">W</span>
+              <ScrubbableLabel
+                label="W"
+                min={1}
+                onChange={(val) => handleSizeChange('width', val)}
+                value={Math.round(activeNode.size.width)}
+              />
               <input
                 aria-label="宽度"
                 className="inspector-field__input"
@@ -368,7 +434,12 @@ export function InspectorPanel({
               />
             </div>
             <div className="inspector-field">
-              <span className="inspector-field__label">H</span>
+              <ScrubbableLabel
+                label="H"
+                min={1}
+                onChange={(val) => handleSizeChange('height', val)}
+                value={Math.round(activeNode.size.height)}
+              />
               <input
                 aria-label="高度"
                 className="inspector-field__input"
@@ -384,7 +455,11 @@ export function InspectorPanel({
           <div className="inspector-row">
             {'rotation' in activeNode.data ? (
               <div className="inspector-field">
-                <span className="inspector-field__label">旋转°</span>
+                <ScrubbableLabel
+                  label="旋转°"
+                  onChange={(val) => updateActiveData({ rotation: val })}
+                  value={Math.round((activeNode.data as { rotation?: number }).rotation ?? 0)}
+                />
                 <input
                   aria-label="旋转角度"
                   className="inspector-field__input"
@@ -397,7 +472,12 @@ export function InspectorPanel({
             ) : null}
             {'radius' in activeNode.data || nodeType === 'image' || nodeType === 'video' ? (
               <div className="inspector-field">
-                <span className="inspector-field__label">圆角</span>
+                <ScrubbableLabel
+                  label="圆角"
+                  min={0}
+                  onChange={(val) => updateActiveData({ radius: Math.max(0, val) })}
+                  value={Math.round((activeNode.data as { radius?: number }).radius ?? 0)}
+                />
                 <input
                   aria-label="圆角大小"
                   className="inspector-field__input"
@@ -476,7 +556,13 @@ export function InspectorPanel({
             {/* Font Size & Weight */}
             <div className="inspector-row">
               <div className="inspector-field">
-                <span className="inspector-field__label">字号</span>
+                <ScrubbableLabel
+                  label="字号"
+                  max={256}
+                  min={8}
+                  onChange={(val) => updateActiveData({ fontSize: val })}
+                  value={(activeNode as TextNode).data.fontSize ?? 14}
+                />
                 <input
                   aria-label="字体大小"
                   className="inspector-field__input"
@@ -633,7 +719,13 @@ export function InspectorPanel({
             </div>
             <div className="inspector-row" style={{ marginTop: '8px' }}>
               <div className="inspector-field">
-                <span className="inspector-field__label">线宽</span>
+                <ScrubbableLabel
+                  label="线宽"
+                  max={64}
+                  min={0}
+                  onChange={(val) => updateActiveData({ strokeWidth: Math.max(0, val) })}
+                  value={(activeNode.data as { strokeWidth?: number }).strokeWidth ?? 1}
+                />
                 <input
                   aria-label="描边线宽"
                   className="inspector-field__input"
@@ -656,7 +748,13 @@ export function InspectorPanel({
           {'opacity' in activeNode.data ? (
             <div className="inspector-row">
               <div className="inspector-field">
-                <span className="inspector-field__label">透明度</span>
+                <ScrubbableLabel
+                  label="透明度"
+                  max={100}
+                  min={0}
+                  onChange={(val) => updateActiveData({ opacity: Math.min(1, Math.max(0, val / 100)) })}
+                  value={Math.round(((activeNode.data as { opacity?: number }).opacity ?? 1) * 100)}
+                />
                 <input
                   aria-label="透明度百分比"
                   className="inspector-field__input"

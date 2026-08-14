@@ -41,12 +41,10 @@ import {
   type WorkspaceAction,
 } from './components/overlays'
 import {
-  ActivityBar,
   BottomStatusBar,
   ToolDock,
   TopBar,
   WorkspaceMenu,
-  type ActivityBarTab,
   type ShellMode,
   type ToolDockTool,
 } from './components/shell'
@@ -1304,36 +1302,6 @@ export default function App({
 
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false)
 
-  const activeActivityTab: ActivityBarTab =
-    panel === 'assets' ? 'assets' :
-    popup === 'api-integration' || providerDrawerOpen ? 'providers' :
-    preferences.layersOpen ? 'layers' :
-    null
-
-  const handleSelectActivityTab = (tab: ActivityBarTab) => {
-    if (tab === 'layers') {
-      closePanel()
-      persistPreferences({ layersOpen: !preferences.layersOpen })
-    } else if (tab === 'assets') {
-      if (panel === 'assets') {
-        closePanel()
-      } else {
-        openPanel('assets')
-      }
-    } else if (tab === 'providers') {
-      if (capabilities.canManageApi) {
-        setProviderDrawerOpen(true)
-      } else {
-        setPopup((current) => current === 'api-integration' ? null : 'api-integration')
-      }
-    } else if (tab === 'settings') {
-      setDialog('shortcuts')
-    } else {
-      closePanel()
-      persistPreferences({ layersOpen: false })
-    }
-  }
-
   return (
     <main
       aria-busy={!hydrated}
@@ -1345,11 +1313,6 @@ export default function App({
       inert={!hydrated}
       style={{ '--layers-sidebar-width': `${Math.min(layersWidth, Math.floor(window.innerWidth * 0.7))}px` } as CSSProperties}
     >
-      <ActivityBar
-        activeTab={activeActivityTab}
-        onSelectTab={handleSelectActivityTab}
-        onWorkspaceClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
-      />
       <aside
         aria-hidden={!preferences.layersOpen}
         className="app-layer-sidebar"

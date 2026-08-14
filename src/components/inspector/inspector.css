@@ -138,6 +138,55 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.inspector-field__label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  color: #737373;
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.inspector-field__label--scrubbable {
+  cursor: ew-resize !important;
+  user-select: none;
+  border-radius: 3px;
+  padding: 1px 3px;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.inspector-field__label--scrubbable:hover {
+  color: #0d99ff;
+  background: rgba(13, 153, 255, 0.15);
+}
+
+.inspector-toggle-float-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(38, 38, 38, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #dedede;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.inspector-toggle-float-btn:hover {
+  background: #333333;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
 .inspector-section__header {
   display: flex;
   align-items: center;
