@@ -375,6 +375,21 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
+.canvas-video-scrubber__slider:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.canvas-video-scrubber__slider:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.canvas-video-scrubber__slider:disabled::-moz-range-thumb {
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.35);
+}
+
 .canvas-video-scrubber__time {
   font-size: 10px;
   font-weight: 500;
