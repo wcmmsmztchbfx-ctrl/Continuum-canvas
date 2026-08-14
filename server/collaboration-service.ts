@@ -965,21 +965,21 @@ export class CollaborationService {
 
   applyGenerationJobUpdate(job: GenerationJob): boolean {
     if (!job.roomId || !job.targetNodeId || !('projectId' in job.request)) {
-      throw new CollaborationInputError('Collaborative generation identity is incomplete')
+      throw new CollaborationInputError('协同生成任务标识信息不完整 (Collaborative generation identity is incomplete)')
     }
     const request = job.request as GenerationRequest
     if (request.targetNodeId !== job.targetNodeId) {
-      throw new CollaborationInputError('Generation job target identity does not match')
+      throw new CollaborationInputError('生成任务目标节点不匹配 (Generation job target identity does not match)')
     }
     const room = this.room(job.roomId)
     if (request.projectId !== room.metadata.projectId || request.canvasId !== room.metadata.canvasId) {
-      throw new CollaborationInputError('Generation scope does not match the collaboration room')
+      throw new CollaborationInputError('协同作用域与房间不匹配 (Generation scope does not match the collaboration room)')
     }
     const node = room.document.doc.getMap<Y.Map<unknown>>('nodes').get(job.targetNodeId)
-    if (!(node instanceof Y.Map)) throw new CollaborationInputError('Generation target node was not found')
+    if (!(node instanceof Y.Map)) throw new CollaborationInputError('未找到生成目标节点 (Generation target node was not found)')
     const nodeType = node.get('type')
     if (nodeType !== request.mediaType || (nodeType !== 'image' && nodeType !== 'video')) {
-      throw new CollaborationInputError('Generation media does not match the target node')
+      throw new CollaborationInputError('生成媒体类型与目标节点不匹配 (Generation media does not match the target node)')
     }
     const data = childMap(node, 'data')
     const generation = childMap(data, 'generation')

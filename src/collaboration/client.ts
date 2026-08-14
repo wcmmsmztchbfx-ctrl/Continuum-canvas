@@ -15,13 +15,13 @@ const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/
 const ROOM_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 
 const COLLABORATION_ERROR_MESSAGES = {
-  invalid_collaboration_input: 'The collaboration request is invalid',
-  collaboration_forbidden: 'Collaboration access was denied',
-  collaboration_not_found: 'The collaboration room was not found',
-  collaboration_limit_reached: 'The collaboration room limit was reached',
+  invalid_collaboration_input: '协作请求参数无效',
+  collaboration_forbidden: '协作访问已被拒绝（无权限）',
+  collaboration_not_found: '未找到该协作房间',
+  collaboration_limit_reached: '协作房间连接数或资源已达上限',
   collaboration_conflict: '该画布已经开启协作，正在尝试恢复原协作房间',
-  collaboration_persistence_failed: 'The collaboration room could not be saved',
-  collaboration_invalid_update: 'The collaboration update was rejected',
+  collaboration_persistence_failed: '协作房间数据保存失败',
+  collaboration_invalid_update: '协作增量更新被拒绝或无效',
 } as const
 
 type CollaborationGatewayErrorCode = keyof typeof COLLABORATION_ERROR_MESSAGES
@@ -81,7 +81,7 @@ function collaborationGatewayErrorCode(value: unknown): CollaborationGatewayErro
 
 function collaborationGatewayErrorMessage(code: CollaborationGatewayErrorCode | 'request_failed'): string {
   return code === 'request_failed'
-    ? 'The collaboration request failed'
+    ? '协同请求失败'
     : COLLABORATION_ERROR_MESSAGES[code]
 }
 
@@ -140,7 +140,7 @@ function normalizedDisplayName(displayName: string): string {
     throw new CollaborationClientError(
       0,
       'invalid_display_name',
-      'Display name must contain between 1 and 32 characters',
+      '显示昵称长度必须在 1 到 32 个字符之间 (Display name must contain between 1 and 32 characters)',
     )
   }
   return normalized
@@ -148,13 +148,13 @@ function normalizedDisplayName(displayName: string): string {
 
 function assertIdentifier(value: string, pattern: RegExp, label: string): void {
   if (!pattern.test(value)) {
-    throw new CollaborationClientError(0, 'invalid_identifier', `${label} is invalid`)
+    throw new CollaborationClientError(0, 'invalid_identifier', `${label} 标识符无效`)
   }
 }
 
 function defaultStorage(): Storage {
   if (!globalThis.localStorage) {
-    throw new CollaborationClientError(0, 'storage_unavailable', 'Local storage is unavailable')
+    throw new CollaborationClientError(0, 'storage_unavailable', '本地存储 (localStorage) 不可用')
   }
   return globalThis.localStorage
 }
@@ -167,7 +167,7 @@ export function getOrCreateCollaborationDeviceId(
   if (existing && ROOM_IDENTIFIER.test(existing)) return existing
   const created = createDeviceId()
   if (!ROOM_IDENTIFIER.test(created)) {
-    throw new CollaborationClientError(0, 'invalid_device_id', 'Generated device id is invalid')
+    throw new CollaborationClientError(0, 'invalid_device_id', '生成的设备 ID 无效')
   }
   storage.setItem(DEVICE_STORAGE_KEY, created)
   return created
@@ -190,10 +190,10 @@ function inviteSecret(hash: string): string {
   const parameters = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash)
   const secret = parameters.get('invite') ?? ''
   if (!secret) {
-    throw new CollaborationClientError(0, 'invite_missing', 'Collaboration invite is missing')
+    throw new CollaborationClientError(0, 'invite_missing', '缺少协作邀请凭证')
   }
   if (secret.length > 512) {
-    throw new CollaborationClientError(0, 'invite_invalid', 'Collaboration invite is invalid')
+    throw new CollaborationClientError(0, 'invite_invalid', '协作邀请凭证无效')
   }
   return secret
 }
@@ -248,14 +248,14 @@ export class CollaborationClient {
           existingRoomId,
         )
       }
-      if (!isRecord(payload)) failInvalidResponse('Collaboration gateway returned an invalid response')
+      if (!isRecord(payload)) failInvalidResponse('协同网关返回了无效的响应数据')
       return payload
     } catch (error) {
       if (error instanceof CollaborationClientError) throw error
       if (options.signal?.aborted) {
         throw options.signal.reason ?? new DOMException('Aborted', 'AbortError')
       }
-      throw new CollaborationClientError(0, 'network_error', 'Unable to reach collaboration gateway')
+      throw new CollaborationClientError(0, 'network_error', '无法连接到协同网关服务器')
     }
   }
 

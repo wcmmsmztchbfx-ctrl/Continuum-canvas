@@ -401,14 +401,14 @@ export class GatewayClient {
         throw new GatewayClientError(
           response.status,
           'invalid_response',
-          'Gateway returned an invalid response',
+          '网关返回了无效的响应数据 (Gateway returned an invalid response)',
         )
       }
       return payload as T
     } catch (error) {
       if (error instanceof GatewayClientError) throw error
       if (requestSignal.timedOut()) {
-        throw new GatewayClientError(0, 'timeout', 'Gateway request timed out')
+        throw new GatewayClientError(0, 'timeout', '网关请求超时 (Gateway request timed out)')
       }
       if (options.signal?.aborted) {
         throw options.signal.reason ?? new DOMException('Aborted', 'AbortError')
@@ -416,7 +416,7 @@ export class GatewayClient {
       if (requestSignal.signal.aborted) {
         throw requestSignal.signal.reason ?? new DOMException('Aborted', 'AbortError')
       }
-      throw new GatewayClientError(0, 'network_error', 'Unable to reach local gateway')
+      throw new GatewayClientError(0, 'network_error', '无法连接到本地网关服务器 (Unable to reach local gateway)')
     } finally {
       requestSignal.dispose()
     }

@@ -34,4 +34,20 @@ describe('VideoNode', () => {
     expect(screen.getByLabelText('视频生成描述')).toBeVisible()
     expect(screen.queryByRole('button', { name: '截取当前帧' })).toBeNull()
   })
+
+  it('renders the floating timeline scrubber with progress and mute controls when video is present', () => {
+    render(<ReactFlowProvider><VideoNode {...({
+      id: 'video-scrubber', selected: true, isConnectable: true,
+      data: {
+        name: '视频节点', mediaType: 'video', url: 'https://example.test/video.mp4',
+        isSoleSelection: true,
+      },
+    } as never)} /></ReactFlowProvider>)
+
+    expect(screen.getByLabelText('视频播放进度控制')).toBeVisible()
+    expect(screen.getByRole('slider', { name: '播放进度' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '播放' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '静音' })).toBeInTheDocument()
+    expect(screen.getByText('00:00 / 00:00')).toBeInTheDocument()
+  })
 })
