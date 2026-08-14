@@ -1703,19 +1703,22 @@ export function CanvasWorkspace({
   ])
 
   useEffect(() => {
+    const isLocal = viewportSourceRef.current === 'local' ||
+      sameViewport(viewportRef.current, project.viewport)
     const projectViewportChanged = !sameViewport(lastProjectViewportRef.current, project.viewport)
     lastProjectViewportRef.current = project.viewport
-    if (collaborationFollowingMemberId && projectViewportChanged) {
+    if (collaborationFollowingMemberId && projectViewportChanged && !isLocal) {
       viewportSourceRef.current = 'local'
       stopCollaborationFollowing?.()
     }
-    if (projectViewportChanged) {
+    if (projectViewportChanged && !isLocal) {
       flushViewportUi(project.viewport)
       setCommittedZoom(project.viewport.zoom)
     }
     if (!flowInstance) return
     if (
       projectViewportChanged &&
+      !isLocal &&
       !sameViewport(flowInstance.getViewport(), project.viewport)
     ) {
       viewportSourceRef.current = 'restore'
@@ -2266,8 +2269,8 @@ export function CanvasWorkspace({
         }
       }}
       onWheelCapture={() => {
+        viewportSourceRef.current = 'local'
         if (collaborationFollowingMemberId) {
-          viewportSourceRef.current = 'local'
           stopCollaborationFollowing?.()
         }
       }}
@@ -2440,6 +2443,7 @@ export function CanvasWorkspace({
         }}
         onViewportChange={scheduleViewportUi}
         onMoveStart={(event) => {
+          viewportSourceRef.current = 'local'
           workspaceRef.current?.setAttribute('data-viewport-moving', 'true')
           if (
             !event &&
@@ -2448,14 +2452,16 @@ export function CanvasWorkspace({
             )
           ) return
           if (collaborationFollowingMemberId) {
-            viewportSourceRef.current = 'local'
             stopCollaborationFollowing?.()
           }
         }}
         onMoveEnd={(event, nextViewport) => {
           flushViewportUi(nextViewport)
           workspaceRef.current?.removeAttribute('data-viewport-moving')
-          setCommittedZoom(nextViewport.zoom)
+          viewportRef.current = nextViewport
+          if (Math.abs(committedZoom - nextViewport.zoom) > 0.05) {
+            setCommittedZoom(nextViewport.zoom)
+          }
           if (
             !event &&
             (viewportSourceRef.current === 'fit' ||
@@ -2473,7 +2479,6 @@ export function CanvasWorkspace({
             collaborationFollowingMemberId && followViewportRef.current &&
             sameViewport(nextViewport, followViewportRef.current)
           ) return
-          viewportSourceRef.current = undefined
           setCollaborationViewport?.(nextViewport)
           if (!collaborationFollowingMemberId) {
             store.getState().setViewport(nextViewport)
