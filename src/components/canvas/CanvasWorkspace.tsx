@@ -1818,61 +1818,55 @@ export function CanvasWorkspace({
     (connection: Connection) => {
       if (readOnly) return
       if (!connection.source || !connection.target) return
-      void runWithNodeLease([connection.source, connection.target], 'bulk', () => {
       const current = store.getState().snapshot
       const sourceNode = current.nodes.find((node) => node.id === connection.source)
       const targetNode = current.nodes.find((node) => node.id === connection.target)
-      const isReference =
+      const isMediaPair =
         (sourceNode?.type === 'image' || sourceNode?.type === 'video') &&
         (targetNode?.type === 'image' || targetNode?.type === 'video')
-      const projectEdge = isReference
-        ? (() => {
-            if (!canAttachReference(connection.target!, connection.source!)) return undefined
-            const alias = store.getState().attachReference(
-              connection.target!,
-              connection.source!,
-            )?.referenceAlias
-            return alias === undefined
-              ? undefined
-              : store.getState().snapshot.edges.find((edge) =>
-                  edge.target === connection.target &&
-                  edge.source === connection.source &&
-                  edge.relation === 'reference' &&
-                  edge.referenceAlias === alias,
-                )
-          })()
-        : {
-            id: createCanvasId('e'),
-            source: connection.source,
-            target: connection.target,
-            sourceHandle: connection.sourceHandle ?? undefined,
-            targetHandle: connection.targetHandle ?? undefined,
-            type: 'canvas',
-            relation: 'flow' as const,
-          }
-      if (!projectEdge) {
-        return
+
+      let projectEdge: ProjectCanvasEdge | undefined
+      if (isMediaPair && canAttachReference(connection.target, connection.source)) {
+        const alias = store.getState().attachReference(
+          connection.target,
+          connection.source,
+        )?.referenceAlias
+        if (alias !== undefined) {
+          projectEdge = store.getState().snapshot.edges.find((edge) =>
+            edge.target === connection.target &&
+            edge.source === connection.source &&
+            edge.relation === 'reference' &&
+            edge.referenceAlias === alias,
+          )
+        }
       }
-      if (!isReference) {
+      if (!projectEdge) {
+        projectEdge = {
+          id: createCanvasId('e'),
+          source: connection.source,
+          target: connection.target,
+          sourceHandle: connection.sourceHandle ?? undefined,
+          targetHandle: connection.targetHandle ?? undefined,
+          type: 'canvas',
+          relation: 'flow' as const,
+        }
         store.getState().addEdge(projectEdge)
       }
       const persistedEdge = store.getState().snapshot.edges.find(
-        (edge) => edge.id === projectEdge.id,
-      ) ?? (isReference
+        (edge) => edge.id === projectEdge!.id,
+      ) ?? (isMediaPair
         ? store.getState().snapshot.edges.find((edge) =>
-            edge.source === projectEdge.source &&
-            edge.target === projectEdge.target &&
+            edge.source === projectEdge!.source &&
+            edge.target === projectEdge!.target &&
             edge.relation === 'reference',
           )
         : undefined)
       if (persistedEdge) onConnect?.(persistedEdge)
-      })
     },
     [
       canAttachReference,
       onConnect,
       readOnly,
-      runWithNodeLease,
       store,
     ],
   )
@@ -2234,6 +2228,7 @@ export function CanvasWorkspace({
         maxZoom={CANVAS_MAX_ZOOM}
         connectionRadius={connectionRadius}
         defaultEdgeOptions={defaultEdgeOptions}
+        nodesConnectable={!readOnly && mode !== 'pan'}
         onNodesChange={handleNodesChange}
         onSelectionStart={(event) => {
           selectionGesture.current = new Set(

@@ -1502,6 +1502,9 @@ export default function App({
         onRetryResume={() => collaborationAction((controller) => controller.retryAuthenticatedResume())}
         onRevokeInvite={(inviteId) => collaborationAction((controller) => controller.revokeInvite(inviteId))}
         onSetMemberRole={(memberId, role) => collaborationAction((controller) => controller.setMemberRole(memberId, role))}
+        onRecoverConflictRoom={(secret, displayName) => collaborationAction((controller) => controller.recoverConflictRoom(secret, displayName))}
+        onForceResetAndEnable={(displayName) => collaborationAction((controller) => controller.forceResetAndEnable(displayName))}
+        onDismissConflict={() => collaborationControllerRef.current?.dismissConflict()}
         open={popup === 'collaboration'}
         presence={collaborationPresence}
         state={collaborationState}

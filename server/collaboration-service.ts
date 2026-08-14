@@ -277,7 +277,7 @@ function hasExactKeys(value: Record<string, unknown>, required: string[], option
 function isTimestamp(value: unknown): value is string {
   if (typeof value !== 'string') return false
   try {
-    return new Date(value).toISOString() === value
+    return !Number.isNaN(Date.parse(value))
   } catch {
     return false
   }
@@ -940,8 +940,8 @@ export class CollaborationService {
     throw new CollaborationAuthorizationError('Collaboration session is invalid or revoked')
   }
 
-  async closeRoom(input: { roomId: string; sessionToken: string }): Promise<void> {
-    const room = this.owner(input.roomId, input.sessionToken)
+  async closeRoom(input: { roomId: string; sessionToken?: string; force?: boolean }): Promise<void> {
+    const room = input.force ? this.room(input.roomId) : this.owner(input.roomId, input.sessionToken ?? '')
     await this.enqueuePersistence(room, () => this.compactExclusive(room))
     await this.mutateMetadata(room, (metadata) => {
       metadata.enabled = false

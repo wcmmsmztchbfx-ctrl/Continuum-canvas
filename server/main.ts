@@ -138,7 +138,7 @@ if (entry === import.meta.url) {
     const code = typeof error === 'object' && error !== null && 'code' in error
       ? String((error as { code: unknown }).code)
       : 'startup_failed'
-    console.error(`Canvas gateway failed to start (${code})`)
+    console.error(`Canvas gateway failed to start (${code})`, error)
     process.exitCode = 1
   })
 }

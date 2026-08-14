@@ -192,6 +192,7 @@ function setup(input: {
       secret: `secret-${role}`,
     })),
     revokeInvite: vi.fn(async () => undefined),
+    joinRoom: vi.fn(async () => serverSession),
     joinFromInviteFragment: vi.fn(async (join) => {
       join.history.replaceState(null, '', `${join.location.pathname}${join.location.search}`)
       return serverSession
@@ -853,5 +854,78 @@ describe('CanvasCollaborationController', () => {
 
     expect(subject.controller.getState().status).toBe('inactive')
     expect(subject.controller.getState().room).toBeUndefined()
+  })
+
+  it('handles room conflict gracefully when resume fails by exposing conflictRoomId', async () => {
+    const subject = setup()
+    vi.mocked(subject.client.enableRoom).mockRejectedValueOnce(
+      new CollaborationClientError(409, 'collaboration_conflict', 'Room conflict', 'room-conflict-1'),
+    )
+    vi.mocked(subject.client.resumeRoom).mockRejectedValueOnce(
+      new CollaborationClientError(403, 'collaboration_forbidden', 'Collaboration access was denied'),
+    )
+
+    await subject.controller.enable('User')
+
+    expect(subject.controller.getState().status).toBe('inactive')
+    expect(subject.controller.getState().conflictRoomId).toBe('room-conflict-1')
+    expect(subject.controller.getState().error).toContain('未关闭的历史协作房间')
+  })
+
+  it('recovers conflict room using recovery secret and establishes session', async () => {
+    const subject = setup()
+    vi.mocked(subject.client.enableRoom).mockRejectedValueOnce(
+      new CollaborationClientError(409, 'collaboration_conflict', 'Room conflict', 'room-conflict-1'),
+    )
+    vi.mocked(subject.client.resumeRoom).mockRejectedValueOnce(
+      new CollaborationClientError(403, 'collaboration_forbidden', 'Collaboration access was denied'),
+    )
+
+    await subject.controller.enable('User')
+    expect(subject.controller.getState().conflictRoomId).toBe('room-conflict-1')
+
+    const recoveredSession: CollaborationSession = {
+      ...owner,
+      roomId: 'room-conflict-1',
+    }
+    vi.mocked(subject.client.joinRoom).mockResolvedValueOnce(recoveredSession)
+    vi.mocked(subject.client.getRoom).mockResolvedValueOnce(room(recoveredSession))
+
+    await subject.controller.recoverConflictRoom('recovery-secret-123', 'OwnerUser')
+
+    expect(subject.client.joinRoom).toHaveBeenCalledWith({
+      roomId: 'room-conflict-1',
+      secret: 'recovery-secret-123',
+      displayName: 'OwnerUser',
+    }, expect.anything())
+    expect(subject.controller.getState().status).toBe('synced')
+    expect(subject.controller.getState().conflictRoomId).toBeUndefined()
+    expect(subject.controller.getState().room?.roomId).toBe('room-conflict-1')
+  })
+
+  it('force resets conflict room and successfully re-enables collaboration', async () => {
+    const subject = setup()
+    vi.mocked(subject.client.enableRoom).mockRejectedValueOnce(
+      new CollaborationClientError(409, 'collaboration_conflict', 'Room conflict', 'room-conflict-1'),
+    )
+    vi.mocked(subject.client.resumeRoom).mockRejectedValueOnce(
+      new CollaborationClientError(403, 'collaboration_forbidden', 'Collaboration access was denied'),
+    )
+
+    await subject.controller.enable('User')
+    expect(subject.controller.getState().conflictRoomId).toBe('room-conflict-1')
+
+    vi.mocked(subject.client.closeRoom).mockResolvedValueOnce(undefined)
+    vi.mocked(subject.client.enableRoom).mockResolvedValueOnce({
+      room: room(),
+      session: owner,
+      recoverySecret: 'secret-new',
+    })
+
+    await subject.controller.forceResetAndEnable('Owner')
+
+    expect(subject.client.closeRoom).toHaveBeenCalledWith('room-conflict-1', { force: true })
+    expect(subject.controller.getState().status).toBe('synced')
+    expect(subject.controller.getState().conflictRoomId).toBeUndefined()
   })
 })

@@ -1081,6 +1081,83 @@ describe('CanvasWorkspace', () => {
     expect(onConnect).toHaveBeenCalledOnce()
   })
 
+  it('connects nodes seamlessly while collaboration is active without lease blocking', () => {
+    const store = createCanvasStore(referenceProjectSnapshot)
+    const onConnect = vi.fn()
+    render(
+      <CanvasWorkspace
+        collaboration={{
+          localMemberId: 'editor-b',
+          status: 'synced',
+          presence: [],
+          setCursor: vi.fn(),
+          setSelection: vi.fn(),
+          setViewport: vi.fn(),
+        }}
+        store={store}
+        onConnect={onConnect}
+      />,
+    )
+
+    act(() => {
+      flowProps().onConnect?.({
+        source: 'i-1wBxIhceMW',
+        target: 'i-2YYUMOBPSy',
+        sourceHandle: 'source',
+        targetHandle: 'target',
+      })
+    })
+
+    expect(store.getState().snapshot.edges.at(-1)).toMatchObject({
+      source: 'i-1wBxIhceMW',
+      target: 'i-2YYUMOBPSy',
+    })
+    expect(onConnect).toHaveBeenCalledOnce()
+  })
+
+  it('falls back to flow relation when media reference cannot be attached', () => {
+    const store = createCanvasStore({
+      ...referenceProjectSnapshot,
+      nodes: [
+        ...referenceProjectSnapshot.nodes,
+        {
+          id: 'text-source-node',
+          type: 'text',
+          name: 'Text 1',
+          position: { x: 0, y: 0 },
+          size: { width: 480, height: 320 },
+          data: { text: 'Hello' },
+        },
+        {
+          id: 'image-target-node',
+          type: 'image',
+          name: 'Image 2',
+          position: { x: 500, y: 0 },
+          size: { width: 480, height: 320 },
+          data: { url: '' },
+        },
+      ],
+    })
+    const onConnect = vi.fn()
+    render(<CanvasWorkspace store={store} onConnect={onConnect} />)
+
+    act(() => {
+      flowProps().onConnect?.({
+        source: 'text-source-node',
+        target: 'image-target-node',
+        sourceHandle: 'source',
+        targetHandle: 'target',
+      })
+    })
+
+    expect(store.getState().snapshot.edges.at(-1)).toMatchObject({
+      source: 'text-source-node',
+      target: 'image-target-node',
+      relation: 'flow',
+    })
+    expect(onConnect).toHaveBeenCalledOnce()
+  })
+
   it('does not render a ghost connection when the store rejects the edge', () => {
     const store = createCanvasStore({
       ...referenceProjectSnapshot,

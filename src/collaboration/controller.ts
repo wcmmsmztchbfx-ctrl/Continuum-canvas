@@ -43,6 +43,7 @@ export interface CollaborationControllerState {
   room?: CollaborationRoom
   session?: CollaborationSession
   pendingInvite?: { roomId: string; suggestedName?: string }
+  conflictRoomId?: string
   recoverySecret?: string
   authenticatedPendingResume?: string
   inviteLinks: Record<string, string>
@@ -96,6 +97,7 @@ export interface CollaborationClientHandle {
   getRoom: CollaborationClient['getRoom']
   createInvite: CollaborationClient['createInvite']
   revokeInvite: CollaborationClient['revokeInvite']
+  joinRoom: CollaborationClient['joinRoom']
   joinFromInviteFragment: CollaborationClient['joinFromInviteFragment']
   setMemberRole: CollaborationClient['setMemberRole']
   removeMember: CollaborationClient['removeMember']
@@ -363,7 +365,7 @@ export class CanvasCollaborationController {
   enable(displayName: string): Promise<void> {
     if (this.canvasSession) return Promise.resolve()
     return this.runOperation('enable', async (epoch, signal) => {
-      this.patch({ status: 'enabling', error: undefined })
+      this.patch({ status: 'enabling', error: undefined, conflictRoomId: undefined })
       const snapshot = this.currentSnapshot()
       this.connectionBaseline = snapshot
       await this.options.repository.saveCanvas(snapshot)
@@ -377,12 +379,23 @@ export class CanvasCollaborationController {
           error.code === 'collaboration_conflict' &&
           error.existingRoomId
         ) {
-          const context = await this.client.resumeRoom(error.existingRoomId, { signal })
-          this.assertCurrent(epoch)
-          this.assertScope(context.session)
-          this.replaceRoomInUrl(error.existingRoomId)
-          await this.attach(context.room, context.session, epoch, snapshot)
-          return
+          try {
+            const context = await this.client.resumeRoom(error.existingRoomId, { signal })
+            this.assertCurrent(epoch)
+            this.assertScope(context.session)
+            this.replaceRoomInUrl(error.existingRoomId)
+            this.patch({ conflictRoomId: undefined })
+            await this.attach(context.room, context.session, epoch, snapshot)
+            return
+          } catch {
+            this.assertCurrent(epoch)
+            this.patch({
+              status: 'inactive',
+              conflictRoomId: error.existingRoomId,
+              error: '该画布存在未关闭的历史协作房间。可输入所有者恢复密钥重新接管，或直接重置协作。',
+            })
+            return
+          }
         }
         throw error
       }
@@ -392,9 +405,46 @@ export class CanvasCollaborationController {
       }
       this.assertScope(enabled.session)
       this.replaceRoomInUrl(enabled.room.roomId)
-      this.patch({ recoverySecret: enabled.recoverySecret })
+      this.patch({ recoverySecret: enabled.recoverySecret, conflictRoomId: undefined })
       await this.attach(enabled.room, enabled.session, epoch, snapshot)
     })
+  }
+
+  recoverConflictRoom(secret: string, displayName: string): Promise<void> {
+    const roomId = this.state.conflictRoomId
+    if (!roomId) return Promise.resolve()
+    return this.runOperation('recover', async (epoch, signal) => {
+      this.patch({ status: 'connecting', error: undefined })
+      const baseline = this.connectionBaseline ?? this.currentSnapshot()
+      this.connectionBaseline = baseline
+      const session = await this.client.joinRoom({
+        roomId,
+        secret: secret.trim(),
+        displayName,
+      }, { signal })
+      this.assertCurrent(epoch)
+      this.assertScope(session)
+      const room = await this.client.getRoom(roomId, { signal })
+      this.assertCurrent(epoch)
+      this.replaceRoomInUrl(roomId)
+      this.patch({ conflictRoomId: undefined })
+      await this.attach(room, session, epoch, baseline)
+    })
+  }
+
+  async forceResetAndEnable(displayName: string): Promise<void> {
+    const roomId = this.state.conflictRoomId
+    if (roomId) {
+      await this.client.closeRoom(roomId, { force: true }).catch(() => undefined)
+      this.patch({ conflictRoomId: undefined, error: undefined })
+    }
+    return this.enable(displayName)
+  }
+
+  dismissConflict(): void {
+    if (this.state.conflictRoomId) {
+      this.patch({ conflictRoomId: undefined, error: undefined })
+    }
   }
 
   joinPendingInvite(displayName: string): Promise<void> {

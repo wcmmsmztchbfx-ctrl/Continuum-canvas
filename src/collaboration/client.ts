@@ -423,10 +423,11 @@ export class CollaborationClient {
     if (payload.revoked !== true) failInvalidResponse('Collaboration session was not revoked')
   }
 
-  async closeRoom(roomId: string, options?: CollaborationRequestOptions): Promise<void> {
+  async closeRoom(roomId: string, options?: CollaborationRequestOptions & { force?: boolean }): Promise<void> {
     assertIdentifier(roomId, ROOM_IDENTIFIER, 'roomId')
+    const query = options?.force ? '?force=true' : ''
     const payload = await this.request(
-      `/api/collaboration/rooms/${encodeURIComponent(roomId)}`,
+      `/api/collaboration/rooms/${encodeURIComponent(roomId)}${query}`,
       { method: 'DELETE' }, options,
     )
     if (payload.closed !== true) failInvalidResponse('Collaboration room was not closed')

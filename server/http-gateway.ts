@@ -736,7 +736,24 @@ async function routeApi(
   if (roomMatch && method === 'DELETE') {
     await rejectUnexpectedBody(request)
     const sessionToken = collaborationSessionToken(request, roomMatch[1])
-    await runtime.collaboration.closeRoom({ roomId: roomMatch[1], sessionToken })
+    const forceParam = url.searchParams.get('force') === 'true'
+    if (forceParam && localAdminAllowed && isLoopbackRemoteAddress(request.socket.remoteAddress)) {
+      await runtime.collaboration.closeRoom({ roomId: roomMatch[1], force: true })
+    } else {
+      try {
+        await runtime.collaboration.closeRoom({ roomId: roomMatch[1], sessionToken })
+      } catch (error) {
+        if (
+          error instanceof CollaborationAuthorizationError &&
+          localAdminAllowed &&
+          isLoopbackRemoteAddress(request.socket.remoteAddress)
+        ) {
+          await runtime.collaboration.closeRoom({ roomId: roomMatch[1], force: true })
+        } else {
+          throw error
+        }
+      }
+    }
     clearCollaborationCookie(response, roomMatch[1], secureCollaborationCookies)
     sendJson(response, 200, { closed: true })
     return true

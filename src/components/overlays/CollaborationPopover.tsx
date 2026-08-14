@@ -21,6 +21,9 @@ export interface CollaborationPopoverProps extends ControlledOverlayProps {
   onRetryResume?: AsyncAction
   onRevokeInvite?: (inviteId: string) => void | Promise<void>
   onSetMemberRole?: (memberId: string, role: 'editor' | 'viewer') => void | Promise<void>
+  onRecoverConflictRoom?: (secret: string, displayName: string) => void | Promise<void>
+  onForceResetAndEnable?: (displayName: string) => void | Promise<void>
+  onDismissConflict?: () => void
   followingMemberId?: string
   onFollowMember?: (memberId: string | undefined) => void
   presence?: readonly PresenceState[]
@@ -36,10 +39,12 @@ const initials = (name: string) => name.trim().slice(0, 1).toUpperCase() || '协
 export function CollaborationPopover({
   onClose, onCloseRoom, onCreateInvite, onDismissRecoverySecret, onEnable,
   onLeave, onRemoveMember, onRetryResume, onRevokeInvite, onSetMemberRole,
+  onRecoverConflictRoom, onForceResetAndEnable, onDismissConflict: _onDismissConflict,
   followingMemberId, onFollowMember, open, presence = [], state,
 }: CollaborationPopoverProps) {
   const surfaceRef = useRef<HTMLElement | null>(null)
   const [displayName, setDisplayName] = useState('')
+  const [conflictSecret, setConflictSecret] = useState('')
   const [busy, setBusy] = useState(false)
   usePopoverClose(open, onClose, surfaceRef)
   useEffect(() => {
@@ -91,7 +96,38 @@ export function CollaborationPopover({
         <div className="collaboration-start">
           <ShieldCheck aria-hidden="true" />
           <div><strong>在当前画布开启实时协作</strong><small>开启前会先保存一份完整本地备份。</small></div>
-          {state.authenticatedPendingResume ? (
+          {state.conflictRoomId ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+              <input aria-label="协作昵称" data-autofocus maxLength={32} onChange={(event) => setDisplayName(event.target.value)} placeholder="你的昵称" value={displayName} />
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <input
+                  aria-label="所有者恢复密钥"
+                  maxLength={128}
+                  onChange={(event) => setConflictSecret(event.target.value)}
+                  placeholder="所有者恢复密钥（可选）"
+                  style={{ flex: 1 }}
+                  value={conflictSecret}
+                />
+                <button
+                  className="overlay-text-button"
+                  disabled={!displayName.trim() || !conflictSecret.trim() || busy}
+                  onClick={() => run(() => onRecoverConflictRoom?.(conflictSecret, displayName))}
+                  type="button"
+                >
+                  密钥接管
+                </button>
+              </div>
+              <button
+                className="overlay-text-button overlay-text-button--primary"
+                data-focus-end="true"
+                disabled={!displayName.trim() || busy}
+                onClick={() => run(() => onForceResetAndEnable?.(displayName))}
+                type="button"
+              >
+                重置并重新开启协作
+              </button>
+            </div>
+          ) : state.authenticatedPendingResume ? (
             <button className="overlay-text-button overlay-text-button--primary" data-autofocus disabled={busy} onClick={() => run(onRetryResume)} type="button">重新连接协作</button>
           ) : <>
             <input aria-label="协作昵称" data-autofocus maxLength={32} onChange={(event) => setDisplayName(event.target.value)} placeholder="你的昵称" value={displayName} />
