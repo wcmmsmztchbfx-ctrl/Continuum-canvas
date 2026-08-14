@@ -320,15 +320,17 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 6px;
   color: #ededed;
-  opacity: 0.85;
+  opacity: 0;
+  pointer-events: none;
   transition: opacity 150ms ease, background 150ms ease;
-  pointer-events: auto;
 }
 
+.canvas-media-node__frame:hover .canvas-video-scrubber,
 .canvas-media-node:hover .canvas-video-scrubber,
-.canvas-video-scrubber:hover,
-.canvas-media-node[data-selected="true"] .canvas-video-scrubber {
+.canvas-video-scrubber:focus-within,
+.canvas-video-scrubber:hover {
   opacity: 1;
+  pointer-events: auto;
   background: rgba(18, 18, 18, 0.92);
 }
 
