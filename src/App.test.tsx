@@ -358,13 +358,7 @@ describe('canvas application integration', () => {
     fireEvent.keyDown(document, { ctrlKey: true, key: 'z' })
     expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount)
 
-    // Test Ctrl+Y shortcut
-    fireEvent.keyDown(document, { ctrlKey: true, key: 'y' })
-    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount + 1)
-
     // Test Ctrl+Shift+Z shortcut
-    fireEvent.keyDown(document, { ctrlKey: true, key: 'z' })
-    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount)
     fireEvent.keyDown(document, { ctrlKey: true, shiftKey: true, key: 'z' })
     expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount + 1)
   })
@@ -401,8 +395,8 @@ describe('canvas application integration', () => {
     fireEvent.keyDown(document, { ctrlKey: true, key: 'z' })
     expect(canvasStore.getState().snapshot.nodes.find((n) => n.id === 'move-node-1')?.position.x).toBe(100)
 
-    // Redo move via Ctrl+Y
-    fireEvent.keyDown(document, { ctrlKey: true, key: 'y' })
+    // Redo move via Ctrl+Shift+Z
+    fireEvent.keyDown(document, { ctrlKey: true, shiftKey: true, key: 'z' })
     expect(canvasStore.getState().snapshot.nodes.find((n) => n.id === 'move-node-1')?.position.x).toBe(600)
 
     // Layout nodes

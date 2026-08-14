@@ -500,17 +500,15 @@ export default function App({
         return
       }
 
-      if (modified && (key === 'z' || key === 'y')) {
+      if (modified && key === 'z') {
         event.preventDefault()
         const collaboration = controller
-        const isRedo = key === 'y' || event.shiftKey
         if (collaboration?.isLocalAutosaveSuppressed()) {
           if (!collaborationCapabilities(collaboration.getState()).canEdit) return
-          if (isRedo) performRedo()
+          if (event.shiftKey) performRedo()
           else performUndo()
-        } else if (isRedo) performRedo()
+        } else if (event.shiftKey) performRedo()
         else performUndo()
-        return
       } else if (modified && key === 'a') {
         event.preventDefault()
         canvasStore.setState({
@@ -826,17 +824,11 @@ export default function App({
   }, [closeFloatingUi, persistPreferences])
 
   const handleToolSelect = (tool: ToolDockTool) => {
-    if (tool === 'undo') {
-      performUndo()
-      return
-    }
-    if (tool === 'redo') {
-      performRedo()
-      return
-    }
     if (readOnly && !['select', 'more'].includes(tool)) return
     setContextMenu(null)
     canvasStore.getState().setMode('select')
+    if (tool === 'undo') { performUndo(); return }
+    if (tool === 'redo') { canvasStore.getState().redo(); return }
     if (tool === 'upload') {
       setAddNodePosition(undefined)
       setPopup((current) => (current === 'add' ? null : 'add'))
