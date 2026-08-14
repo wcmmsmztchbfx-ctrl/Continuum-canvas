@@ -43,6 +43,7 @@ import {
 } from './components/overlays'
 import {
   BottomStatusBar,
+  LibTvLogo,
   ToolDock,
   TopBar,
   WorkspaceMenu,
@@ -1320,6 +1321,16 @@ export default function App({
       >
         <div className="app-layer-sidebar__rail">
           <button
+            aria-label="打开工作区菜单"
+            className="app-layer-sidebar__logo-btn"
+            onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
+            title="工作区与画布"
+            type="button"
+          >
+            <LibTvLogo size={20} />
+          </button>
+          <div className="app-layer-sidebar__rail-divider" />
+          <button
             aria-label="图层"
             className={`app-layer-sidebar__rail-btn ${panel === null ? 'app-layer-sidebar__rail-btn--active' : ''}`}
             onClick={() => closePanel()}
@@ -1327,6 +1338,7 @@ export default function App({
             type="button"
           >
             <Layers3 size={18} />
+            <span className="app-layer-sidebar__rail-label">图层</span>
           </button>
           <button
             aria-label="素材库"
@@ -1336,6 +1348,7 @@ export default function App({
             type="button"
           >
             <FolderKanban size={18} />
+            <span className="app-layer-sidebar__rail-label">素材</span>
           </button>
           <button
             aria-label="API 接入"
@@ -1351,6 +1364,7 @@ export default function App({
             type="button"
           >
             <Cpu size={18} />
+            <span className="app-layer-sidebar__rail-label">API</span>
           </button>
           <button
             aria-label="设置"
@@ -1361,6 +1375,7 @@ export default function App({
             type="button"
           >
             <Settings size={18} />
+            <span className="app-layer-sidebar__rail-label">设置</span>
           </button>
         </div>
         <div className="app-layer-sidebar__content">
