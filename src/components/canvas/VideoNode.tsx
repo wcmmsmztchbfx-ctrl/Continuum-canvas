@@ -1,10 +1,11 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Pause, Play, Volume2, VolumeX } from 'lucide-react'
 import {
-  NodeResizer,
-  Position,
-  type NodeProps,
-} from '@xyflow/react'
+  Pause,
+  Play,
+  Volume2,
+  VolumeX,
+} from 'lucide-react'
+import { NodeResizer, Position, type NodeProps } from '@xyflow/react'
 
 import { EmptyMediaPlaceholder } from './EmptyMediaPlaceholder'
 import { EditableNodeLabel } from './EditableNodeLabel'
@@ -17,9 +18,8 @@ import './canvas.css'
 
 function formatVideoTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '00:00'
-  const total = Math.floor(seconds)
-  const mins = Math.floor(total / 60)
-  const secs = total % 60
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
 }
 
@@ -87,7 +87,10 @@ function VideoNodeContent({
 
   const hasVideo = Boolean(data.url) && !failed
   const hasPoster = Boolean(data.poster)
-  const showDetails = selected && data.isSoleSelection !== false
+  const isLayerMode = data.node?.type === 'video' && data.node.data.displayMode === 'layer'
+  const showResizer = selected && data.isSoleSelection !== false
+  const showDetails = showResizer && !isLayerMode
+  const modelData = data.node?.type === 'video' ? data.node.data : undefined
   const shouldMountVideo = hasVideo && (selected || isHovered || playing || data.generation?.status === 'generating')
 
   const togglePlayback = () => {
@@ -135,15 +138,20 @@ function VideoNodeContent({
 
   return (
     <article
-      className="canvas-media-node"
+      className={`canvas-media-node${isLayerMode ? ' canvas-media-node--layer-mode' : ''}`}
       data-node-kind="video"
       data-generation-status={data.generation?.status}
       data-reference-candidate={data.referencePickCandidate || undefined}
       data-reference-target={data.referencePickTarget || undefined}
+      data-selected={selected || undefined}
       aria-label={data.name}
+      style={{
+        opacity: modelData?.opacity !== undefined ? modelData.opacity : undefined,
+        transform: modelData?.rotation ? `rotate(${modelData.rotation}deg)` : undefined,
+      }}
     >
       <NodeResizer
-        isVisible={showDetails}
+        isVisible={showResizer}
         minWidth={80}
         minHeight={80}
         lineClassName="canvas-node-resizer__line"
@@ -175,6 +183,13 @@ function VideoNodeContent({
         className="canvas-media-node__frame"
         onPointerEnter={() => setIsHovered(true)}
         onPointerLeave={() => setIsHovered(false)}
+        style={{
+          borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
+          border: modelData?.stroke
+            ? `${modelData.strokeWidth ?? 1}px solid ${modelData.stroke}`
+            : undefined,
+          overflow: 'hidden',
+        }}
       >
         {hasPoster ? (
           <img

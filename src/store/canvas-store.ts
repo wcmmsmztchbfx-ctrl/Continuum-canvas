@@ -101,6 +101,15 @@ export interface CanvasStoreState {
   moveNodeLayer: (nodeId: string, direction: 'front' | 'back') => void
   setNodeVisibility: (nodeId: string, visible: boolean) => void
   setNodeLocked: (nodeId: string, locked: boolean) => void
+  patchNode: (
+    nodeId: string,
+    changes: Partial<{
+      name: string
+      position: Point
+      size: NodeSize
+      data: Record<string, unknown>
+    }>,
+  ) => void
   updateTextNode: (nodeId: string, text: string) => void
   addImageVersion: (nodeId: string, version: import('../model/project').ImageVersion) => void
   setImageVersion: (nodeId: string, versionId: string) => void
@@ -1061,6 +1070,24 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
       if (!node || node.locked === locked) return
       commitDocument({ ...current, nodes: current.nodes.map((candidate) => candidate.id === nodeId ? { ...candidate, locked } as CanvasNode : candidate) })
     },
+    patchNode: (nodeId, changes) => {
+      const current = get().snapshot
+      const node = current.nodes.find((candidate) => candidate.id === nodeId)
+      if (!node) return
+      const nextNode = {
+        ...node,
+        ...(changes.name !== undefined ? { name: changes.name } : {}),
+        ...(changes.position !== undefined ? { position: changes.position } : {}),
+        ...(changes.size !== undefined ? { size: changes.size } : {}),
+        ...(changes.data !== undefined ? { data: { ...node.data, ...changes.data } } : {}),
+      }
+      commitDocument({
+        ...current,
+        nodes: current.nodes.map((candidate) =>
+          candidate.id === nodeId ? (nextNode as CanvasNode) : candidate,
+        ),
+      })
+    },
     updateTextNode: (nodeId, text) => {
       const current = get().snapshot
       const node = current.nodes.find((candidate) => candidate.id === nodeId)
@@ -1733,4 +1760,5 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
   })
 }
 
+export type CanvasStore = ReturnType<typeof createCanvasStore>
 export const canvasStore = createCanvasStore(referenceProjectSnapshot)

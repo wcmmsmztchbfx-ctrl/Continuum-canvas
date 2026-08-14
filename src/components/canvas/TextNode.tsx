@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Clapperboard, FileText } from 'lucide-react'
+import { Clapperboard } from 'lucide-react'
 import { NodeResizer, Position, type NodeProps } from '@xyflow/react'
 
 import type { CanvasFlowNode } from './mapping'
@@ -122,12 +122,20 @@ export function TextNode({
         isConnectable={isConnectable}
       /> : null}
       <div className="canvas-media-node__frame canvas-text-node__frame">
-        {showDetails && editing ? (
+        {editing ? (
           <textarea
             aria-label="文本节点内容"
             autoFocus
             className="canvas-text-node__editor nodrag nowheel"
             ref={editorRef}
+            style={{
+              fontSize: `${model?.data.fontSize ?? 14}px`,
+              fontWeight: model?.data.fontWeight ?? 400,
+              lineHeight: model?.data.lineHeight ?? 1.5,
+              color: model?.data.color ?? '#ffffff',
+              textAlign: model?.data.textAlign ?? 'left',
+              fontFamily: model?.data.fontFamily ?? 'inherit',
+            }}
             onChange={(event) => {
               const nextText = event.target.value
               setText(nextText)
@@ -150,7 +158,6 @@ export function TextNode({
               startEditing()
             }}
           >
-            {!plain ? <FileText aria-hidden="true" size={48} strokeWidth={1.25} /> : null}
             <span>从文字开始</span>
             <div className="canvas-text-node__actions">
               <button
@@ -174,9 +181,24 @@ export function TextNode({
               event.stopPropagation()
               startEditing()
             }}
+            style={{
+              fontSize: `${model?.data.fontSize ?? 14}px`,
+              fontWeight: model?.data.fontWeight ?? 400,
+              lineHeight: model?.data.lineHeight ?? 1.5,
+              color: model?.data.color ?? '#ffffff',
+              textAlign: model?.data.textAlign ?? 'left',
+              fontFamily: model?.data.fontFamily ?? 'inherit',
+              cursor: 'text',
+              width: '100%',
+              height: '100%',
+              padding: '8px',
+              wordBreak: 'break-word',
+              whiteSpace: 'pre-wrap',
+            }}
           >
-            <FileText aria-hidden="true" size={48} strokeWidth={1.25} />
-            <p>{text || '文本节点'}</p>
+            <p style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit' }}>
+              {text || '文本节点'}
+            </p>
           </div>
         )}
         {lockMessage ? <p className="canvas-node-lock-message" role="status">{lockMessage}</p> : null}

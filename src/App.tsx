@@ -11,6 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { useStore } from 'zustand'
+import { FolderKanban, Cpu, Layers3, Settings } from 'lucide-react'
 
 import { CanvasWorkspace, LayersPanel } from './components/canvas'
 import {
@@ -42,12 +43,14 @@ import {
 } from './components/overlays'
 import {
   BottomStatusBar,
+  LibTvLogo,
   ToolDock,
   TopBar,
   WorkspaceMenu,
   type ShellMode,
   type ToolDockTool,
 } from './components/shell'
+import { InspectorPanel } from './components/inspector/InspectorPanel'
 import {
   bootstrapReferenceProject,
   defaultProjectPersistenceQueue,
@@ -1310,12 +1313,72 @@ export default function App({
       inert={!hydrated}
       style={{ '--layers-sidebar-width': `${Math.min(layersWidth, Math.floor(window.innerWidth * 0.7))}px` } as CSSProperties}
     >
-        <aside
-          aria-hidden={!preferences.layersOpen}
-          className="app-layer-sidebar"
-          data-testid="layers-sidebar"
-          inert={!preferences.layersOpen}
-        >
+      <aside
+        aria-hidden={!preferences.layersOpen}
+        className="app-layer-sidebar"
+        data-testid="layers-sidebar"
+        inert={!preferences.layersOpen}
+      >
+        <div className="app-layer-sidebar__rail">
+          <button
+            aria-label="打开工作区菜单"
+            className="app-layer-sidebar__logo-btn"
+            onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
+            title="工作区与画布"
+            type="button"
+          >
+            <LibTvLogo size={20} />
+          </button>
+          <div className="app-layer-sidebar__rail-divider" />
+          <button
+            aria-label="图层"
+            className={`app-layer-sidebar__rail-btn ${panel === null ? 'app-layer-sidebar__rail-btn--active' : ''}`}
+            onClick={() => closePanel()}
+            title="图层树"
+            type="button"
+          >
+            <Layers3 size={18} />
+            <span className="app-layer-sidebar__rail-label">图层</span>
+          </button>
+          <button
+            aria-label="素材库"
+            className={`app-layer-sidebar__rail-btn ${panel === 'assets' ? 'app-layer-sidebar__rail-btn--active' : ''}`}
+            onClick={() => (panel === 'assets' ? closePanel() : openPanel('assets'))}
+            title="素材库"
+            type="button"
+          >
+            <FolderKanban size={18} />
+            <span className="app-layer-sidebar__rail-label">素材</span>
+          </button>
+          <button
+            aria-label="API 接入"
+            className={`app-layer-sidebar__rail-btn ${popup === 'api-integration' || providerDrawerOpen ? 'app-layer-sidebar__rail-btn--active' : ''}`}
+            onClick={() => {
+              if (capabilities.canManageApi) {
+                setProviderDrawerOpen(true)
+              } else {
+                setPopup((curr) => (curr === 'api-integration' ? null : 'api-integration'))
+              }
+            }}
+            title="API 接入与模型"
+            type="button"
+          >
+            <Cpu size={18} />
+            <span className="app-layer-sidebar__rail-label">API</span>
+          </button>
+          <button
+            aria-label="设置"
+            className="app-layer-sidebar__rail-btn"
+            onClick={() => setDialog('shortcuts')}
+            style={{ marginTop: 'auto' }}
+            title="设置与快捷键"
+            type="button"
+          >
+            <Settings size={18} />
+            <span className="app-layer-sidebar__rail-label">设置</span>
+          </button>
+        </div>
+        <div className="app-layer-sidebar__content">
           <WorkspaceMenu
             canvasName={snapshot.name}
             onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
@@ -1333,18 +1396,19 @@ export default function App({
             open
             selectedIds={selectedNodeIds}
           />
-          <div
-            aria-label="调整图层侧栏宽度"
-            aria-orientation="vertical"
-            aria-valuemax={Math.min(MAX_LAYERS_WIDTH, Math.floor(window.innerWidth * 0.7))}
-            aria-valuemin={MIN_LAYERS_WIDTH}
-            aria-valuenow={layersWidth}
-            className="app-layer-sidebar__resize-handle"
-            onMouseDown={startLayersResize}
-            onKeyDown={resizeLayersByKeyboard}
-            role="separator"
-          />
-        </aside>
+        </div>
+        <div
+          aria-label="调整图层侧栏宽度"
+          aria-orientation="vertical"
+          aria-valuemax={Math.min(MAX_LAYERS_WIDTH, Math.floor(window.innerWidth * 0.7))}
+          aria-valuemin={MIN_LAYERS_WIDTH}
+          aria-valuenow={layersWidth}
+          className="app-layer-sidebar__resize-handle"
+          onMouseDown={startLayersResize}
+          onKeyDown={resizeLayersByKeyboard}
+          role="separator"
+        />
+      </aside>
       <section
         className="canvas-stage"
         onPointerMove={(event) => {
@@ -1474,6 +1538,14 @@ export default function App({
         open={layoutPreviewOpen}
       />
       </section>
+
+      <InspectorPanel
+        collapsed={!preferences.layersOpen}
+        onOpenSettings={() => setDialog('shortcuts')}
+        onToggleCollapse={() => persistPreferences({ layersOpen: !preferences.layersOpen })}
+        readOnly={readOnly}
+        store={canvasStore}
+      />
 
       <WorkspaceDropdown
         collaborationRestricted={collaborationRestricted}

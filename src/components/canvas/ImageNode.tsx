@@ -1,5 +1,5 @@
-import { memo, useEffect, useState } from 'react'
-import { Position, useViewport, type NodeProps } from '@xyflow/react'
+import { memo, useEffect, useRef, useState } from 'react'
+import { NodeResizer, Position, useViewport, type NodeProps } from '@xyflow/react'
 
 import { EmptyMediaPlaceholder } from './EmptyMediaPlaceholder'
 import { EditableNodeLabel } from './EditableNodeLabel'
@@ -18,6 +18,7 @@ function ImageNodeContent({
 }: NodeProps<CanvasFlowNode>) {
   const [failed, setFailed] = useState(false)
   const [highResLoaded, setHighResLoaded] = useState(false)
+  const resizeGranted = useRef(false)
 
   let zoom = 1
   try {
@@ -33,7 +34,10 @@ function ImageNodeContent({
   }, [data.url])
 
   const hasImage = Boolean(data.url) && !failed
-  const showDetails = selected && data.isSoleSelection !== false
+  const isLayerMode = data.node?.type === 'image' && data.node.data.displayMode === 'layer'
+  const showResizer = isLayerMode && selected && data.isSoleSelection !== false
+  const showDetails = selected && data.isSoleSelection !== false && !isLayerMode
+  const modelData = data.node?.type === 'image' ? data.node.data : undefined
 
   const thumbnailUrl =
     data.thumbnailUrl ||
@@ -46,13 +50,35 @@ function ImageNodeContent({
 
   return (
     <article
-      className="canvas-media-node"
+      className={`canvas-media-node${isLayerMode ? ' canvas-media-node--layer-mode' : ''}`}
       data-node-kind="image"
       data-generation-status={data.generation?.status}
       data-reference-candidate={data.referencePickCandidate || undefined}
       data-reference-target={data.referencePickTarget || undefined}
+      data-selected={selected || undefined}
       aria-label={data.name}
+      style={{
+        opacity: modelData?.opacity !== undefined ? modelData.opacity : undefined,
+        transform: modelData?.rotation ? `rotate(${modelData.rotation}deg)` : undefined,
+      }}
     >
+      <NodeResizer
+        isVisible={showResizer}
+        minWidth={40}
+        minHeight={40}
+        lineClassName="canvas-node-resizer__line"
+        handleClassName="canvas-node-resizer__handle"
+        onResizeStart={() => {
+          resizeGranted.current = data.onResizeStart?.(id) ?? true
+        }}
+        shouldResize={() => resizeGranted.current}
+        onResize={(_event, { width, height }) => {
+          if (resizeGranted.current) data.onResizePreview?.(id, { width, height })
+        }}
+        onResizeEnd={(_event, { width, height }) =>
+          resizeGranted.current ? data.onResize?.(id, { width, height }) : undefined
+        }
+      />
       <EditableNodeLabel
         name={data.name}
         nodeId={id}
@@ -65,13 +91,26 @@ function ImageNodeContent({
         isConnectable={isConnectable}
         onPointerDown={data.onConnectionPointerDown}
       />
-      <div className="canvas-media-node__frame">
+      <div
+        className="canvas-media-node__frame"
+        style={{
+          borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
+          border: modelData?.stroke
+            ? `${modelData.strokeWidth ?? 1}px solid ${modelData.stroke}`
+            : undefined,
+          overflow: 'hidden',
+        }}
+      >
         {hasThumbnail ? (
           <img
             alt={data.alt ?? data.name}
             className="canvas-media-node__content canvas-image-thumbnail"
             draggable={false}
             src={thumbnailUrl}
+            style={{
+              objectFit: modelData?.objectFit ?? 'cover',
+              borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
+            }}
           />
         ) : null}
         {hasImage && shouldRenderHighRes ? (
@@ -80,6 +119,10 @@ function ImageNodeContent({
             src={data.url}
             alt={data.alt ?? data.name}
             draggable={false}
+            style={{
+              objectFit: modelData?.objectFit ?? 'cover',
+              borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
+            }}
             onLoad={(event) => {
               setHighResLoaded(true)
               data.onImageNaturalSize?.(
