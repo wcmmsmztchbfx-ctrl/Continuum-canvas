@@ -88,31 +88,52 @@ export function InspectorPanel({
     (styleChange: Partial<{ fontSize: number; fontWeight: number; color: string; letterSpacing: number; lineHeight: number }>) => {
       if (!activeNode || readOnly) return
 
-      const selection = window.getSelection()
       const textNodeEditor = document.querySelector<HTMLElement>(
         `[data-node-kind="text"][data-selected="true"] .canvas-text-node__editor, [data-node-kind="text"][data-selected="true"] [contenteditable="true"]`
       )
 
-      if (textNodeEditor && selection && !selection.isCollapsed && selection.rangeCount > 0) {
-        const range = selection.getRangeAt(0)
-        if (textNodeEditor.contains(range.commonAncestorContainer)) {
-          const span = document.createElement('span')
-          if (styleChange.fontSize !== undefined) span.style.fontSize = `${styleChange.fontSize}px`
-          if (styleChange.fontWeight !== undefined) span.style.fontWeight = String(styleChange.fontWeight)
-          if (styleChange.color !== undefined) span.style.color = styleChange.color
-          if (styleChange.letterSpacing !== undefined) span.style.letterSpacing = `${styleChange.letterSpacing}px`
-          if (styleChange.lineHeight !== undefined) span.style.lineHeight = String(styleChange.lineHeight)
+      if (textNodeEditor) {
+        let activeSpan = textNodeEditor.querySelector<HTMLElement>('[data-active-span="true"]')
 
-          try {
-            const extracted = range.extractContents()
-            span.appendChild(extracted)
-            range.insertNode(span)
-            const updatedHtml = textNodeEditor.innerHTML
-            store.getState().patchNode(activeNode.id, {
-              data: { text: updatedHtml, ...styleChange },
-            })
-            return
-          } catch {}
+        if (!activeSpan) {
+          const selection = window.getSelection()
+          if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0)
+            if (textNodeEditor.contains(range.commonAncestorContainer)) {
+              const parentSpan = range.commonAncestorContainer.parentElement?.closest('span')
+              if (parentSpan && textNodeEditor.contains(parentSpan) && parentSpan.textContent === range.toString()) {
+                activeSpan = parentSpan
+                activeSpan.setAttribute('data-active-span', 'true')
+              } else {
+                const span = document.createElement('span')
+                span.setAttribute('data-active-span', 'true')
+                try {
+                  const extracted = range.extractContents()
+                  span.appendChild(extracted)
+                  range.insertNode(span)
+                  activeSpan = span
+                  const newRange = document.createRange()
+                  newRange.selectNodeContents(span)
+                  selection.removeAllRanges()
+                  selection.addRange(newRange)
+                } catch {}
+              }
+            }
+          }
+        }
+
+        if (activeSpan) {
+          if (styleChange.fontSize !== undefined) activeSpan.style.fontSize = `${styleChange.fontSize}px`
+          if (styleChange.fontWeight !== undefined) activeSpan.style.fontWeight = String(styleChange.fontWeight)
+          if (styleChange.color !== undefined) activeSpan.style.color = styleChange.color
+          if (styleChange.letterSpacing !== undefined) activeSpan.style.letterSpacing = `${styleChange.letterSpacing}px`
+          if (styleChange.lineHeight !== undefined) activeSpan.style.lineHeight = String(styleChange.lineHeight)
+
+          const updatedHtml = textNodeEditor.innerHTML
+          store.getState().patchNode(activeNode.id, {
+            data: { text: updatedHtml },
+          })
+          return
         }
       }
 

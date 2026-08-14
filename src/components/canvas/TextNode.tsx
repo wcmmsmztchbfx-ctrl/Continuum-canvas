@@ -27,7 +27,7 @@ export function TextNode({
 
   useEffect(() => {
     setText(data.text ?? '')
-    if (editorRef.current && editing) {
+    if (editorRef.current && !editing) {
       editorRef.current.innerHTML = data.text ?? ''
     }
   }, [data.text, editing])
@@ -58,6 +58,14 @@ export function TextNode({
   const finishEditing = () => {
     if (!editing || finishingRef.current) return
     finishingRef.current = true
+    if (editorRef.current) {
+      editorRef.current.querySelectorAll('[data-active-span]').forEach((el) => {
+        el.removeAttribute('data-active-span')
+      })
+      const cleanHtml = editorRef.current.innerHTML
+      setText(cleanHtml)
+      data.onTextChange?.(id, cleanHtml)
+    }
     setEditing(false)
     data.onInteractionEnd?.(id, 'text')
   }
