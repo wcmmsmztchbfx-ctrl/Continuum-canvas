@@ -116,8 +116,8 @@ select:focus-visible {
 }
 
 .app-layer-sidebar__content {
-  display: grid;
-  grid-template-rows: 56px minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
   height: 100%;
@@ -156,6 +156,7 @@ select:focus-visible {
   user-select: none;
 }
 
+.app-layer-sidebar__content > .workspace-menu,
 .app-layer-sidebar > .workspace-menu {
   position: relative;
   top: auto;
@@ -163,13 +164,16 @@ select:focus-visible {
   align-self: center;
   width: calc(100% - 16px);
   height: 36px;
-  margin: 0 8px;
+  min-height: 36px;
+  margin: 10px 8px;
   padding: 0 7px;
   background: transparent;
   border-color: transparent;
   box-shadow: none;
+  flex-shrink: 0;
 }
 
+.app-layer-sidebar__content > .workspace-menu:hover,
 .app-layer-sidebar > .workspace-menu:hover {
   background: #2d2d2d;
   border-color: #3a3a3a;
