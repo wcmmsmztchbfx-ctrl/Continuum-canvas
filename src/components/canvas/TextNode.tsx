@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Clapperboard } from 'lucide-react'
 import { NodeResizer, Position, type NodeProps } from '@xyflow/react'
 
+import { sanitizeTextHtml } from '../../utils/richText'
 import type { CanvasFlowNode } from './mapping'
 import { EditableNodeLabel } from './EditableNodeLabel'
 import { NodeHandle } from './NodeHandle'
@@ -225,7 +226,7 @@ export function TextNode({
             }}
           >
             {/<[a-z][\s\S]*>/i.test(text) ? (
-              <div style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit', display: 'inline' }} dangerouslySetInnerHTML={{ __html: text }} />
+              <div style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit', display: 'inline' }} dangerouslySetInnerHTML={{ __html: sanitizeTextHtml(text) }} />
             ) : (
               <span style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit' }}>
                 {text || '文本节点'}
