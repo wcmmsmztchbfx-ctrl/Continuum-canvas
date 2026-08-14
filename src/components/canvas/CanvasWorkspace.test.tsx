@@ -536,7 +536,7 @@ describe('CanvasWorkspace', () => {
     expect(props.minZoom).toBe(0.1)
     expect(props.maxZoom).toBe(8)
     expect(props.connectionRadius).toBeCloseTo(320)
-    expect(props.onlyRenderVisibleElements).toBe(false)
+    expect(props.onlyRenderVisibleElements).toBe(true)
     expect(props.selectionOnDrag).toBe(true)
     expect(props.multiSelectionKeyCode).toEqual(['Shift', 'Meta', 'Control'])
     expect(props.deleteKeyCode).toEqual(['Backspace', 'Delete'])
