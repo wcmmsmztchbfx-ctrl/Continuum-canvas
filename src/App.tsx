@@ -52,7 +52,6 @@ import {
 } from './components/shell'
 import { InspectorPanel } from './components/inspector/InspectorPanel'
 import {
-  bootstrapReferenceProject,
   defaultProjectPersistenceQueue,
   defaultProjectRepository,
   loadUiPreferences,
@@ -123,13 +122,20 @@ const sidePanelKinds: ReadonlyArray<SidePanelKind> = [
 
 const mockApi = new MockApi()
 const ACTIVE_PROJECT_STORAGE_KEY = 'libtv.active-project.v1'
-let bootstrapPromise: ReturnType<typeof bootstrapReferenceProject> | undefined
-let workspacePromise: ReturnType<MockApi['createWorkspace']> | undefined
-
-function ensureReferenceProject() {
-  bootstrapPromise ??= bootstrapReferenceProject()
-  return bootstrapPromise
+const DEFAULT_INITIAL_PROJECT: ProjectSnapshot = {
+  version: 1,
+  projectId: 'default-project',
+  name: '画布 1',
+  viewport: { x: 0, y: 0, zoom: 1 },
+  nodes: [],
+  edges: [],
 }
+
+async function ensureReferenceProject(): Promise<ProjectSnapshot> {
+  return DEFAULT_INITIAL_PROJECT
+}
+
+let workspacePromise: ReturnType<MockApi['createWorkspace']> | undefined
 
 function ensureMockWorkspace() {
   workspacePromise ??= mockApi.createWorkspace('未命名工作区')
