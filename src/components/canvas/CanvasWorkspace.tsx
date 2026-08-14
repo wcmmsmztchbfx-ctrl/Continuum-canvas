@@ -1769,15 +1769,26 @@ export function CanvasWorkspace({
   useEffect(() => {
     if (!focusNodeRequest?.id || !flowInstance) return
     const target = flowInstance.getNode(focusNodeRequest.id)
-    if (target) {
-      void flowInstance.fitView({
-        nodes: [{ id: focusNodeRequest.id }],
+    const modelNode = store.getState().snapshot.nodes.find((n) => n.id === focusNodeRequest.id)
+    if (target && modelNode) {
+      const nodeWidth = modelNode.size.width
+      const nodeHeight = modelNode.size.height
+      const hasGenerator = modelNode.type === 'image' || modelNode.type === 'video'
+      
+      const visualCenterX = target.position.x + nodeWidth / 2
+      const visualCenterY = target.position.y + nodeHeight / 2 + (hasGenerator ? 100 : 0)
+      
+      const stageHeight = workspaceRef.current?.clientHeight ?? window.innerHeight
+      const availableHeight = Math.max(320, stageHeight - 160)
+      const totalVisualHeight = nodeHeight + (hasGenerator ? 280 : 0)
+      const targetZoom = Math.min(1.0, Math.max(0.4, availableHeight / totalVisualHeight))
+
+      void flowInstance.setCenter(visualCenterX, visualCenterY, {
         duration: 600,
-        padding: 0.6,
-        maxZoom: 1.5,
+        zoom: targetZoom,
       })
     }
-  }, [focusNodeRequest, flowInstance])
+  }, [focusNodeRequest, flowInstance, store])
 
   const syncSelection = useCallback(
     (ids: string[]) => {

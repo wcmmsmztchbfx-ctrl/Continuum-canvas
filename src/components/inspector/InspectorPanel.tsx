@@ -84,6 +84,43 @@ export function InspectorPanel({
     [activeNode, readOnly, store],
   )
 
+  const updateTypography = useCallback(
+    (styleChange: Partial<{ fontSize: number; fontWeight: number; color: string; letterSpacing: number; lineHeight: number }>) => {
+      if (!activeNode || readOnly) return
+
+      const selection = window.getSelection()
+      const textNodeEditor = document.querySelector<HTMLElement>(
+        `[data-node-kind="text"][data-selected="true"] .canvas-text-node__editor, [data-node-kind="text"][data-selected="true"] [contenteditable="true"]`
+      )
+
+      if (textNodeEditor && selection && !selection.isCollapsed && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0)
+        if (textNodeEditor.contains(range.commonAncestorContainer)) {
+          const span = document.createElement('span')
+          if (styleChange.fontSize !== undefined) span.style.fontSize = `${styleChange.fontSize}px`
+          if (styleChange.fontWeight !== undefined) span.style.fontWeight = String(styleChange.fontWeight)
+          if (styleChange.color !== undefined) span.style.color = styleChange.color
+          if (styleChange.letterSpacing !== undefined) span.style.letterSpacing = `${styleChange.letterSpacing}px`
+          if (styleChange.lineHeight !== undefined) span.style.lineHeight = String(styleChange.lineHeight)
+
+          try {
+            const extracted = range.extractContents()
+            span.appendChild(extracted)
+            range.insertNode(span)
+            const updatedHtml = textNodeEditor.innerHTML
+            store.getState().patchNode(activeNode.id, {
+              data: { text: updatedHtml, ...styleChange },
+            })
+            return
+          } catch {}
+        }
+      }
+
+      updateActiveData(styleChange)
+    },
+    [activeNode, readOnly, store, updateActiveData],
+  )
+
   const handleNameChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (!activeNode || readOnly) return
     store.getState().renameNode(activeNode.id, e.target.value)
@@ -545,7 +582,7 @@ export function InspectorPanel({
                   label="字号"
                   max={256}
                   min={8}
-                  onChange={(val) => updateActiveData({ fontSize: val })}
+                  onChange={(val) => updateTypography({ fontSize: val })}
                   value={(activeNode as TextNode).data.fontSize ?? 14}
                 />
                 <input
@@ -553,7 +590,7 @@ export function InspectorPanel({
                   className="inspector-field__input"
                   disabled={readOnly || isLocked}
                   min={8}
-                  onChange={(e) => updateActiveData({ fontSize: Number(e.target.value) || 14 })}
+                  onChange={(e) => updateTypography({ fontSize: Number(e.target.value) || 14 })}
                   type="number"
                   value={(activeNode as TextNode).data.fontSize ?? 14}
                 />
@@ -564,7 +601,7 @@ export function InspectorPanel({
                   aria-label="字重"
                   className="inspector-select"
                   disabled={readOnly || isLocked}
-                  onChange={(e) => updateActiveData({ fontWeight: Number(e.target.value) })}
+                  onChange={(e) => updateTypography({ fontWeight: Number(e.target.value) })}
                   style={{ border: 'none', background: 'transparent', height: '100%', padding: 0 }}
                   value={(activeNode as TextNode).data.fontWeight ?? 400}
                 >
@@ -583,7 +620,7 @@ export function InspectorPanel({
                   label="行高"
                   max={4}
                   min={0.8}
-                  onChange={(val) => updateActiveData({ lineHeight: val })}
+                  onChange={(val) => updateTypography({ lineHeight: val })}
                   step={0.1}
                   value={Number(((activeNode as TextNode).data.lineHeight ?? 1.5).toFixed(1))}
                 />
@@ -593,7 +630,7 @@ export function InspectorPanel({
                   disabled={readOnly || isLocked}
                   max={4}
                   min={0.8}
-                  onChange={(e) => updateActiveData({ lineHeight: Number(e.target.value) || 1.5 })}
+                  onChange={(e) => updateTypography({ lineHeight: Number(e.target.value) || 1.5 })}
                   step={0.1}
                   type="number"
                   value={Number(((activeNode as TextNode).data.lineHeight ?? 1.5).toFixed(1))}
@@ -604,7 +641,7 @@ export function InspectorPanel({
                   label="间距"
                   max={50}
                   min={-10}
-                  onChange={(val) => updateActiveData({ letterSpacing: val })}
+                  onChange={(val) => updateTypography({ letterSpacing: val })}
                   value={Math.round((activeNode as TextNode).data.letterSpacing ?? 0)}
                 />
                 <input
@@ -613,7 +650,7 @@ export function InspectorPanel({
                   disabled={readOnly || isLocked}
                   max={50}
                   min={-10}
-                  onChange={(e) => updateActiveData({ letterSpacing: Number(e.target.value) || 0 })}
+                  onChange={(e) => updateTypography({ letterSpacing: Number(e.target.value) || 0 })}
                   type="number"
                   value={Math.round((activeNode as TextNode).data.letterSpacing ?? 0)}
                 />

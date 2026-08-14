@@ -18,7 +18,7 @@ export function TextNode({
   const finishingRef = useRef(false)
   const handledLeaseLoss = useRef(data.interactionLeaseLost)
   const resizeGranted = useRef(false)
-  const editorRef = useRef<HTMLTextAreaElement>(null)
+  const editorRef = useRef<HTMLDivElement | null>(null)
   const autoStarted = useRef(false)
   const showDetails = selected && data.isSoleSelection !== false
   const model = data.node?.type === 'text' ? data.node : undefined
@@ -76,7 +76,7 @@ export function TextNode({
     if (autoWidth) {
       const measure = document.createElement('span')
       measure.style.cssText = `position:fixed;visibility:hidden;white-space:pre;font:${model?.data.fontWeight ?? 500} ${model?.data.fontSize ?? 24}px ${model?.data.fontFamily ?? 'sans-serif'}`
-      measure.textContent = text || '输入文字'
+      measure.innerHTML = text || '输入文字'
       document.body.append(measure)
       const width = Math.min(640, Math.max(80, measure.getBoundingClientRect().width + 8))
       measure.remove()
@@ -123,11 +123,20 @@ export function TextNode({
       /> : null}
       <div className="canvas-media-node__frame canvas-text-node__frame">
         {editing ? (
-          <textarea
+          <div
             aria-label="文本节点内容"
             autoFocus
             className="canvas-text-node__editor nodrag nowheel"
-            ref={editorRef}
+            contentEditable
+            role="textbox"
+            suppressContentEditableWarning
+            ref={(node) => {
+              editorRef.current = node
+              if (node && !node.dataset.initialized) {
+                node.dataset.initialized = 'true'
+                node.innerHTML = text || ''
+              }
+            }}
             style={{
               fontSize: `${model?.data.fontSize ?? 14}px`,
               fontWeight: model?.data.fontWeight ?? 400,
@@ -136,20 +145,26 @@ export function TextNode({
               color: model?.data.color ?? '#ffffff',
               textAlign: model?.data.textAlign ?? 'left',
               fontFamily: model?.data.fontFamily ?? 'inherit',
+              outline: 0,
+              minHeight: '100%',
+              width: '100%',
+              boxSizing: 'border-box',
+              padding: '8px',
+              wordBreak: 'break-word',
+              whiteSpace: 'pre-wrap',
             }}
-            onChange={(event) => {
-              const nextText = event.target.value
+            onInput={(event) => {
+              const nextText = event.currentTarget.innerHTML
               setText(nextText)
               data.onTextChange?.(id, nextText)
             }}
             onBlur={finishEditing}
             onKeyDown={(event) => {
-              if (event.key !== 'Escape') return
-              event.preventDefault()
-              finishEditing()
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                finishEditing()
+              }
             }}
-            placeholder="输入文本、脚本或镜头说明"
-            value={text}
           />
         ) : showDetails && !text.trim() && data.onCreateConnected ? (
           <div
@@ -198,9 +213,13 @@ export function TextNode({
               whiteSpace: 'pre-wrap',
             }}
           >
-            <p style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit' }}>
-              {text || '文本节点'}
-            </p>
+            {/<[a-z][\s\S]*>/i.test(text) ? (
+              <div style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit' }} dangerouslySetInnerHTML={{ __html: text }} />
+            ) : (
+              <p style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit' }}>
+                {text || '文本节点'}
+              </p>
+            )}
           </div>
         )}
         {lockMessage ? <p className="canvas-node-lock-message" role="status">{lockMessage}</p> : null}
