@@ -815,7 +815,7 @@ export class CanvasCollaborationController {
 
   private snapshotFromProject(snapshot: ProjectSnapshotV1): CanvasSnapshotV2 {
     if (snapshot.projectId !== this.options.projectId) {
-      throw new Error('The collaboration canvas scope does not match the current document')
+      throw new Error('协同画布作用域与当前文档不匹配 (The collaboration canvas scope does not match the current document)')
     }
     return {
       ...snapshot,
@@ -827,13 +827,13 @@ export class CanvasCollaborationController {
 
   private assertScope(session: CollaborationSession): void {
     if (session.canvasId !== this.options.canvasId || session.projectId !== this.options.projectId) {
-      throw new Error('The collaboration room belongs to another canvas')
+      throw new Error('该协同房间属于其他画布 (The collaboration room belongs to another canvas)')
     }
   }
 
   private requireOwnerRoom(): CollaborationRoom {
     if (!this.state.room || this.state.session?.role !== 'owner') {
-      throw new Error('Only the collaboration owner can manage this room')
+      throw new Error('仅协作房间房主有权管理此房间 (Only the collaboration owner can manage this room)')
     }
     return this.state.room
   }

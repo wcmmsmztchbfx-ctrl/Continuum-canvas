@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Pause, Play } from 'lucide-react'
+import { Pause, Play, Volume2, VolumeX } from 'lucide-react'
 import {
   NodeResizer,
   Position,
@@ -15,6 +15,14 @@ import { NodeGeneratorPanel } from './NodeGeneratorPanel'
 import { NodeHandle } from './NodeHandle'
 import './canvas.css'
 
+function formatVideoTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '00:00'
+  const total = Math.floor(seconds)
+  const mins = Math.floor(total / 60)
+  const secs = total % 60
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+}
+
 function VideoNodeContent({
   id,
   data,
@@ -23,11 +31,17 @@ function VideoNodeContent({
 }: NodeProps<CanvasFlowNode>) {
   const [failed, setFailed] = useState(false)
   const [playing, setPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [muted, setMuted] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const isSeeking = useRef(false)
   const resizeGranted = useRef(false)
   useEffect(() => {
     setFailed(false)
     setPlaying(false)
+    setCurrentTime(0)
+    setDuration(0)
   }, [data.url])
   const hasVideo = Boolean(data.url) && !failed
   const hasPoster = !hasVideo && Boolean(data.poster)
@@ -42,6 +56,19 @@ function VideoNodeContent({
       video.pause()
       setPlaying(false)
     }
+  }
+
+  const toggleMute = () => {
+    const video = videoRef.current
+    if (!video) return
+    video.muted = !video.muted
+    setMuted(video.muted)
+  }
+
+  const handleSeek = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const time = Number(event.target.value)
+    setCurrentTime(time)
+    if (videoRef.current) videoRef.current.currentTime = time
   }
 
   return (
@@ -87,7 +114,18 @@ function VideoNodeContent({
           <video
             className="canvas-media-node__content"
             draggable={false}
+            onDurationChange={() => {
+              if (videoRef.current) setDuration(videoRef.current.duration || 0)
+            }}
             onEnded={() => setPlaying(false)}
+            onLoadedMetadata={() => {
+              if (videoRef.current) setDuration(videoRef.current.duration || 0)
+            }}
+            onTimeUpdate={() => {
+              if (!isSeeking.current && videoRef.current) {
+                setCurrentTime(videoRef.current.currentTime)
+              }
+            }}
             src={data.url}
             poster={data.poster}
             ref={videoRef}
@@ -114,6 +152,51 @@ function VideoNodeContent({
           >
             {playing ? <Pause size={34} /> : <Play size={38} fill="currentColor" />}
           </button>
+        ) : null}
+        {hasVideo ? (
+          <div
+            aria-label="视频播放进度控制"
+            className="canvas-video-scrubber nodrag nopan"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <button
+              aria-label={playing ? '暂停' : '播放'}
+              className="canvas-video-scrubber__play-btn"
+              onClick={togglePlayback}
+              type="button"
+            >
+              {playing ? <Pause size={13} /> : <Play size={13} fill="currentColor" />}
+            </button>
+            <div className="canvas-video-scrubber__track-wrap">
+              <input
+                aria-label="播放进度"
+                className="canvas-video-scrubber__slider"
+                max={duration > 0 ? duration : 100}
+                min={0}
+                onChange={handleSeek}
+                onPointerDown={() => {
+                  isSeeking.current = true
+                }}
+                onPointerUp={() => {
+                  isSeeking.current = false
+                }}
+                step={0.05}
+                type="range"
+                value={currentTime}
+              />
+            </div>
+            <span className="canvas-video-scrubber__time">
+              {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
+            </span>
+            <button
+              aria-label={muted ? '取消静音' : '静音'}
+              className="canvas-video-scrubber__mute-btn"
+              onClick={toggleMute}
+              type="button"
+            >
+              {muted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+            </button>
+          </div>
         ) : null}
         {data.generation?.status === 'generating' ? (
           <GenerationOverlay />

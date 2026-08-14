@@ -139,13 +139,29 @@ export interface CanvasStoreState {
   applyEntityChanges: (changes: CanvasEntityChangeSet) => void
 }
 
+const MAX_UNDO_STACK_SIZE = 100
+
 export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
   const past: ProjectSnapshot[] = []
   const future: ProjectSnapshot[] = []
 
   return createStore<CanvasStoreState>((set, get) => {
-    const sameEntity = (left: unknown, right: unknown) =>
-      JSON.stringify(left) === JSON.stringify(right)
+    const sameEntity = (left: unknown, right: unknown): boolean => {
+      if (left === right) return true
+      if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false
+      const a = left as Record<string, unknown>
+      const b = right as Record<string, unknown>
+      if (a.id !== b.id || a.type !== b.type || a.name !== b.name || a.parentId !== b.parentId) return false
+      if (a.hidden !== b.hidden || a.locked !== b.locked) return false
+      if (a.source !== b.source || a.target !== b.target || a.relation !== b.relation) return false
+      const posA = a.position as Point | undefined
+      const posB = b.position as Point | undefined
+      if (posA && posB && (posA.x !== posB.x || posA.y !== posB.y)) return false
+      const sizeA = a.size as NodeSize | undefined
+      const sizeB = b.size as NodeSize | undefined
+      if (sizeA && sizeB && (sizeA.width !== sizeB.width || sizeA.height !== sizeB.height)) return false
+      return JSON.stringify(left) === JSON.stringify(right)
+    }
     const reconcileEntities = <T extends { id: string }>(current: readonly T[], incoming: readonly T[]) => {
       const currentById = new Map(current.map((entity) => [entity.id, entity]))
       return incoming.map((entity) => {
@@ -158,6 +174,9 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
       if (next === current) return
 
       past.push(current)
+      if (past.length > MAX_UNDO_STACK_SIZE) {
+        past.shift()
+      }
       future.length = 0
       set({ snapshot: { ...next, nodes: normalizeCanvasHierarchy(next.nodes) }, canUndo: true, canRedo: false })
     }

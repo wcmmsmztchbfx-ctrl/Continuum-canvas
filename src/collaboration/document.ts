@@ -95,7 +95,7 @@ function consumeDecodeEntries(budget: DecodeBudget, count: number): void {
   budget.entries += count
   if (budget.entries > COLLABORATIVE_DECODE_LIMITS.maxEntries) {
     throw new Error(
-      `Collaborative canvas document exceeds maximum decoded entries of ${COLLABORATIVE_DECODE_LIMITS.maxEntries}`,
+      `协同画布文档解码条目数超过最大限制 ${COLLABORATIVE_DECODE_LIMITS.maxEntries} (Collaborative canvas document exceeds maximum decoded entries of ${COLLABORATIVE_DECODE_LIMITS.maxEntries})`,
     )
   }
 }
@@ -107,14 +107,14 @@ function decodeValue(
 ): unknown {
   if (depth > COLLABORATIVE_DECODE_LIMITS.maxDepth) {
     throw new Error(
-      `Collaborative canvas document exceeds maximum decode depth of ${COLLABORATIVE_DECODE_LIMITS.maxDepth}`,
+      `协同画布文档嵌套深度超过最大限制 ${COLLABORATIVE_DECODE_LIMITS.maxDepth} (Collaborative canvas document exceeds maximum decode depth of ${COLLABORATIVE_DECODE_LIMITS.maxDepth})`,
     )
   }
   if (value instanceof Y.Text) return value.toString()
   if (value instanceof Y.Array) {
     if (value.length > COLLABORATIVE_DECODE_LIMITS.maxArrayLength) {
       throw new Error(
-        `Collaborative canvas document exceeds maximum array length of ${COLLABORATIVE_DECODE_LIMITS.maxArrayLength}`,
+        `协同画布文档数组长度超过最大限制 ${COLLABORATIVE_DECODE_LIMITS.maxArrayLength} (Collaborative canvas document exceeds maximum array length of ${COLLABORATIVE_DECODE_LIMITS.maxArrayLength})`,
       )
     }
     consumeDecodeEntries(budget, value.length)
@@ -163,13 +163,13 @@ function registerCollaborativeRoots(doc: Y.Doc): void {
 function assertCollaborativeRootStructure(doc: Y.Doc): void {
   for (const [key, root] of doc.share.entries()) {
     if (!COLLABORATIVE_ROOT_KEYS.has(key)) {
-      throw new Error(`Invalid collaborative canvas document root: ${key}`)
+      throw new Error(`协同画布文档包含无效根节点: ${key} (Invalid collaborative canvas document root: ${key})`)
     }
     if (MAP_ROOT_KEYS.includes(key as (typeof MAP_ROOT_KEYS)[number]) && !(root instanceof Y.Map)) {
-      throw new Error(`Invalid collaborative canvas document map root: ${key}`)
+      throw new Error(`协同画布文档 Map 根节点类型无效: ${key} (Invalid collaborative canvas document map root: ${key})`)
     }
     if (ARRAY_ROOT_KEYS.includes(key as (typeof ARRAY_ROOT_KEYS)[number]) && !(root instanceof Y.Array)) {
-      throw new Error(`Invalid collaborative canvas document array root: ${key}`)
+      throw new Error(`协同画布文档 Array 根节点类型无效: ${key} (Invalid collaborative canvas document array root: ${key})`)
     }
   }
 }

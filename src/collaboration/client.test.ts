@@ -212,7 +212,7 @@ describe('CollaborationClient', () => {
     expect(error).toMatchObject({
       status: 403,
       code: 'collaboration_forbidden',
-      message: 'Collaboration access was denied',
+      message: '协作访问已被拒绝（无权限）',
     })
     expect((error as Error).stack).not.toMatch(/fragment-secret|must-not-leak/)
     expect(String(error)).not.toMatch(/fragment-secret|must-not-leak/)

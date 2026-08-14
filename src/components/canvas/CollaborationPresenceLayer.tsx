@@ -1,6 +1,6 @@
 import { MousePointer2 } from 'lucide-react'
 import { ViewportPortal, useStore as useReactFlowStore } from '@xyflow/react'
-import { useCallback, type CSSProperties } from 'react'
+import { memo, useCallback, useMemo, type CSSProperties } from 'react'
 
 import type { PresenceState } from '../../contracts/collaboration'
 
@@ -16,10 +16,53 @@ interface RemoteNodeBox {
   height: number
 }
 
-export function CollaborationPresenceLayer({
-  presence,
-}: CollaborationPresenceLayerProps) {
-  const visiblePresence = presence.slice(0, 10)
+const RemoteCursorsLayer = memo(function RemoteCursorsLayer({
+  visiblePresence,
+}: {
+  visiblePresence: readonly PresenceState[]
+}) {
+  return (
+    <>
+      {visiblePresence.flatMap((remote) =>
+        remote.cursor ? [
+          (
+            <div
+              className="collaboration-remote-cursor"
+              data-remote-cursor={remote.member.memberId}
+              key={`${remote.member.memberId}:${remote.clientId}`}
+              style={{
+                '--presence-color': remote.member.color,
+                transform: `translate(${remote.cursor.x}px, ${remote.cursor.y}px)`,
+              } as CSSProperties}
+            >
+              <MousePointer2 aria-hidden="true" />
+              <span>{remote.member.displayName}</span>
+            </div>
+          ),
+        ] : [],
+      )}
+    </>
+  )
+})
+
+const RemoteSelectionsAndLocksLayer = memo(function RemoteSelectionsAndLocksLayer({
+  visiblePresence,
+}: {
+  visiblePresence: readonly PresenceState[]
+}) {
+  const selectionKey = useMemo(
+    () =>
+      visiblePresence
+        .map(
+          (remote) =>
+            `${remote.member.memberId}:${remote.selection.nodeIds.join(',')}:${
+              remote.interactionPreview?.nodes.map((n) => `${n.nodeId}-${n.position?.x}-${n.position?.y}`).join(',') ?? ''
+            }:${remote.lease?.nodeIds.join(',') ?? ''}`,
+        )
+        .join('|'),
+    [visiblePresence],
+  )
+
   const nodeBoxes = useReactFlowStore(
     useCallback((state): Map<string, RemoteNodeBox> => {
       const nodeIds = new Set<string>()
@@ -44,78 +87,96 @@ export function CollaborationPresenceLayer({
         })
       }
       return boxes
-    }, [visiblePresence]),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectionKey]),
   )
+
+  return (
+    <>
+      {visiblePresence.flatMap((remote) =>
+        remote.selection.nodeIds.slice(0, 500).map((nodeId) => {
+          const box = nodeBoxes.get(nodeId)
+          if (!box) return null
+          return (
+            <div
+              className="collaboration-remote-selection"
+              data-remote-member={remote.member.memberId}
+              data-remote-selection={box.nodeId}
+              key={`${remote.member.memberId}:${box.nodeId}`}
+              style={{
+                '--presence-color': remote.member.color,
+                height: box.height,
+                transform: `translate(${box.x}px, ${box.y}px)`,
+                width: box.width,
+              } as CSSProperties}
+            >
+              <span>{remote.member.displayName}</span>
+            </div>
+          )
+        }),
+      )}
+      {visiblePresence.flatMap((remote) =>
+        remote.interactionPreview?.nodes.map((preview) => {
+          const box = nodeBoxes.get(preview.nodeId)
+          if (!box) return null
+          return (
+            <div
+              className="collaboration-remote-preview"
+              data-remote-preview={preview.nodeId}
+              key={`preview:${remote.clientId}:${preview.nodeId}`}
+              style={{
+                '--presence-color': remote.member.color,
+                height: preview.height ?? box.height,
+                transform: `translate(${preview.position?.x ?? box.x}px, ${preview.position?.y ?? box.y}px)`,
+                width: preview.width ?? box.width,
+              } as CSSProperties}
+            />
+          )
+        }),
+      )}
+      {visiblePresence.flatMap((remote) =>
+        remote.lease?.nodeIds.map((nodeId) => {
+          const box = nodeBoxes.get(nodeId)
+          if (!box) return null
+          const label =
+            remote.lease?.kind === 'resize'
+              ? '调整大小'
+              : remote.lease?.kind === 'bulk'
+                ? '批量操作'
+                : '移动中'
+          return (
+            <div
+              className="collaboration-remote-lock"
+              data-remote-lock={nodeId}
+              key={`lock:${remote.clientId}:${nodeId}`}
+              style={{
+                '--presence-color': remote.member.color,
+                height: box.height,
+                transform: `translate(${box.x}px, ${box.y}px)`,
+                width: box.width,
+              } as CSSProperties}
+            >
+              <span>
+                {remote.member.displayName} · {label}
+              </span>
+            </div>
+          )
+        }),
+      )}
+    </>
+  )
+})
+
+export function CollaborationPresenceLayer({
+  presence,
+}: CollaborationPresenceLayerProps) {
+  const visiblePresence = presence.slice(0, 10)
 
   return (
     <ViewportPortal>
       <div aria-hidden="true" className="collaboration-presence-layer">
-        {visiblePresence.flatMap((remote) => remote.selection.nodeIds.slice(0, 500).map((nodeId) => {
-          const box = nodeBoxes.get(nodeId)
-          if (!box) return null
-          return (
-          <div
-            className="collaboration-remote-selection"
-            data-remote-member={remote.member.memberId}
-            data-remote-selection={box.nodeId}
-            key={`${remote.member.memberId}:${box.nodeId}`}
-            style={{
-              '--presence-color': remote.member.color,
-              height: box.height,
-              transform: `translate(${box.x}px, ${box.y}px)`,
-              width: box.width,
-            } as CSSProperties}
-          >
-            <span>{remote.member.displayName}</span>
-          </div>
-          )
-        }))}
-        {visiblePresence.flatMap((remote) => remote.interactionPreview?.nodes.map((preview) => {
-          const box = nodeBoxes.get(preview.nodeId)
-          if (!box) return null
-          return <div
-            className="collaboration-remote-preview"
-            data-remote-preview={preview.nodeId}
-            key={`preview:${remote.clientId}:${preview.nodeId}`}
-            style={{
-              '--presence-color': remote.member.color,
-              height: preview.height ?? box.height,
-              transform: `translate(${preview.position?.x ?? box.x}px, ${preview.position?.y ?? box.y}px)`,
-              width: preview.width ?? box.width,
-            } as CSSProperties}
-          />
-        }))}
-        {visiblePresence.flatMap((remote) => remote.lease?.nodeIds.map((nodeId) => {
-          const box = nodeBoxes.get(nodeId)
-          if (!box) return null
-          const label = remote.lease?.kind === 'resize' ? '调整大小' :
-            remote.lease?.kind === 'bulk' ? '批量操作' : '移动中'
-          return <div
-            className="collaboration-remote-lock"
-            data-remote-lock={nodeId}
-            key={`lock:${remote.clientId}:${nodeId}`}
-            style={{
-              '--presence-color': remote.member.color,
-              height: box.height,
-              transform: `translate(${box.x}px, ${box.y}px)`,
-              width: box.width,
-            } as CSSProperties}
-          ><span>{remote.member.displayName} · {label}</span></div>
-        }))}
-        {visiblePresence.flatMap((remote) => remote.cursor ? [(
-          <div
-            className="collaboration-remote-cursor"
-            data-remote-cursor={remote.member.memberId}
-            key={`${remote.member.memberId}:${remote.clientId}`}
-            style={{
-              '--presence-color': remote.member.color,
-              transform: `translate(${remote.cursor.x}px, ${remote.cursor.y}px)`,
-            } as CSSProperties}
-          >
-            <MousePointer2 aria-hidden="true" />
-            <span>{remote.member.displayName}</span>
-          </div>
-        )] : [])}
+        <RemoteSelectionsAndLocksLayer visiblePresence={visiblePresence} />
+        <RemoteCursorsLayer visiblePresence={visiblePresence} />
       </div>
     </ViewportPortal>
   )

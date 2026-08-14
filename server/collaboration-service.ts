@@ -96,6 +96,7 @@ interface StoredRoomMetadata {
 interface ActiveRoom {
   metadata: StoredRoomMetadata
   document: ReturnType<typeof createCollaborativeCanvasDocument>
+  validationDocument?: ReturnType<typeof createCollaborativeCanvasDocument>
   directory: string
   updateCount: number
   updateBytes: number
@@ -954,6 +955,7 @@ export class CollaborationService {
     if (this.activeRoomIdsByScope.get(scope) === input.roomId) {
       this.activeRoomIdsByScope.delete(scope)
     }
+    room.validationDocument?.destroy()
     room.document.destroy()
   }
 
@@ -963,21 +965,21 @@ export class CollaborationService {
 
   applyGenerationJobUpdate(job: GenerationJob): boolean {
     if (!job.roomId || !job.targetNodeId || !('projectId' in job.request)) {
-      throw new CollaborationInputError('Collaborative generation identity is incomplete')
+      throw new CollaborationInputError('协同生成任务标识信息不完整 (Collaborative generation identity is incomplete)')
     }
     const request = job.request as GenerationRequest
     if (request.targetNodeId !== job.targetNodeId) {
-      throw new CollaborationInputError('Generation job target identity does not match')
+      throw new CollaborationInputError('生成任务目标节点不匹配 (Generation job target identity does not match)')
     }
     const room = this.room(job.roomId)
     if (request.projectId !== room.metadata.projectId || request.canvasId !== room.metadata.canvasId) {
-      throw new CollaborationInputError('Generation scope does not match the collaboration room')
+      throw new CollaborationInputError('协同作用域与房间不匹配 (Generation scope does not match the collaboration room)')
     }
     const node = room.document.doc.getMap<Y.Map<unknown>>('nodes').get(job.targetNodeId)
-    if (!(node instanceof Y.Map)) throw new CollaborationInputError('Generation target node was not found')
+    if (!(node instanceof Y.Map)) throw new CollaborationInputError('未找到生成目标节点 (Generation target node was not found)')
     const nodeType = node.get('type')
     if (nodeType !== request.mediaType || (nodeType !== 'image' && nodeType !== 'video')) {
-      throw new CollaborationInputError('Generation media does not match the target node')
+      throw new CollaborationInputError('生成媒体类型与目标节点不匹配 (Generation media does not match the target node)')
     }
     const data = childMap(node, 'data')
     const generation = childMap(data, 'generation')
@@ -1019,7 +1021,22 @@ export class CollaborationService {
         if (request.aspectRatio) generation.set('outputAspectRatio', request.aspectRatio)
       }
     }, SERVER_TASK_ORIGIN)
+    if (room.validationDocument) {
+      room.validationDocument.destroy()
+      room.validationDocument = undefined
+    }
     return true
+  }
+
+  private getOrCreateValidationDocument(
+    room: ActiveRoom,
+  ): ReturnType<typeof createCollaborativeCanvasDocument> {
+    if (room.validationDocument) return room.validationDocument
+    const validationDoc = new Y.Doc()
+    const validationDocument = createCollaborativeCanvasDocument(undefined, { doc: validationDoc })
+    Y.applyUpdate(validationDoc, Y.encodeStateAsUpdate(room.document.doc), 'validation-init')
+    room.validationDocument = validationDocument
+    return validationDocument
   }
 
   applyValidatedUpdate(roomId: string, update: Uint8Array, origin: unknown): void {
@@ -1028,20 +1045,17 @@ export class CollaborationService {
     if (update.byteLength > this.maxCandidateUpdateBytes) {
       throw new CollaborationUpdateError()
     }
-    const candidate = new Y.Doc()
-    const candidateDocument = createCollaborativeCanvasDocument(undefined, { doc: candidate })
+    const candidateDocument = this.getOrCreateValidationDocument(room)
     try {
-      Y.applyUpdate(candidate, Y.encodeStateAsUpdate(room.document.doc), 'validation')
-      Y.applyUpdate(candidate, update, 'validation')
+      Y.applyUpdate(candidateDocument.doc, update, 'validation')
       exportCollaborativeCanvasSnapshot(candidateDocument)
-      if (Y.encodeStateAsUpdate(candidate).byteLength > this.maxDocumentBytes) {
+      if (Y.encodeStateAsUpdate(candidateDocument.doc).byteLength > this.maxDocumentBytes) {
         throw new Error('Collaborative canvas document exceeds maximum encoded size')
       }
     } catch (error) {
+      room.validationDocument?.destroy()
+      room.validationDocument = undefined
       throw error instanceof CollaborationUpdateError ? error : new CollaborationUpdateError(error)
-    } finally {
-      candidateDocument.destroy()
-      candidate.destroy()
     }
     Y.applyUpdate(room.document.doc, update, origin)
   }
@@ -1104,7 +1118,10 @@ export class CollaborationService {
       } catch (error) {
         failure = error
       } finally {
-        for (const { room } of closingRooms) room.document.destroy()
+        for (const { room } of closingRooms) {
+          room.validationDocument?.destroy()
+          room.document.destroy()
+        }
         this.rooms.clear()
         this.activeRoomIdsByScope.clear()
         this.lifecycle = 'closed'
