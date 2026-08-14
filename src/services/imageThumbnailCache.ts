@@ -40,19 +40,27 @@ export function getFastThumbnailUrl(
 
   // Trigger non-blocking generation in browser environment if not already pending
   if (typeof window !== 'undefined' && typeof document !== 'undefined' && !pendingGenerations.has(url)) {
-    const promise = generateClientThumbnail(url)
-      .then((thumb) => {
-        if (thumb) {
-          memoryThumbnailCache.set(url, thumb)
-          notifyThumbnailReady(url, thumb)
-        }
-        return thumb
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        pendingGenerations.delete(url)
-      })
-    pendingGenerations.set(url, promise)
+    const trigger = () => {
+      const promise = generateClientThumbnail(url)
+        .then((thumb) => {
+          if (thumb) {
+            memoryThumbnailCache.set(url, thumb)
+            notifyThumbnailReady(url, thumb)
+          }
+          return thumb
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          pendingGenerations.delete(url)
+        })
+      pendingGenerations.set(url, promise)
+    }
+
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(trigger, { timeout: 2000 })
+    } else {
+      setTimeout(trigger, 120)
+    }
   }
 
   return undefined

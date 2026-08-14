@@ -204,6 +204,7 @@ function VideoNodeContent({
           <img
             alt={`${data.name} 视频封面`}
             className="canvas-media-node__content canvas-media-node__poster"
+            decoding="async"
             draggable={false}
             src={data.poster}
           />
