@@ -2228,7 +2228,6 @@ export function CanvasWorkspace({
         maxZoom={CANVAS_MAX_ZOOM}
         connectionRadius={connectionRadius}
         defaultEdgeOptions={defaultEdgeOptions}
-        nodesConnectable={!readOnly && mode !== 'pan'}
         onNodesChange={handleNodesChange}
         onSelectionStart={(event) => {
           selectionGesture.current = new Set(
