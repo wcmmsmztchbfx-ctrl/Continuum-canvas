@@ -89,7 +89,7 @@ export interface CanvasStoreState {
   getOrderedReferences: (targetNodeId: string) => OrderedReference[]
   deleteNodes: (nodeIds: string[]) => void
   deleteEdges: (edgeIds: string[]) => void
-  duplicateNodes: (nodeIds: string[]) => void
+  duplicateNodes: (nodeIds: string[]) => string[]
   pasteImportedGraph: (graph: ImportedCanvasGraph) => string[]
   groupNodes: (nodeIds: string[], groupId: string, name: string) => void
   ungroupNodes: (groupIds: string[]) => void
@@ -885,7 +885,7 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
           return duplicate as CanvasNode
         })
 
-      if (duplicates.length === 0) return
+      if (duplicates.length === 0) return []
 
       const existingEdgeIds = new Set(current.edges.map((edge) => edge.id))
       const duplicateEdges = current.edges.flatMap((edge) => {
@@ -917,13 +917,15 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
         nodes: [...current.nodes, ...duplicates],
         edges: [...current.edges, ...duplicateEdges],
       })
-      set({
-        selectedNodeIds: nodeIds.flatMap((nodeId) => {
-          if (!requestedIds.has(nodeId)) return []
-          const duplicateId = duplicateIds.get(nodeId)
-          return duplicateId ? [duplicateId] : []
-        }),
+      const createdIds = nodeIds.flatMap((nodeId) => {
+        if (!requestedIds.has(nodeId)) return []
+        const duplicateId = duplicateIds.get(nodeId)
+        return duplicateId ? [duplicateId] : []
       })
+      set({
+        selectedNodeIds: createdIds,
+      })
+      return createdIds
     },
     groupNodes: (nodeIds, groupId, name) => {
       const current = get().snapshot

@@ -267,6 +267,7 @@ export default function App({
   const [followingMemberId, setFollowingMemberId] = useState<string>()
   const collaborationControllerRef = useRef<CanvasCollaborationController | null>(null)
   const [fitViewRequest, setFitViewRequest] = useState(0)
+  const [focusNodeRequest, setFocusNodeRequest] = useState<{ id: string; nonce: number }>()
   const [layoutPreviewOpen, setLayoutPreviewOpen] = useState(false)
   const copiedNodeIdsRef = useRef<string[]>([])
   const internalClipboardRef = useRef<CanvasClipboardEnvelope | undefined>(undefined)
@@ -1387,6 +1388,7 @@ export default function App({
           />
           <LayersPanel
             nodes={snapshot.nodes}
+            onFocusNode={(id) => setFocusNodeRequest({ id, nonce: Date.now() })}
             onOpenChange={(layersOpen) => persistPreferences({ layersOpen })}
             onRename={(id, name) => canvasStore.getState().renameNode(id, name)}
             onReorder={(ids, targetId, placement) => canvasStore.getState().reorderNodes(ids, targetId, placement)}
@@ -1415,7 +1417,7 @@ export default function App({
           lastCanvasPointerRef.current = { x: event.clientX, y: event.clientY }
         }}
       >
-        {!preferences.layersOpen ? <div className="collapsed-sidebar-controls"><WorkspaceMenu canvasName={snapshot.name} onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')} workspaceName={projectName ?? '未命名工作区'} /><LayersPanel nodes={snapshot.nodes} onOpenChange={(layersOpen) => persistPreferences({ layersOpen })} onRename={() => undefined} onReorder={() => undefined} onSelect={() => undefined} onToggleHidden={() => undefined} onToggleLocked={() => undefined} open={false} selectedIds={selectedNodeIds} /></div> : null}
+        {!preferences.layersOpen ? <div className="collapsed-sidebar-controls"><WorkspaceMenu canvasName={snapshot.name} onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')} workspaceName={projectName ?? '未命名工作区'} /><LayersPanel nodes={snapshot.nodes} onFocusNode={(id) => setFocusNodeRequest({ id, nonce: Date.now() })} onOpenChange={(layersOpen) => persistPreferences({ layersOpen })} onRename={() => undefined} onReorder={() => undefined} onSelect={() => undefined} onToggleHidden={() => undefined} onToggleLocked={() => undefined} open={false} selectedIds={selectedNodeIds} /></div> : null}
       <CanvasWorkspace
         activeTool={activeTool}
         onToolComplete={() => setActiveTool('select')}
@@ -1423,6 +1425,7 @@ export default function App({
         canGenerate={capabilities.canPublish}
         collaboration={canvasCollaboration}
         fitViewRequest={fitViewRequest}
+        focusNodeRequest={focusNodeRequest}
         hideConnections={preferences.hideConnections}
         readOnly={readOnly}
         onSelectionAction={handleSelectionAction}

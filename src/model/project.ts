@@ -275,6 +275,7 @@ export interface TextNodeData {
   color?: string
   textAlign?: 'left' | 'center' | 'right'
   lineHeight?: number
+  letterSpacing?: number
 }
 
 export type TextNode = BaseNode<'text', TextNodeData>
