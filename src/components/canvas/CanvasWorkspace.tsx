@@ -564,7 +564,9 @@ export function CanvasWorkspace({
         strokeWidth: kind === 'brush' ? 6 : 3, opacity: 1,
       },
     })
-    store.getState().selectNode(id)
+    if (kind !== 'brush') {
+      store.getState().selectNode(id)
+    }
   }, [store])
 
   const captureFrame = useCallback(async (nodeId: string, video: HTMLVideoElement, capture: 'first' | 'current' | 'last') => {
@@ -2101,6 +2103,7 @@ export function CanvasWorkspace({
       className={workspaceClassName}
       data-testid="canvas-workspace"
       data-canvas-mode={mode}
+      data-active-tool={activeTool}
       data-multiselect={selectedNodeIds.length > 1 || undefined}
       data-reference-pick-target={referencePickTargetId ?? undefined}
       data-frame-drop-target={frameDropTargetId ?? undefined}
@@ -2119,12 +2122,14 @@ export function CanvasWorkspace({
           const preview = { tool: activeTool as 'frame' | 'shape' | 'text', start: point, current: point, constrained: event.shiftKey }
           creationPreviewRef.current = preview
           setCreationPreview(preview)
-          event.currentTarget.setPointerCapture(event.pointerId)
+          event.currentTarget.setPointerCapture?.(event.pointerId)
         }
-        if (activeTool === 'brush' && flowInstance && onPane) {
-          drawingPoints.current = [flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY })]
-          setBrushPreview([...drawingPoints.current])
-          event.currentTarget.setPointerCapture(event.pointerId)
+        if (event.button === 0 && !readOnly && activeTool === 'brush' && flowInstance) {
+          event.stopPropagation()
+          const startPoint = flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
+          drawingPoints.current = [startPoint]
+          setBrushPreview([startPoint])
+          event.currentTarget.setPointerCapture?.(event.pointerId)
         }
       }}
       onPointerLeave={() => setCollaborationCursor?.(null)}
@@ -2136,7 +2141,7 @@ export function CanvasWorkspace({
           let height = Math.abs(rawCurrent.y - start.y)
           if (event.shiftKey && creationPreviewRef.current.tool !== 'text') width = height = Math.max(width, height)
           const rawRect = { x: rawCurrent.x < start.x ? start.x - width : start.x, y: rawCurrent.y < start.y ? start.y - height : start.y, width, height }
-          const snapped = snapRect({ rect: rawRect, candidates: snapCandidates([]), zoom: viewportRef.current.zoom, enabled: smartSnap, grid: snapToGrid ? 12 : undefined, disable: event.ctrlKey, measure: event.altKey })
+          const snapped = snapRect({ rect: rawRect, candidates: snapCandidates([]), zoom: viewportRef.current.zoom, enabled: smartSnap, grid: snapToGrid ? 12 : undefined, disable: event.ctrlKey, measure: event.altKey, previous: activeDrag.current?.snapState })
           const nextPreview = {
             ...creationPreviewRef.current,
             current: rawCurrent,
@@ -2181,14 +2186,14 @@ export function CanvasWorkspace({
           creationPreviewRef.current = undefined
           creationPointerId.current = undefined
           setSnapOverlay({ guides: [], distances: [] })
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+          if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
           return
         }
         if (activeTool !== 'brush' || drawingPoints.current.length === 0) return
         commitPath(drawingPoints.current, 'brush')
         drawingPoints.current = []
         setBrushPreview([])
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+        if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
       }}
       onWheelCapture={() => {
         if (collaborationFollowingMemberId) {
@@ -2421,6 +2426,9 @@ export function CanvasWorkspace({
         onPaneClick={(event) => {
           cancelPendingConnection()
           setReferencePickTargetId(null)
+          if (activeTool === 'brush') {
+            return
+          }
           if (suppressPaneClick.current) {
             suppressPaneClick.current = false
             return

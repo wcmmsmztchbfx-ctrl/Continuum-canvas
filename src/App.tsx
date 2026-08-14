@@ -472,11 +472,29 @@ export default function App({
       const state = canvasStore.getState()
       const key = event.key.toLowerCase()
       const modified = event.ctrlKey || event.metaKey
-      if (!modified && key !== 'delete' && key !== 'backspace') return
       const controller = collaborationControllerRef.current
       const collaborationReadOnly = controller
         ? !collaborationCapabilities(controller.getState()).canEdit
         : false
+
+      if (!modified) {
+        if (key === 'v') {
+          setActiveTool('select')
+          return
+        }
+        if (key === 'b') {
+          setActiveTool('brush')
+          state.selectNode(null)
+          return
+        }
+        if (key === 'delete' || key === 'backspace') {
+          event.preventDefault()
+          if (collaborationReadOnly) return
+          state.deleteNodes(state.selectedNodeIds)
+          return
+        }
+        return
+      }
       if (collaborationReadOnly && modified && (key === 'v' || key === 'd' || key === 'g')) {
         event.preventDefault()
         return

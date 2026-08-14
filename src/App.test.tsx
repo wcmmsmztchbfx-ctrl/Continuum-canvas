@@ -304,4 +304,23 @@ describe('canvas application integration', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '删除项目' }))
     expect(screen.getByRole('dialog', { name: '删除当前项目？' })).toBeVisible()
   })
+
+  it('switches between brush tool and select tool via B and V keyboard shortcuts', async () => {
+    render(<App />)
+    const shell = screen.getByTestId('app-shell')
+    await waitFor(() => {
+      expect(shell).toHaveAttribute('data-hydrated', 'true')
+    })
+
+    const workspace = screen.getByTestId('canvas-workspace')
+    expect(workspace).toHaveAttribute('data-active-tool', 'select')
+
+    // Press 'b' to activate brush mode
+    fireEvent.keyDown(document, { key: 'b' })
+    expect(workspace).toHaveAttribute('data-active-tool', 'brush')
+
+    // Press 'v' to return to select mode
+    fireEvent.keyDown(document, { key: 'v' })
+    expect(workspace).toHaveAttribute('data-active-tool', 'select')
+  })
 })
