@@ -84,7 +84,10 @@ function VideoNodeContent({
 
   const hasVideo = Boolean(data.url) && !failed
   const hasPoster = !hasVideo && Boolean(data.poster)
-  const showDetails = selected && data.isSoleSelection !== false
+  const isLayerMode = data.node?.type === 'video' && data.node.data.displayMode === 'layer'
+  const showResizer = selected && data.isSoleSelection !== false
+  const showDetails = showResizer && !isLayerMode
+  const modelData = data.node?.type === 'video' ? data.node.data : undefined
 
   const togglePlayback = () => {
     const video = videoRef.current
@@ -121,15 +124,20 @@ function VideoNodeContent({
 
   return (
     <article
-      className="canvas-media-node"
+      className={`canvas-media-node${isLayerMode ? ' canvas-media-node--layer-mode' : ''}`}
       data-node-kind="video"
       data-generation-status={data.generation?.status}
       data-reference-candidate={data.referencePickCandidate || undefined}
       data-reference-target={data.referencePickTarget || undefined}
+      data-selected={selected || undefined}
       aria-label={data.name}
+      style={{
+        opacity: modelData?.opacity !== undefined ? modelData.opacity : undefined,
+        transform: modelData?.rotation ? `rotate(${modelData.rotation}deg)` : undefined,
+      }}
     >
       <NodeResizer
-        isVisible={showDetails}
+        isVisible={showResizer}
         minWidth={80}
         minHeight={80}
         lineClassName="canvas-node-resizer__line"

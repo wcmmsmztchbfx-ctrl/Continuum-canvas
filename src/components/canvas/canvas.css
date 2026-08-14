@@ -227,6 +227,16 @@
   box-sizing: border-box;
 }
 
+.canvas-media-node--layer-mode {
+  background: transparent;
+}
+
+.canvas-media-node--layer-mode .canvas-media-node__frame {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
 .canvas-group-node {
   position: relative;
   width: 100%;

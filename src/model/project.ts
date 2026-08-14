@@ -201,6 +201,22 @@ interface BaseNode<TType extends CanvasNodeType, TData> {
   data: TData
 }
 
+export interface ImageVersion {
+  id: string
+  url: string
+  assetId?: string
+  createdAt: string
+  label?: string
+  sourceVersionId?: string
+}
+
+export interface MediaSource {
+  nodeId?: string
+  kind?: string
+  timeSec?: number
+  capture?: 'first' | 'current' | 'last'
+}
+
 export interface ImageNodeData {
   url: string
   assetId?: string
@@ -213,22 +229,13 @@ export interface ImageNodeData {
   versions?: ImageVersion[]
   activeVersionId?: string
   source?: MediaSource
-}
-
-export interface MediaSource {
-  nodeId: string
-  kind: 'video-frame' | 'image-edit'
-  timeSec?: number
-  capture?: 'first' | 'current' | 'last'
-}
-
-export interface ImageVersion {
-  id: string
-  url: string
-  assetId?: string
-  createdAt: string
-  label?: string
-  sourceVersionId?: string
+  displayMode?: 'generation' | 'layer'
+  opacity?: number
+  radius?: number
+  stroke?: string
+  strokeWidth?: number
+  objectFit?: 'cover' | 'contain' | 'fill'
+  rotation?: number
 }
 
 export type ImageNode = BaseNode<'image', ImageNodeData>
@@ -244,6 +251,13 @@ export interface VideoNodeData {
   unresolvedReferenceNodeIds?: string[]
   generation?: MediaGeneration
   generationSettings?: VideoGenerationSettings
+  displayMode?: 'generation' | 'layer'
+  opacity?: number
+  radius?: number
+  stroke?: string
+  strokeWidth?: number
+  objectFit?: 'cover' | 'contain' | 'fill'
+  rotation?: number
 }
 
 export type VideoNode = BaseNode<'video', VideoNodeData>
@@ -689,7 +703,14 @@ function isCanvasNode(value: unknown): boolean {
         hasOptionalGeneration(value.data) &&
         hasOptionalImageGenerationSettings(value.data) &&
         hasOptionalImageVersions(value.data) &&
-        (value.data.source === undefined || isMediaSource(value.data.source))
+        (value.data.source === undefined || isMediaSource(value.data.source)) &&
+        (value.data.displayMode === undefined || value.data.displayMode === 'generation' || value.data.displayMode === 'layer') &&
+        (value.data.opacity === undefined || (isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1)) &&
+        (value.data.radius === undefined || (isFiniteNumber(value.data.radius) && value.data.radius >= 0)) &&
+        (value.data.stroke === undefined || validColor(value.data.stroke)) &&
+        (value.data.strokeWidth === undefined || (isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0)) &&
+        (value.data.objectFit === undefined || ['cover', 'contain', 'fill'].includes(String(value.data.objectFit))) &&
+        (value.data.rotation === undefined || isFiniteNumber(value.data.rotation))
       )
     case 'video':
       return (
@@ -704,7 +725,14 @@ function isCanvasNode(value: unknown): boolean {
         hasOptionalStringArray(value.data, 'referenceNodeIds') &&
         hasOptionalStringArray(value.data, 'unresolvedReferenceNodeIds') &&
         hasOptionalGeneration(value.data) &&
-        hasOptionalVideoGenerationSettings(value.data)
+        hasOptionalVideoGenerationSettings(value.data) &&
+        (value.data.displayMode === undefined || value.data.displayMode === 'generation' || value.data.displayMode === 'layer') &&
+        (value.data.opacity === undefined || (isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1)) &&
+        (value.data.radius === undefined || (isFiniteNumber(value.data.radius) && value.data.radius >= 0)) &&
+        (value.data.stroke === undefined || validColor(value.data.stroke)) &&
+        (value.data.strokeWidth === undefined || (isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0)) &&
+        (value.data.objectFit === undefined || ['cover', 'contain', 'fill'].includes(String(value.data.objectFit))) &&
+        (value.data.rotation === undefined || isFiniteNumber(value.data.rotation))
       )
     case 'text':
       return (

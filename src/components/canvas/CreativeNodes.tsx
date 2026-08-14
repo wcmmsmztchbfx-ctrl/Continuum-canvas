@@ -1,5 +1,4 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { BringToFront, SendToBack } from 'lucide-react'
 import { NodeResizer, type NodeProps } from '@xyflow/react'
 
 import type { FrameNode as FrameModel, PathNode as PathModel, ShapeNode as ShapeModel } from '../../model/project'
@@ -65,16 +64,6 @@ function SelectionChrome({ id, data, node, selected }: { id: string; data: Canva
   return <>
     <button aria-label="旋转" className="creative-rotation-handle nodrag nopan" onPointerDown={startRotation} type="button" />
     <span className="creative-size-label">{Math.round(node.size.width)} × {Math.round(node.size.height)}{previewRotation ? ` · ${previewRotation}°` : ''}</span>
-    <div aria-label="对象属性" className="creative-properties nodrag nopan" role="toolbar">
-      <label>填充<input aria-label="填充颜色" onChange={(event) => data.onCreativeChange?.(id, { fill: event.target.value })} type="color" value={node.data.fill.startsWith('#') ? node.data.fill : '#202020'} /></label>
-      <label>描边<input aria-label="描边颜色" onChange={(event) => data.onCreativeChange?.(id, { stroke: event.target.value })} type="color" value={node.data.stroke.startsWith('#') ? node.data.stroke : '#777777'} /></label>
-      <label>线宽<input aria-label="描边宽度" min="0" onChange={(event) => data.onCreativeChange?.(id, { strokeWidth: Number(event.target.value) })} type="number" value={node.data.strokeWidth} /></label>
-      {node.type === 'shape' ? <><label>透明<input aria-label="透明度" max="100" min="0" onChange={(event) => data.onCreativeChange?.(id, { opacity: Number(event.target.value) / 100 })} type="number" value={Math.round(node.data.opacity * 100)} /></label><label>圆角<input aria-label="圆角" min="0" onChange={(event) => data.onCreativeChange?.(id, { radius: Number(event.target.value) })} type="number" value={node.data.radius ?? 0} /></label></> : null}
-      <label>宽<input aria-label="对象宽度" min="16" onChange={(event) => data.onCreativeChange?.(id, { size: { width: Number(event.target.value), height: node.size.height } })} type="number" value={Math.round(node.size.width)} /></label>
-      <label>高<input aria-label="对象高度" min="16" onChange={(event) => data.onCreativeChange?.(id, { size: { width: node.size.width, height: Number(event.target.value) } })} type="number" value={Math.round(node.size.height)} /></label>
-      <button aria-label="置于顶层" onClick={() => data.onLayerChange?.(id, 'front')} type="button"><BringToFront /></button>
-      <button aria-label="置于底层" onClick={() => data.onLayerChange?.(id, 'back')} type="button"><SendToBack /></button>
-    </div>
   </>
 }
 
