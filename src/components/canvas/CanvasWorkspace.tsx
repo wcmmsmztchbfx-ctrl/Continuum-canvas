@@ -1524,6 +1524,12 @@ export function CanvasWorkspace({
     'follow' | 'local' | 'fit' | 'restore' | undefined
   >(undefined)
 
+  useEffect(() => {
+    if (!activeDrag.current && !activeResize.current) {
+      setTransientGeometry(new Map())
+    }
+  }, [snapshot])
+
   const writeViewportUi = useCallback((nextViewport: Viewport) => {
     viewportRef.current = nextViewport
     workspaceRef.current?.style.setProperty(
