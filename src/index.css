@@ -1,0 +1,102 @@
+:root {
+  color: #f4f4f4;
+  background: #141414;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", Inter,
+    "Noto Sans SC", "Microsoft YaHei", sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol";
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+button,
+input,
+textarea,
+select {
+  color: inherit;
+  font: inherit;
+  letter-spacing: 0;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid #22d3e3;
+  outline-offset: 2px;
+}
+
+.app-shell {
+  --layers-sidebar-width: 240px;
+  position: relative;
+  display: grid;
+  grid-template-columns: 0 minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #141414;
+  transition: grid-template-columns 200ms ease;
+}
+
+.app-shell[data-layers-open] { grid-template-columns: var(--layers-sidebar-width) minmax(0, 1fr); }
+.app-layer-sidebar { position: relative; z-index: 45; display: grid; grid-template-rows: 56px minmax(0, 1fr); width: var(--layers-sidebar-width); min-width: 0; height: 100%; overflow: hidden; opacity: 0; transform: translateX(-12px); pointer-events: none; background: #242424; border-right: 1px solid #383838; transition: opacity 200ms ease, transform 200ms ease; }
+.app-shell[data-layers-open] .app-layer-sidebar { opacity: 1; transform: translateX(0); pointer-events: auto; }
+.app-layer-sidebar__resize-handle { position: absolute; z-index: 100; top: 0; right: 0; bottom: 0; width: 16px; cursor: ew-resize; touch-action: none; outline: none; }
+.app-layer-sidebar__resize-handle::after { content: ''; position: absolute; inset: 0 auto 0 3px; width: 2px; background: transparent; transition: background-color 120ms ease; }
+.app-layer-sidebar__resize-handle:hover::after,
+.app-shell[data-layers-resizing] .app-layer-sidebar__resize-handle::after { background: #22d3e3; }
+.app-shell[data-layers-resizing] { cursor: ew-resize; user-select: none; }
+.app-layer-sidebar > .workspace-menu { position: relative; top: auto; left: auto; align-self: center; width: calc(100% - 16px); height: 36px; margin: 0 8px; padding: 0 7px; background: transparent; border-color: transparent; box-shadow: none; }
+.app-layer-sidebar > .workspace-menu:hover { background: #2d2d2d; border-color: #3a3a3a; }
+.app-layer-sidebar .workspace-menu__mark { width: 18px; height: 18px; flex-basis: 18px; }
+.app-layer-sidebar .workspace-menu__title { font-size: 13px; }
+.app-layer-sidebar .workspace-menu__canvas { font-size: 11px; }
+.canvas-stage { position: relative; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.collapsed-sidebar-controls { position:absolute; z-index:50; top:16px; left:16px; display:flex; gap:6px; align-items:center; }
+.collapsed-sidebar-controls > .workspace-menu { position:relative; top:auto; left:auto; width:220px; height:36px; }
+.collapsed-sidebar-controls .layers-panel-toggle { position:relative; top:auto; left:auto; height:36px; box-shadow:0 2px 8px #0005; }
+
+@media (max-width: 720px) {
+  .app-shell,.app-shell[data-layers-open] { display: block; }
+  .app-layer-sidebar { position: absolute; z-index: 80; inset: 0 auto 0 0; width: min(var(--layers-sidebar-width), 86vw); box-shadow: 12px 0 32px #0009; transform: translateX(-100%); }
+  .app-layer-sidebar__resize-handle { display: none; }
+  .canvas-stage { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell,
+  .app-layer-sidebar,
+  .app-layer-sidebar__resize-handle::after { transition: none; }
+}
+
+.app-shell[data-hydrated='false'] {
+  pointer-events: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

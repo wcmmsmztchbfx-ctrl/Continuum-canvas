@@ -1,0 +1,52 @@
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "imageConfig": [
+      {
+        "channel": 46,
+        "title": "Image Channel",
+        "description": "Sanitized captured image channel",
+        "defaultOption": { "model": "captured-image-model", "quality": "1K" },
+        "models": [
+          {
+            "model": "captured-image-model",
+            "label": "Captured Image Model",
+            "qualities": [
+              { "quality": "1K", "pricing": { "type": "fixed_total", "credits": 6 } }
+            ],
+            "aspectRatios": ["1:1", "16:9"],
+            "n": { "min": 1, "max": 4, "options": null },
+            "inputImagesMax": 6
+          }
+        ]
+      }
+    ],
+    "videoConfig": [
+      {
+        "channel": 13,
+        "title": "Video Channel",
+        "description": "Sanitized captured video channel",
+        "defaultOption": { "model": "captured-video-model", "quality": "720p" },
+        "models": [
+          {
+            "model": "captured-video-model",
+            "label": "Captured Video Model",
+            "qualities": [
+              {
+                "quality": "720p",
+                "pricing": { "type": "fixed_total", "credits": 350, "inputVideoMultiplier": 1.5 }
+              }
+            ],
+            "aspectRatios": ["16:9", "9:16"],
+            "modes": ["text2video", "image2video"],
+            "duration": { "min": null, "max": null, "options": [6, 10] },
+            "inputImagesMax": 9,
+            "inputVideosMax": 3,
+            "inputAudiosMax": 3
+          }
+        ]
+      }
+    ]
+  }
+}
