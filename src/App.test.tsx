@@ -323,4 +323,49 @@ describe('canvas application integration', () => {
     fireEvent.keyDown(document, { key: 'v' })
     expect(workspace).toHaveAttribute('data-active-tool', 'select')
   })
+
+  it('triggers undo and redo via bottom toolbar buttons and keyboard shortcuts', async () => {
+    render(<App />)
+    const shell = screen.getByTestId('app-shell')
+    await waitFor(() => {
+      expect(shell).toHaveAttribute('data-hydrated', 'true')
+    })
+
+    const initialNodesCount = canvasStore.getState().snapshot.nodes.length
+
+    // Add a node
+    canvasStore.getState().addNode({
+      id: 'test-undo-node-1',
+      type: 'text',
+      name: '测试文本',
+      position: { x: 100, y: 100 },
+      size: { width: 200, height: 100 },
+      data: { text: 'Hello Undo' },
+    })
+    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount + 1)
+
+    // Click undo in bottom toolbar
+    const undoButton = screen.getByRole('button', { name: /撤销/ })
+    fireEvent.click(undoButton)
+    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount)
+
+    // Click redo in bottom toolbar
+    const redoButton = screen.getByRole('button', { name: /重做/ })
+    fireEvent.click(redoButton)
+    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount + 1)
+
+    // Test Ctrl+Z shortcut
+    fireEvent.keyDown(document, { ctrlKey: true, key: 'z' })
+    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount)
+
+    // Test Ctrl+Y shortcut
+    fireEvent.keyDown(document, { ctrlKey: true, key: 'y' })
+    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount + 1)
+
+    // Test Ctrl+Shift+Z shortcut
+    fireEvent.keyDown(document, { ctrlKey: true, key: 'z' })
+    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount)
+    fireEvent.keyDown(document, { ctrlKey: true, shiftKey: true, key: 'z' })
+    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount + 1)
+  })
 })
