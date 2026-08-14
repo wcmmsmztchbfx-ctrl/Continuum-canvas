@@ -33,6 +33,8 @@ function VideoNodeContent({
   const [playing, setPlaying] = useState(false)
   const [duration, setDuration] = useState(0)
   const [muted, setMuted] = useState(false)
+  const [isHovered, setIsHovered] = useState(false)
+  const [videoReady, setVideoReady] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const sliderRef = useRef<HTMLInputElement | null>(null)
   const timeDisplayRef = useRef<HTMLSpanElement | null>(null)
@@ -67,6 +69,7 @@ function VideoNodeContent({
   useEffect(() => {
     setFailed(false)
     setPlaying(false)
+    setVideoReady(false)
     currentTimeRef.current = 0
     const video = videoRef.current
     if (video && Number.isFinite(video.duration) && video.duration > 0) {
@@ -83,12 +86,17 @@ function VideoNodeContent({
   }, [duration])
 
   const hasVideo = Boolean(data.url) && !failed
-  const hasPoster = !hasVideo && Boolean(data.poster)
+  const hasPoster = Boolean(data.poster)
   const showDetails = selected && data.isSoleSelection !== false
+  const shouldMountVideo = hasVideo && (selected || isHovered || playing || data.generation?.status === 'generating')
 
   const togglePlayback = () => {
+    if (!hasVideo) return
     const video = videoRef.current
-    if (!video) return
+    if (!video) {
+      setPlaying(true)
+      return
+    }
     if (video.paused) {
       void video.play().then(() => setPlaying(true)).catch(() => setPlaying(false))
     } else {
@@ -96,6 +104,12 @@ function VideoNodeContent({
       setPlaying(false)
     }
   }
+
+  useEffect(() => {
+    if (playing && videoRef.current && videoRef.current.paused) {
+      void videoRef.current.play().catch(() => setPlaying(false))
+    }
+  }, [playing, shouldMountVideo])
 
   const toggleMute = () => {
     const video = videoRef.current
@@ -157,12 +171,27 @@ function VideoNodeContent({
         isConnectable={isConnectable}
         onPointerDown={data.onConnectionPointerDown}
       />
-      <div className="canvas-media-node__frame">
+      <div
+        className="canvas-media-node__frame"
+        onPointerEnter={() => setIsHovered(true)}
+        onPointerLeave={() => setIsHovered(false)}
+      >
+        {hasPoster ? (
+          <img
+            alt={`${data.name} 视频封面`}
+            className="canvas-media-node__content canvas-media-node__poster"
+            draggable={false}
+            src={data.poster}
+          />
+        ) : null}
         {hasVideo ? (
           <video
-            className="canvas-media-node__content"
+            className={`canvas-media-node__content canvas-video-element ${videoReady ? 'is-ready' : ''}`}
             draggable={false}
-            onCanPlay={syncDuration}
+            onCanPlay={() => {
+              setVideoReady(true)
+              syncDuration()
+            }}
             onDurationChange={syncDuration}
             onEnded={() => {
               setPlaying(false)
@@ -172,7 +201,10 @@ function VideoNodeContent({
                 updateScrubberDom(video.duration, video.duration)
               }
             }}
-            onLoadedData={syncDuration}
+            onLoadedData={() => {
+              setVideoReady(true)
+              syncDuration()
+            }}
             onLoadedMetadata={syncDuration}
             onPause={() => setPlaying(false)}
             onPlay={() => {
@@ -194,16 +226,9 @@ function VideoNodeContent({
             preload="metadata"
             onError={() => setFailed(true)}
           />
-        ) : hasPoster ? (
-          <img
-            alt={`${data.name} 视频封面`}
-            className="canvas-media-node__content"
-            draggable={false}
-            src={data.poster}
-          />
-        ) : (
+        ) : !hasPoster ? (
           <EmptyMediaPlaceholder kind="video" />
-        )}
+        ) : null}
         {hasVideo ? (
           <button
             aria-label={playing ? '暂停视频' : '播放视频'}

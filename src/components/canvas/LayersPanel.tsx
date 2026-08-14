@@ -62,8 +62,8 @@ export function LayersPanel(props: LayersPanelProps) {
     setDropTarget(undefined)
   }
   return <aside aria-label="图层" className="layers-panel">
-    <div className="layers-panel__workspace">{props.header}<button aria-label="收起图层" onClick={() => props.onOpenChange(false)} type="button"><ChevronLeft /></button></div>
-    <header><strong><Layers3 />图层</strong><button aria-label="收起图层" className="layers-panel__collapse" onClick={() => props.onOpenChange(false)} type="button"><ChevronLeft /></button></header>
+    <div className="layers-panel__workspace">{props.header}<button aria-label="收起图层" onClick={(event) => { event.currentTarget.blur(); props.onOpenChange(false) }} type="button"><ChevronLeft /></button></div>
+    <header><strong><Layers3 />图层</strong><button aria-label="收起图层" className="layers-panel__collapse" onClick={(event) => { event.currentTarget.blur(); props.onOpenChange(false) }} type="button"><ChevronLeft /></button></header>
     <label className="layers-panel__search"><Search /><input aria-label="搜索图层" onChange={(event) => setQuery(event.target.value)} placeholder="搜索图层" type="search" value={query} /></label>
     <div className="layers-panel__list">{visible.map(({ node, depth }) => {
       const expandable = node.type === 'group' || node.type === 'frame'
