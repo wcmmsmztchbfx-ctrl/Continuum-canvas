@@ -249,7 +249,8 @@ select:focus-visible {
 }
 
 .app-layer-sidebar__header .workspace-menu__chevron {
-  background: #1e1e1e;
+  background: transparent;
+  color: #94a3b8;
   flex-shrink: 0;
 }
 
@@ -260,6 +261,7 @@ select:focus-visible {
   letter-spacing: 0.2px;
 }
 
+.app-layer-sidebar__toggle-btn,
 .app-layer-sidebar__close-btn {
   display: grid;
   place-items: center;
@@ -270,9 +272,13 @@ select:focus-visible {
   color: #94a3b8;
   border-radius: 4px;
   cursor: pointer;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
   transition: all 120ms ease;
 }
 
+.app-layer-sidebar__toggle-btn:hover,
 .app-layer-sidebar__close-btn:hover {
   background: rgba(255, 255, 255, 0.08);
   color: #ffffff;
