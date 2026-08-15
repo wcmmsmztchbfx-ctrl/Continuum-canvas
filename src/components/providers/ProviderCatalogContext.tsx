@@ -93,6 +93,13 @@ function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
     const msg = error.message
     if (
+      msg.includes('invalid api key') ||
+      msg.includes('invalid_api_key') ||
+      msg.includes('401')
+    ) {
+      return 'API Key 无效或未授权（401 Unauthorized），请核对填写的密钥'
+    }
+    if (
       msg.includes('could not be accepted') ||
       msg.includes('not configured') ||
       msg.includes('provider_unavailable') ||
@@ -108,6 +115,9 @@ function errorMessage(error: unknown): string {
     }
     if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('network_error')) {
       return '无法连接到本地网关服务，请确认本地服务已启动'
+    }
+    if (msg.startsWith('Provider rejected the request: ')) {
+      return `服务商拒绝请求：${msg.replace('Provider rejected the request: ', '')}`
     }
     return msg
   }
