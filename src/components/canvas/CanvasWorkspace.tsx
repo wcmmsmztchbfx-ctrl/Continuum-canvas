@@ -5,17 +5,14 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type ReactNode,
 } from 'react'
 import {
   applyNodeChanges,
   ReactFlow,
   Handle,
   MiniMap,
-  NodeToolbar,
   Position,
   SelectionMode,
-  useStore as useReactFlowStore,
   type Connection,
   type OnConnectEnd,
   type NodeChange,
@@ -45,10 +42,7 @@ import {
   type CanvasStoreState,
 } from '../../store/canvas-store'
 import { createBrowserUuid, createCanvasId } from '../../utils/id'
-import {
-  SelectionToolbar,
-  type SelectionAction,
-} from '../overlays/SelectionToolbar'
+import type { SelectionAction } from '../overlays/SelectionToolbar'
 import { useOptionalProviderCatalog } from '../providers/ProviderCatalogContext'
 import { CanvasConnectionLine, CanvasEdge } from './CanvasEdge'
 import {
@@ -71,10 +65,13 @@ import { CollaborationPresenceLayer } from './CollaborationPresenceLayer'
 import { ImageEditorWorkspace } from './ImageEditorModal'
 import { CommentsPanel } from './CommentsPanel'
 import { parseAspectRatio, sizeForAspectRatio } from './mediaGeometry'
-import { placeSelectionToolbar, selectionUnionBounds } from './selectionGeometry'
 import { snapRect, snapResizeRect, unionRect, type ResizeDirection, type SnapDistance, type SnapGuide, type SnapRect, type SnapState } from './smartSnapping'
 import { stabilizeProjectedEdges, stabilizeProjectedNodes } from './flowProjection'
 import { useCanvasDrop } from './useCanvasDrop'
+import { SnapOverlay } from './CanvasSnapOverlay'
+import { BrushPreview } from './CanvasBrushOverlay'
+import { CreationPreview } from './CanvasCreationPreview'
+import { LiveSelectionToolbar } from './LiveSelectionToolbar'
 import '@xyflow/react/dist/style.css'
 import './canvas.css'
 
@@ -82,49 +79,12 @@ export const CANVAS_MIN_ZOOM = 0.1
 export const CANVAS_MAX_ZOOM = 8
 export const CANVAS_CONNECTION_RADIUS = 64
 
-function smoothPath(points: Point[]): string {
-  if (points.length === 0) return ''
-  if (points.length === 1) return `M ${points[0]!.x} ${points[0]!.y}`
-  let result = `M ${points[0]!.x} ${points[0]!.y}`
-  for (let index = 1; index < points.length - 1; index += 1) {
-    const point = points[index]!
-    const next = points[index + 1]!
-    result += ` Q ${point.x} ${point.y} ${(point.x + next.x) / 2} ${(point.y + next.y) / 2}`
-  }
-  const last = points.at(-1)!
-  return `${result} L ${last.x} ${last.y}`
-}
-
-function CanvasPointPreview({ children }: { children(transform: { x: number; y: number; zoom: number }): ReactNode }) {
-  const transform = useReactFlowStore((state) => state.transform)
-  return <>{children({ x: transform[0], y: transform[1], zoom: transform[2] })}</>
-}
-
-function CreationPreview({ preview }: { preview: { tool: 'frame' | 'shape' | 'text'; start: Point; current: Point; constrained: boolean; rect?: SnapRect } }) {
-  return <CanvasPointPreview>{({ x, y, zoom }) => {
-    const dx = preview.current.x - preview.start.x
-    const dy = preview.current.y - preview.start.y
-    let width = Math.abs(dx)
-    let height = Math.abs(dy)
-    if (preview.constrained && preview.tool !== 'text') width = height = Math.max(width, height)
-    const rect = preview.rect ?? { x: dx < 0 ? preview.start.x - width : preview.start.x, y: dy < 0 ? preview.start.y - height : preview.start.y, width, height }
-    return <div className={`canvas-creation-preview canvas-creation-preview--${preview.tool}`} style={{ left: x + rect.x * zoom, top: y + rect.y * zoom, width: Math.max(1, rect.width * zoom), height: Math.max(1, rect.height * zoom) }}><span>{Math.round(rect.width)} × {Math.round(rect.height)}</span></div>
-  }}</CanvasPointPreview>
-}
-
-function SnapOverlay({ guides, distances }: { guides: SnapGuide[]; distances: SnapDistance[] }) {
-  return <CanvasPointPreview>{({ x, y, zoom }) => <svg className="canvas-snap-overlay">
-    {guides.map((guide, index) => guide.axis === 'x'
-      ? <g key={`x-${index}`}><line x1={x + guide.value * zoom} x2={x + guide.value * zoom} y1={y + guide.from * zoom} y2={y + guide.to * zoom} />{guide.label ? <text x={x + guide.value * zoom + 5} y={y + guide.from * zoom - 5}>{guide.label}</text> : null}</g>
-      : <g key={`y-${index}`}><line x1={x + guide.from * zoom} x2={x + guide.to * zoom} y1={y + guide.value * zoom} y2={y + guide.value * zoom} />{guide.label ? <text x={x + guide.from * zoom + 5} y={y + guide.value * zoom - 5}>{guide.label}</text> : null}</g>)}
-    {distances.map((distance, index) => distance.axis === 'x'
-      ? <g key={`dx-${index}`}><line className="canvas-snap-distance" x1={x + distance.from * zoom} x2={x + distance.to * zoom} y1={y + distance.cross * zoom} y2={y + distance.cross * zoom} /><text x={x + (distance.from + distance.to) / 2 * zoom} y={y + distance.cross * zoom - 5}>{Math.round(distance.value)}</text></g>
-      : <g key={`dy-${index}`}><line className="canvas-snap-distance" x1={x + distance.cross * zoom} x2={x + distance.cross * zoom} y1={y + distance.from * zoom} y2={y + distance.to * zoom} /><text x={x + distance.cross * zoom + 5} y={y + (distance.from + distance.to) / 2 * zoom}>{Math.round(distance.value)}</text></g>)}
-  </svg>}</CanvasPointPreview>
-}
-
-function BrushPreview({ points }: { points: Point[] }) {
-  return <CanvasPointPreview>{({ x, y, zoom }) => <svg className="canvas-brush-preview"><g transform={`translate(${x} ${y}) scale(${zoom})`}><path d={smoothPath(points)} /></g></svg>}</CanvasPointPreview>
+function sameViewport(left: Viewport, right: Viewport): boolean {
+  return (
+    Math.abs(left.x - right.x) <= 0.5 &&
+    Math.abs(left.y - right.y) <= 0.5 &&
+    Math.abs(left.zoom - right.zoom) <= 0.001
+  )
 }
 
 export interface CanvasWorkspaceProps {
@@ -187,114 +147,6 @@ export interface CanvasWorkspaceCollaboration {
   ): Promise<Awaited<T> | undefined>
 }
 
-interface LiveSelectionToolbarProps {
-  grouped: boolean
-  nodeIds: string[]
-  onAction?: (action: SelectionAction) => void
-}
-
-function sameSelectionBounds(
-  left: ReturnType<typeof selectionUnionBounds>,
-  right: ReturnType<typeof selectionUnionBounds>,
-) {
-  return (
-    left?.left === right?.left &&
-    left?.top === right?.top &&
-    left?.width === right?.width &&
-    left?.height === right?.height
-  )
-}
-
-function sameViewport(left: Viewport, right: Viewport): boolean {
-  return Math.abs(left.x - right.x) <= 0.5 &&
-    Math.abs(left.y - right.y) <= 0.5 &&
-    Math.abs(left.zoom - right.zoom) <= 0.001
-}
-
-function LiveSelectionToolbar({
-  grouped,
-  nodeIds,
-  onAction,
-}: LiveSelectionToolbarProps) {
-  const selectionBounds = useReactFlowStore(
-    useCallback(
-      (state) => {
-        const rectangles = nodeIds.flatMap((nodeId) => {
-          const node = state.nodeLookup.get(nodeId)
-          if (!node) return []
-          return [{
-            x: node.internals.positionAbsolute.x,
-            y: node.internals.positionAbsolute.y,
-            width:
-              node.measured.width ?? node.width ?? node.initialWidth ?? 0,
-            height:
-              node.measured.height ?? node.height ?? node.initialHeight ?? 0,
-          }]
-        })
-        return selectionUnionBounds(rectangles, {
-          x: state.transform[0],
-          y: state.transform[1],
-          zoom: state.transform[2],
-        })
-      },
-      [nodeIds],
-    ),
-    sameSelectionBounds,
-  )
-  const toolbarRef = useRef<HTMLDivElement | null>(null)
-  const [toolbarSize, setToolbarSize] = useState({ width: 480, height: 40 })
-  const [screenSize, setScreenSize] = useState(() => ({
-    width: window.innerWidth,
-    height: window.innerHeight,
-  }))
-
-  useEffect(() => {
-    const bounds = toolbarRef.current?.getBoundingClientRect()
-    if (!bounds?.width || !bounds.height) return
-    setToolbarSize((prev) => (prev.width === bounds.width && prev.height === bounds.height ? prev : { width: bounds.width, height: bounds.height }))
-  }, [grouped, nodeIds])
-
-  useEffect(() => {
-    const updateScreenSize = () => {
-      setScreenSize({ width: window.innerWidth, height: window.innerHeight })
-    }
-    window.addEventListener('resize', updateScreenSize)
-    return () => window.removeEventListener('resize', updateScreenSize)
-  }, [])
-
-  if (!selectionBounds) return null
-  const placement = placeSelectionToolbar(
-    selectionBounds,
-    toolbarSize,
-    screenSize,
-  )
-
-  return (
-    <NodeToolbar
-      className="canvas-selection-node-toolbar"
-      isVisible
-      nodeId={nodeIds}
-      position={Position.Top}
-      style={{
-        transform: `translate(${placement.left}px, ${placement.top}px)`,
-      }}
-    >
-      <div
-        className="canvas-selection-toolbar-anchor"
-        data-node-ids={nodeIds.join(',')}
-        data-placement={placement.placement}
-        data-testid="selection-toolbar-anchor"
-        ref={toolbarRef}
-      >
-        <SelectionToolbar
-          grouped={grouped}
-          onAction={(action) => onAction?.(action)}
-          open
-        />
-      </div>
-    </NodeToolbar>
-  )
-}
 
 function PlaceholderNode() {
   return (

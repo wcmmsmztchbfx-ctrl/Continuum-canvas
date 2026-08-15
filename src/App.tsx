@@ -1,6 +1,4 @@
 import {
-  Suspense,
-  lazy,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -15,22 +13,10 @@ import { FolderKanban, Cpu, Layers3, Settings } from 'lucide-react'
 
 import { CanvasWorkspace, LayersPanel } from './components/canvas'
 import {
-  AddNodeMenu,
-  BlankContextMenu,
-  CollaborationNicknameDialog,
-  CollaborationPopover,
-  ConfirmDialog,
-  GenerationHistoryModal,
-  HelpPopover,
-  KeyboardShortcutsDialog,
+  AppOverlays,
   LayoutDecisionBar,
-  NodeContextMenu,
-  PublishDialog,
-  RenameProjectDialog,
-  SidePanel,
   ToastRegion,
   useToastQueue,
-  WorkspaceDropdown,
   type AddNodeKind,
   type BlankContextAction,
   type HelpAction,
@@ -72,12 +58,7 @@ import {
   canvasThumbnailService,
   type CanvasThumbnailService,
 } from './thumbnails/canvasThumbnail'
-import {
-  CanvasCollaborationController,
-  type CollaborationControllerState,
-} from './collaboration/controller'
-import { collaborationCapabilities } from './collaboration/capabilities'
-import type { CollaborationInteraction, InteractionPreview, NodeLease, NodeLeaseKind, PresenceState } from './contracts/collaboration'
+import type { CollaborationInteraction, InteractionPreview, NodeLease, NodeLeaseKind } from './contracts/collaboration'
 import { useOptionalProviderCatalog } from './components/providers/ProviderCatalogContext'
 import { createBrowserUuid } from './utils/id'
 import {
@@ -91,12 +72,10 @@ import {
   type CanvasClipboardEnvelope,
   type ClipboardContents,
 } from './clipboard-import'
-
-const ProviderDrawer = lazy(() =>
-  import('./components/providers/ProviderDrawer').then((module) => ({
-    default: module.ProviderDrawer,
-  })),
-)
+import { useAppCollaboration } from './hooks/useAppCollaboration'
+import { useAppHotkeys } from './hooks/useAppHotkeys'
+import type { AppContextMenu, AppDialog, AppPopup } from './hooks/useAppModals'
+import { copyText } from './utils/clipboard'
 
 type Popup =
   | 'workspace'
@@ -173,22 +152,6 @@ function isSidePanelKind(value: string | null): value is SidePanelKind {
   return sidePanelKinds.some((kind) => kind === value)
 }
 
-async function copyText(value: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value)
-    return
-  }
-
-  const textarea = document.createElement('textarea')
-  textarea.value = value
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.append(textarea)
-  textarea.select()
-  const copied = document.execCommand?.('copy') ?? false
-  textarea.remove()
-  if (!copied) throw new Error('浏览器未允许写入剪贴板')
-}
 
 const addNodeLabels: Record<AddNodeKind, string> = {
   image: '图片',
@@ -266,11 +229,30 @@ export default function App({
     'public' | 'unlisted' | 'private'
   >('public')
   const { dismiss: dismissToast, notify, toasts } = useToastQueue()
-  const [collaborationState, setCollaborationState] =
-    useState<CollaborationControllerState>({ status: 'inactive', inviteLinks: {} })
-  const [collaborationPresence, setCollaborationPresence] = useState<PresenceState[]>([])
-  const [followingMemberId, setFollowingMemberId] = useState<string>()
-  const collaborationControllerRef = useRef<CanvasCollaborationController | null>(null)
+  const providerCatalog = useOptionalProviderCatalog()
+
+  const {
+    collaborationState,
+    collaborationPresence,
+    followingMemberId,
+    setFollowingMemberId,
+    collaborationControllerRef,
+    capabilities,
+    collaborationRestricted,
+    readOnly,
+    performUndo,
+    performRedo,
+    withBulkLease,
+    collaborationAction,
+  } = useAppCollaboration({
+    hydrated,
+    canvasId,
+    projectId,
+    loadedCanvasId,
+    workspaceRepository,
+    providerCatalog,
+    notify,
+  })
   const [fitViewRequest, setFitViewRequest] = useState(0)
   const [focusNodeRequest, setFocusNodeRequest] = useState<{ id: string; nonce: number }>()
   const [layoutPreviewOpen, setLayoutPreviewOpen] = useState(false)
@@ -283,7 +265,6 @@ export default function App({
   const selectedNodeIds = useStore(canvasStore, (state) => state.selectedNodeIds)
   const previousLayersOpenRef = useRef(preferences.layersOpen)
   const imageSelectionGuardRef = useRef<(nodeId: string | null) => boolean>(() => true)
-  const providerCatalog = useOptionalProviderCatalog()
 
   const copySelectedNodes = useCallback(async (selectedIds: string[]) => {
     const envelope = createCanvasClipboardEnvelope(
@@ -329,41 +310,6 @@ export default function App({
     },
     [],
   )
-
-  const capabilities = collaborationCapabilities(collaborationState)
-  const collaborationRestricted = Boolean(
-    collaborationState.pendingInvite ||
-    collaborationState.authenticatedPendingResume ||
-    (collaborationState.session && collaborationState.session.role !== 'owner'),
-  )
-  const readOnly = !capabilities.canEdit
-  useLayoutEffect(() => {
-    providerCatalog?.setApiManagementAllowed(capabilities.canManageApi)
-  }, [capabilities.canManageApi, providerCatalog])
-  const performUndo = useCallback(() => {
-    const controller = collaborationControllerRef.current
-    if (controller?.isLocalAutosaveSuppressed()) {
-      if (collaborationCapabilities(controller.getState()).canEdit) controller.undo()
-    } else canvasStore.getState().undo()
-  }, [])
-  const performRedo = useCallback(() => {
-    const controller = collaborationControllerRef.current
-    if (controller?.isLocalAutosaveSuppressed()) {
-      if (collaborationCapabilities(controller.getState()).canEdit) controller.redo()
-    } else canvasStore.getState().redo()
-  }, [])
-  const withBulkLease = useCallback(async <T,>(
-    nodeIds: readonly string[],
-    operation: () => T | Promise<T>,
-  ): Promise<Awaited<T> | undefined> => {
-    if (readOnly) return undefined
-    const ids = [...new Set(nodeIds)]
-    if (ids.length === 0) return undefined
-    const controller = collaborationControllerRef.current
-    return controller?.isLocalAutosaveSuppressed()
-      ? await controller.withNodeLease(ids, 'bulk', operation)
-      : await operation()
-  }, [readOnly])
 
   const persistPreferences = useCallback(
     (changes: Partial<UiPreferences>) => {
@@ -467,89 +413,16 @@ export default function App({
     [notify],
   )
 
-  useEffect(() => {
-    const handleShortcut = (event: KeyboardEvent) => {
-      if (!hydrated) return
-      const target = event.target
-      if (
-        target instanceof HTMLElement &&
-        target.closest('input, textarea, select, [contenteditable="true"]')
-      ) {
-        return
-      }
-
-      const state = canvasStore.getState()
-      const key = event.key.toLowerCase()
-      const modified = event.ctrlKey || event.metaKey
-      const controller = collaborationControllerRef.current
-      const collaborationReadOnly = controller
-        ? !collaborationCapabilities(controller.getState()).canEdit
-        : false
-
-      if (!modified) {
-        if (key === 'v') {
-          setActiveTool('select')
-          return
-        }
-        if (key === 'b') {
-          setActiveTool('brush')
-          state.selectNode(null)
-          return
-        }
-        if (key === 'delete' || key === 'backspace') {
-          event.preventDefault()
-          if (collaborationReadOnly) return
-          state.deleteNodes(state.selectedNodeIds)
-          return
-        }
-        return
-      }
-      if (collaborationReadOnly && modified && (key === 'v' || key === 'd' || key === 'g')) {
-        event.preventDefault()
-        return
-      }
-
-      if (modified && key === 'z') {
-        event.preventDefault()
-        const collaboration = controller
-        if (collaboration?.isLocalAutosaveSuppressed()) {
-          if (!collaborationCapabilities(collaboration.getState()).canEdit) return
-          if (event.shiftKey) performRedo()
-          else performUndo()
-        } else if (event.shiftKey) performRedo()
-        else performUndo()
-      } else if (modified && key === 'a') {
-        event.preventDefault()
-        canvasStore.setState({
-          selectedNodeIds: state.snapshot.nodes.map((node) => node.id),
-        })
-      } else if (modified && key === 'c') {
-        event.preventDefault()
-        void copySelectedNodes(state.selectedNodeIds)
-          .catch(() => notify('浏览器未允许写入剪贴板', 'error'))
-      } else if (modified && key === 'd') {
-        event.preventDefault()
-        withBulkLease(state.selectedNodeIds, () => state.duplicateNodes(state.selectedNodeIds))
-      } else if (modified && key === 'g') {
-        event.preventDefault()
-        if (event.shiftKey) withBulkLease(state.selectedNodeIds, () => state.ungroupNodes(state.selectedNodeIds))
-        else if (state.selectedNodeIds.length > 1) {
-          withBulkLease(state.selectedNodeIds, () => state.groupNodes(
-            state.selectedNodeIds,
-            createLocalNodeId('group'),
-            '节点分组',
-          ))
-        }
-      } else if (!modified && (key === 'delete' || key === 'backspace')) {
-        event.preventDefault()
-        if (collaborationReadOnly) return
-        state.deleteNodes(state.selectedNodeIds)
-      }
-    }
-
-    document.addEventListener('keydown', handleShortcut)
-    return () => document.removeEventListener('keydown', handleShortcut)
-  }, [copySelectedNodes, hydrated, notify, performRedo, performUndo, withBulkLease])
+  useAppHotkeys({
+    hydrated,
+    collaborationControllerRef,
+    setActiveTool,
+    performUndo,
+    performRedo,
+    copySelectedNodes,
+    withBulkLease,
+    notify,
+  })
 
   useEffect(() => {
     let disposed = false
@@ -688,34 +561,6 @@ export default function App({
     }
   }, [canvasId, notify, projectId, thumbnailService, workspaceRepository])
 
-  useEffect(() => {
-    if (!hydrated || !canvasId || !projectId || loadedCanvasId !== canvasId) return
-    const controller = new CanvasCollaborationController({
-      canvasId,
-      projectId,
-      repository: workspaceRepository,
-      store: canvasStore,
-      shareOrigin: import.meta.env.VITE_CANVAS_PUBLIC_ORIGIN || undefined,
-    })
-    collaborationControllerRef.current = controller
-    setCollaborationState(controller.getState())
-    const unsubscribe = controller.subscribe(setCollaborationState)
-    setCollaborationPresence(controller.getPresence())
-    const unsubscribePresence = controller.subscribePresence((presence) => {
-      setCollaborationPresence([...presence])
-    })
-    void controller.initializeFromLocation().catch(() => undefined)
-    return () => {
-      unsubscribe()
-      unsubscribePresence()
-      setCollaborationPresence([])
-      setFollowingMemberId(undefined)
-      if (collaborationControllerRef.current === controller) {
-        collaborationControllerRef.current = null
-      }
-      void controller.destroy()
-    }
-  }, [canvasId, hydrated, loadedCanvasId, projectId, workspaceRepository])
 
   useEffect(() => {
     if (!followingMemberId) return
@@ -822,18 +667,6 @@ export default function App({
     }
   }, [capabilities.canManageApi, capabilities.canPublish])
 
-  const collaborationAction = useCallback(
-    async (action: (controller: CanvasCollaborationController) => Promise<unknown>) => {
-      const controller = collaborationControllerRef.current
-      if (!controller) {
-        notify('只有工作区画布可以开启多人协作', 'warning')
-        return
-      }
-      try { await action(controller) }
-      catch (error) { notify(error instanceof Error ? error.message : '协作操作失败', 'error') }
-    },
-    [notify],
-  )
 
   const openPanel = useCallback((nextPanel: SidePanelKind) => {
     closeFloatingUi()
@@ -1571,232 +1404,51 @@ export default function App({
         store={canvasStore}
       />
 
-      <WorkspaceDropdown
-        collaborationRestricted={collaborationRestricted}
-        onAction={handleWorkspaceAction}
-        onClose={() => setPopup(null)}
-        open={popup === 'workspace'}
-        subject={canvasId ? 'canvas' : 'project'}
-      />
-      <AddNodeMenu
-        onClose={closeFloatingUi}
-        onSelect={handleAddNode}
-        open={popup === 'add'}
-        position={addNodePosition}
-      />
-      {providerDrawerOpen ? (
-        <Suspense fallback={null}>
-          <ProviderDrawer
-            onClose={() => {
-              setProviderDrawerOpen(false)
-              window.requestAnimationFrame(() => {
-                document.getElementById('api-integration-trigger')?.focus()
-              })
-            }}
-            onNotify={(message, tone = 'info') => notify(message, tone)}
-            open
-            readOnly={!capabilities.canManageApi}
-          />
-        </Suspense>
-      ) : null}
-      <CollaborationPopover
+      <AppOverlays
+        popup={popup}
+        setPopup={setPopup}
+        dialog={dialog}
+        setDialog={setDialog}
+        contextMenu={contextMenu}
+        contextPosition={contextPosition}
+        addNodePosition={addNodePosition}
+        providerDrawerOpen={providerDrawerOpen}
+        setProviderDrawerOpen={setProviderDrawerOpen}
+        historyOpen={historyOpen}
+        setHistoryOpen={setHistoryOpen}
+        panel={panel}
+        closePanel={closePanel}
+        handleAddNode={handleAddNode}
+        handleWorkspaceAction={handleWorkspaceAction}
+        handleHelpAction={handleHelpAction}
+        handleBlankContextAction={handleBlankContextAction}
+        handleNodeContextAction={handleNodeContextAction}
+        closeFloatingUi={closeFloatingUi}
+        dismissContextMenu={dismissContextMenu}
+        closeProductPopup={closeProductPopup}
+        collaborationState={collaborationState}
+        collaborationPresence={collaborationPresence}
         followingMemberId={followingMemberId}
-        onClose={() => closeProductPopup('collaboration')}
-        onCloseRoom={() => collaborationAction((controller) => controller.closeRoom())}
-        onCreateInvite={(role) => collaborationAction(async (controller) => {
-          const link = await controller.createInvite(role)
-          await copyText(link)
-        })}
-        onDismissRecoverySecret={() => collaborationControllerRef.current?.dismissRecoverySecret()}
-        onEnable={(displayName) => collaborationAction((controller) => controller.enable(displayName))}
-        onLeave={() => collaborationAction((controller) => controller.leave())}
-        onFollowMember={setFollowingMemberId}
-        onRemoveMember={(memberId) => collaborationAction((controller) => controller.removeMember(memberId))}
-        onRetryResume={() => collaborationAction((controller) => controller.retryAuthenticatedResume())}
-        onRevokeInvite={(inviteId) => collaborationAction((controller) => controller.revokeInvite(inviteId))}
-        onSetMemberRole={(memberId, role) => collaborationAction((controller) => controller.setMemberRole(memberId, role))}
-        onRecoverConflictRoom={(secret, displayName) => collaborationAction((controller) => controller.recoverConflictRoom(secret, displayName))}
-        onForceResetAndEnable={(displayName) => collaborationAction((controller) => controller.forceResetAndEnable(displayName))}
-        onDismissConflict={() => collaborationControllerRef.current?.dismissConflict()}
-        open={popup === 'collaboration'}
-        presence={collaborationPresence}
-        state={collaborationState}
-      />
-      <CollaborationNicknameDialog
-        defaultName={collaborationState.pendingInvite?.suggestedName}
-        onCancel={() => {
-          collaborationControllerRef.current?.dismissPendingInvite()
-          notify('邀请链接会保留，刷新页面后仍可加入', 'warning')
-        }}
-        onSubmit={(displayName) => collaborationAction((controller) => controller.joinPendingInvite(displayName))}
-        open={Boolean(collaborationState.pendingInvite)}
-      />
-      <HelpPopover
-        onAction={handleHelpAction}
-        onClose={() => setPopup(null)}
-        open={popup === 'help'}
-      />
-
-      <SidePanel
-        agentWidth={400}
-        canvasNodes={snapshot.nodes.map((node) => ({
-          id: node.id,
-          name: node.name,
-          type: node.type,
-        }))}
-        kind={panel ?? 'assets'}
-        onAction={(action) => {
-          if (action === 'upload') handleAddNode('upload')
-          else if (action === 'new-canvas') {
-            if (onNavigateWorkspace) onNavigateWorkspace('canvas')
-            else handleWorkspaceAction('new')
-          }
-          else if (action === 'use-template')
-            handleAddNode('text', '根据参考图生成连续镜头')
-          else if (action === 'apply-style') handleAddNode('style-shot')
-          else if (action === 'apply-character')
-            handleAddNode('reference-image')
-          else closePanel()
-        }}
-        onClose={closePanel}
-        onLocateNode={(nodeId) => {
-          const state = canvasStore.getState()
-          const node = state.snapshot.nodes.find(
-            (candidate) => candidate.id === nodeId,
-          )
-          if (!node) return
-          const zoom = state.snapshot.viewport.zoom
-          state.selectNode(nodeId)
-          state.setViewport({
-            x:
-              window.innerWidth / 2 -
-              (node.position.x + node.size.width / 2) * zoom,
-            y:
-              window.innerHeight / 2 -
-              (node.position.y + node.size.height / 2) * zoom,
-            zoom,
-          })
-        }}
-        open={panel !== null}
-      />
-      <GenerationHistoryModal
-        onClose={() => setHistoryOpen(false)}
-        onNotify={(message, tone = 'info') => notify(message, tone)}
-        onUse={(entry) => {
-          if (readOnly) return
-          const state = canvasStore.getState()
-          const viewport = state.snapshot.viewport
-          const zoom = Math.max(viewport.zoom, 0.01)
-          state.createNodeFromHistory(entry, {
-            x: (window.innerWidth / 2 - viewport.x) / zoom,
-            y: (window.innerHeight / 2 - viewport.y) / zoom,
-          })
-        }}
-        open={historyOpen}
-        projectId={snapshot.projectId}
-      />
-      <PublishDialog
-        description={publishDescription}
-        onClose={() => setDialog(null)}
-        onDescriptionChange={setPublishDescription}
-        onPublish={() => {
-          if (!capabilities.canPublish) return
-          setDialog(null)
-          runMockAction(
-            mockApi.publishProject(canvasStore.getState().snapshot.projectId),
-            '项目已发布到本地预览',
-          )
-        }}
-        onVisibilityChange={setPublishVisibility}
-        open={dialog === 'publish'}
-        projectTitle={snapshot.name}
-        visibility={publishVisibility}
-      />
-      <KeyboardShortcutsDialog
-        onClose={() => setDialog(null)}
-        open={dialog === 'shortcuts'}
-      />
-      <RenameProjectDialog
-        name={renameProjectName}
-        onClose={() => setDialog(null)}
-        onNameChange={setRenameProjectName}
-        onRename={() => {
-          if (readOnly) return
-          const activeProjectId = canvasStore.getState().snapshot.projectId
-          setDialog(null)
-          if (canvasId) {
-            void workspaceRepository
-              .renameCanvas(canvasId, renameProjectName)
-              .then(() => {
-                const current = canvasStore.getState().snapshot
-                canvasStore.getState().restore(
-                  JSON.stringify({ ...current, name: renameProjectName.trim() }),
-                )
-                notify('画布已重命名')
-              })
-              .catch((error: unknown) =>
-                notify(
-                  error instanceof Error ? error.message : '重命名画布失败',
-                  'error',
-                ),
-              )
-            return
-          }
-          restoreProjectFrom(
-            mockApi.renameProject(activeProjectId, renameProjectName),
-            '项目已重命名',
-          )
-        }}
-        open={dialog === 'rename'}
-      />
-      <ConfirmDialog
-        confirmLabel={canvasId ? '移入回收站' : '删除项目'}
-        message={
-          canvasId
-            ? '画布会移入工作区回收站，可以随时恢复。'
-            : '删除后将保留其他本地项目，并立即打开一个新的空白项目。'
-        }
-        onClose={() => setDialog(null)}
-        onConfirm={() => {
-          if (readOnly) return
-          const activeProjectId = canvasStore.getState().snapshot.projectId
-          setDialog(null)
-          if (canvasId) {
-            void workspaceRepository
-              .trashCanvas(canvasId)
-              .then(() => onNavigateWorkspace?.())
-              .catch((error: unknown) =>
-                notify(
-                  error instanceof Error ? error.message : '移动画布失败',
-                  'error',
-                ),
-              )
-            return
-          }
-          restoreProjectFrom(
-            ensureMockWorkspace().then(async (workspace) => {
-              await mockApi.deleteProject(activeProjectId)
-              return mockApi.createProject(workspace.id, '未命名项目')
-            }),
-            '当前项目已删除，已打开新的空白项目',
-          )
-        }}
-        open={dialog === 'delete'}
-        title={canvasId ? '将画布移入回收站？' : '删除当前项目？'}
-      />
-
-      <BlankContextMenu
-        onAction={handleBlankContextAction}
-        onClose={dismissContextMenu}
-        open={contextMenu === 'blank'}
-        position={contextPosition}
-      />
-      <NodeContextMenu
-        isLocked={Boolean(selectedNodeIds.length > 0 && snapshot.nodes.find((n) => n.id === selectedNodeIds[0])?.locked)}
-        onAction={handleNodeContextAction}
-        onClose={dismissContextMenu}
-        open={contextMenu === 'node'}
-        position={contextPosition}
+        setFollowingMemberId={setFollowingMemberId}
+        collaborationControllerRef={collaborationControllerRef}
+        collaborationAction={collaborationAction}
+        collaborationRestricted={collaborationRestricted}
+        capabilities={capabilities}
+        readOnly={readOnly}
+        canvasId={canvasId}
+        snapshot={snapshot}
+        selectedNodeIds={selectedNodeIds}
+        renameProjectName={renameProjectName}
+        setRenameProjectName={setRenameProjectName}
+        publishDescription={publishDescription}
+        setPublishDescription={setPublishDescription}
+        publishVisibility={publishVisibility}
+        setPublishVisibility={setPublishVisibility}
+        workspaceRepository={workspaceRepository}
+        onNavigateWorkspace={onNavigateWorkspace}
+        notify={notify}
+        runMockAction={runMockAction}
+        restoreProjectFrom={restoreProjectFrom}
       />
       <ToastRegion
         onDismiss={dismissToast}

@@ -55,3 +55,5 @@ export { CollaborationNicknameDialog, CollaborationPopover } from './Collaborati
 export type { CollaborationNicknameDialogProps, CollaborationPopoverProps } from './CollaborationPopover'
 export { GenerationHistoryModal } from './GenerationHistoryModal'
 export type { GenerationHistoryModalProps } from './GenerationHistoryModal'
+export { AppOverlays } from './AppOverlays'
+export type { AppOverlaysProps } from './AppOverlays'
