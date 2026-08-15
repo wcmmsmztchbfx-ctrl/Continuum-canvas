@@ -1,11 +1,11 @@
 import { useCallback, type DragEvent } from 'react'
 import type { ReactFlowInstance } from '@xyflow/react'
 import {
-  createCanvasId,
   DEFAULT_IMAGE_GENERATION_SETTINGS,
   DEFAULT_VIDEO_GENERATION_SETTINGS,
   type CanvasNode,
 } from '../../model/project'
+import { createCanvasId } from '../../utils/id'
 import { uploadAndPrepareMediaAsset } from '../../services/localMedia'
 
 interface UseCanvasDropOptions {

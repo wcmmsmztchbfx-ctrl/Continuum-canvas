@@ -44,7 +44,7 @@ import {
   canvasStore,
   type CanvasStoreState,
 } from '../../store/canvas-store'
-import { createBrowserUuid } from '../../utils/id'
+import { createBrowserUuid, createCanvasId } from '../../utils/id'
 import {
   SelectionToolbar,
   type SelectionAction,
@@ -355,11 +355,6 @@ function connectedNodeSize(kind: ConnectedNodeKind) {
   if (kind === 'video') return { width: 480, height: 270 }
   if (kind === 'director') return { width: 560, height: 360 }
   return { width: 350, height: 350 }
-}
-
-function createCanvasId(prefix: 'i' | 'v' | 't' | 'g' | 'e') {
-  const randomPart = createBrowserUuid()
-  return `${prefix}-canvas-${randomPart}`
 }
 
 function getPointerPosition(event: MouseEvent | TouchEvent): Point | null {
