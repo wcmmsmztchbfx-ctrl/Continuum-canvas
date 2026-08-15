@@ -32,12 +32,13 @@ const initialSnapshot: ProjectSnapshot = {
 }
 
 describe('default canvas store', () => {
-  it('starts from the reference fixture at the screenshot viewport', () => {
-    expect(canvasStore.getState().snapshot).toBe(referenceProjectSnapshot)
+  it('starts from the empty canvas snapshot at default viewport', () => {
+    expect(canvasStore.getState().snapshot.nodes).toHaveLength(0)
+    expect(canvasStore.getState().snapshot.edges).toHaveLength(0)
     expect(canvasStore.getState().snapshot.viewport).toEqual({
-      x: 1.442118522171313,
-      y: 932.6344931704214,
-      zoom: 0.20000000000000026,
+      x: 0,
+      y: 0,
+      zoom: 1,
     })
   })
 })

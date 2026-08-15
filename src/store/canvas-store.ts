@@ -1,6 +1,5 @@
 import { createStore } from 'zustand/vanilla'
 
-import { referenceProjectSnapshot } from '../fixtures/reference'
 import type { GenerationHistoryEntry } from '../contracts/generation'
 import { getOrderedReferences, normalizeCanvasHierarchy, parseProjectSnapshot } from '../model/project'
 import type {
@@ -1760,5 +1759,15 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
   })
 }
 
+export const EMPTY_CANVAS_SNAPSHOT: ProjectSnapshot = {
+  version: 1,
+  projectId: 'default-project',
+  name: '未命名画布',
+  viewport: { x: 0, y: 0, zoom: 1 },
+  nodes: [],
+  edges: [],
+}
+
 export type CanvasStore = ReturnType<typeof createCanvasStore>
-export const canvasStore = createCanvasStore(referenceProjectSnapshot)
+export const canvasStore = createCanvasStore(EMPTY_CANVAS_SNAPSHOT)
+

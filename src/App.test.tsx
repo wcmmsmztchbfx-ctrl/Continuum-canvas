@@ -109,7 +109,7 @@ describe('canvas application integration', () => {
     expect(screen.getByRole('button', { name: /未命名工作区/ })).toBeVisible()
     expect(screen.queryByRole('button', { name: '故事板' })).toBeNull()
     expect(screen.getByRole('button', { name: '选择 V' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByTestId('canvas-workspace')).toBeVisible()
+    await waitFor(() => expect(screen.getByTestId('canvas-workspace')).toBeVisible())
   })
 
   it('opens primary menus and closes them with Escape', async () => {
@@ -269,8 +269,9 @@ describe('canvas application integration', () => {
     expect(screen.getByTestId('layers-sidebar')).toBeInTheDocument()
   })
 
-  it('keeps the canvas selectable while opening node tools', () => {
+  it('keeps the canvas selectable while opening node tools', async () => {
     render(<App />)
+    await waitFor(() => expect(screen.getByTestId('canvas-workspace')).toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: '上传媒体 U' }))
     expect(screen.getByTestId('canvas-workspace')).toHaveAttribute(
