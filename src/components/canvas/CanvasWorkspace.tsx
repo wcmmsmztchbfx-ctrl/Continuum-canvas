@@ -501,6 +501,20 @@ export function CanvasWorkspace({
   const [imagePanelMode, setImagePanelMode] = useState<'generate' | 'edit'>('generate')
   const [imageEditorDirty, setImageEditorDirty] = useState(false)
   const [connectionGestureActive, setConnectionGestureActive] = useState(false)
+
+  useEffect(() => {
+    const handleGlobalPointerUp = () => {
+      setConnectionGestureActive(false)
+    }
+    window.addEventListener('pointerup', handleGlobalPointerUp)
+    window.addEventListener('pointercancel', handleGlobalPointerUp)
+    window.addEventListener('mouseup', handleGlobalPointerUp)
+    return () => {
+      window.removeEventListener('pointerup', handleGlobalPointerUp)
+      window.removeEventListener('pointercancel', handleGlobalPointerUp)
+      window.removeEventListener('mouseup', handleGlobalPointerUp)
+    }
+  }, [])
   const [pendingImageMode, setPendingImageMode] = useState<'generate' | 'edit'>()
   const [pendingImageSelection, setPendingImageSelection] = useState<{ requested: true; nodeId: string | null }>()
   const imageEditorSaveRef = useRef<(() => void) | null>(null)
@@ -1872,6 +1886,7 @@ export function CanvasWorkspace({
 
   const handleConnect = useCallback(
     (connection: Connection) => {
+      setConnectionGestureActive(false)
       if (readOnly) return
       if (!connection.source || !connection.target) return
       const current = store.getState().snapshot
@@ -1983,6 +1998,7 @@ export function CanvasWorkspace({
 
   const handleConnectEnd: OnConnectEnd = useCallback(
     (event, connectionState) => {
+      setConnectionGestureActive(false)
       if (readOnly) return
       if (
         !flowInstance ||
@@ -1990,7 +2006,6 @@ export function CanvasWorkspace({
         connectionState.isValid ||
         connectionState.toHandle
       ) {
-        setConnectionGestureActive(false)
         return
       }
 
@@ -2523,30 +2538,37 @@ export function CanvasWorkspace({
           setFrameDropTargetId(undefined)
         }}
         onNodeClick={(event, node) => {
+          setConnectionGestureActive(false)
           if (readOnly) return
-          if (!referencePickTargetId || node.id === referencePickTargetId) return
-          const source = store
-            .getState()
-            .snapshot.nodes.find((candidate) => candidate.id === node.id)
-          if ((source?.type !== 'image' && source?.type !== 'video') || !source.data.url) return
-          event.stopPropagation()
-          const targetId = referencePickTargetId
-          let completed = false
-          const finishPick = (alias: number | undefined) => {
-            if (completed || alias === undefined) return
-            completed = true
-            setReferencePickTargetId(null)
-            store.getState().selectNode(targetId)
+          if (referencePickTargetId && node.id !== referencePickTargetId) {
+            const source = store
+              .getState()
+              .snapshot.nodes.find((candidate) => candidate.id === node.id)
+            if ((source?.type === 'image' || source?.type === 'video') && source.data.url) {
+              event.stopPropagation()
+              const targetId = referencePickTargetId
+              let completed = false
+              const finishPick = (alias: number | undefined) => {
+                if (completed || alias === undefined) return
+                completed = true
+                setReferencePickTargetId(null)
+                store.getState().selectNode(targetId)
+              }
+              const pendingAlias = handleAttachReference(targetId, node.id)
+              const immediateAlias = store.getState().snapshot.edges.find((edge) =>
+                edge.source === node.id && edge.target === targetId &&
+                edge.relation === 'reference',
+              )?.referenceAlias
+              finishPick(immediateAlias)
+              void pendingAlias.then((alias) => {
+                finishPick(alias)
+              })
+              return
+            }
           }
-          const pendingAlias = handleAttachReference(targetId, node.id)
-          const immediateAlias = store.getState().snapshot.edges.find((edge) =>
-            edge.source === node.id && edge.target === targetId &&
-            edge.relation === 'reference',
-          )?.referenceAlias
-          finishPick(immediateAlias)
-          void pendingAlias.then((alias) => {
-            finishPick(alias)
-          })
+          if (!event.shiftKey) {
+            store.getState().selectNode(node.id)
+          }
         }}
         onConnect={handleConnect}
         onConnectStart={() => setConnectionGestureActive(true)}
