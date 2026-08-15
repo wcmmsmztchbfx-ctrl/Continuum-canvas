@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -43,6 +42,9 @@ import {
   MAX_LAYERS_WIDTH,
   MIN_LAYERS_WIDTH,
   normalizeLayersWidth,
+  MAX_INSPECTOR_WIDTH,
+  MIN_INSPECTOR_WIDTH,
+  normalizeInspectorWidth,
   saveUiPreferences,
   type UiPreferences,
 } from './persistence'
@@ -201,6 +203,15 @@ export default function App({
     width: number
     cleanup: () => void
   } | undefined>(undefined)
+
+  const [inspectorWidth, setInspectorWidth] = useState(preferences.inspectorWidth || 280)
+  const [inspectorResizing, setInspectorResizing] = useState(false)
+  const inspectorResizeRef = useRef<{
+    startX: number
+    startWidth: number
+    width: number
+    cleanup: () => void
+  } | undefined>(undefined)
   const [activeTool, setActiveTool] = useState<ToolDockTool>('select')
   const [popup, setPopup] = useState<Popup>(null)
   const [providerDrawerOpen, setProviderDrawerOpen] = useState(false)
@@ -261,7 +272,6 @@ export default function App({
   const contextMenuDismissedAtRef = useRef(0)
   const snapshot = useStore(canvasStore, (state) => state.snapshot)
   const selectedNodeIds = useStore(canvasStore, (state) => state.selectedNodeIds)
-  const previousLayersOpenRef = useRef(preferences.layersOpen)
   const imageSelectionGuardRef = useRef<(nodeId: string | null) => boolean>(() => true)
 
   const copySelectedNodes = useCallback(async (selectedIds: string[]) => {
@@ -275,18 +285,6 @@ export default function App({
     internalClipboardRef.current = envelope
     await writeCanvasClipboardEnvelope(envelope, navigator.clipboard ?? {})
   }, [canvasId])
-
-  useLayoutEffect(() => {
-    const previous = previousLayersOpenRef.current
-    if (previous === preferences.layersOpen) return
-    previousLayersOpenRef.current = preferences.layersOpen
-    if (window.innerWidth <= 720) return
-    const viewport = canvasStore.getState().snapshot.viewport
-    canvasStore.getState().setViewport({
-      ...viewport,
-      x: viewport.x + (preferences.layersOpen ? 120 : -120),
-    })
-  }, [preferences.layersOpen])
 
   const closeFloatingUi = useCallback(() => {
     setPopup(null)
@@ -366,6 +364,46 @@ export default function App({
     window.addEventListener('blur', end)
     setLayersResizing(true)
   }, [finishLayersResize, layersWidth])
+
+  const finishInspectorResize = useCallback(() => {
+    const resize = inspectorResizeRef.current
+    if (!resize) return
+    inspectorResizeRef.current = undefined
+    resize.cleanup()
+    setInspectorResizing(false)
+    persistPreferences({ inspectorWidth: resize.width })
+  }, [persistPreferences])
+
+  const startInspectorResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (window.innerWidth <= 720 || event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const move = (moveEvent: MouseEvent) => {
+      const resize = inspectorResizeRef.current
+      if (!resize) return
+      const maximum = Math.min(MAX_INSPECTOR_WIDTH, Math.floor(window.innerWidth * 0.5))
+      const width = Math.min(maximum, Math.max(MIN_INSPECTOR_WIDTH,
+        resize.startWidth + (resize.startX - moveEvent.clientX)))
+      resize.width = normalizeInspectorWidth(width)
+      setInspectorWidth(resize.width)
+    }
+    const end = () => finishInspectorResize()
+    const cleanup = () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', end)
+      window.removeEventListener('blur', end)
+    }
+    inspectorResizeRef.current = {
+      startX: event.clientX,
+      startWidth: inspectorWidth,
+      width: inspectorWidth,
+      cleanup,
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', end)
+    window.addEventListener('blur', end)
+    setInspectorResizing(true)
+  }, [finishInspectorResize, inspectorWidth])
 
   const resizeLayersByKeyboard = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
@@ -1181,8 +1219,12 @@ export default function App({
       data-testid="app-shell"
       data-layers-open={preferences.layersOpen || undefined}
       data-layers-resizing={layersResizing || undefined}
+      data-inspector-resizing={inspectorResizing || undefined}
       inert={!hydrated}
-      style={{ '--layers-sidebar-width': `${Math.min(layersWidth, Math.floor(window.innerWidth * 0.7))}px` } as CSSProperties}
+      style={{
+        '--layers-sidebar-width': `${Math.min(layersWidth, Math.floor(window.innerWidth * 0.7))}px`,
+        '--inspector-sidebar-width': `${Math.min(inspectorWidth, Math.floor(window.innerWidth * 0.5))}px`,
+      } as CSSProperties}
     >
       <aside
         className="app-layer-sidebar"
@@ -1356,18 +1398,18 @@ export default function App({
           {activeLeftTab === 'agent' && (
             <AgentSidebarPanel onNotify={notify} />
           )}
+          <div
+            aria-label="调整图层侧栏宽度"
+            aria-orientation="vertical"
+            aria-valuemax={Math.min(MAX_LAYERS_WIDTH, Math.floor(window.innerWidth * 0.7))}
+            aria-valuemin={MIN_LAYERS_WIDTH}
+            aria-valuenow={layersWidth}
+            className="app-layer-sidebar__resize-handle"
+            onMouseDown={startLayersResize}
+            onKeyDown={resizeLayersByKeyboard}
+            role="separator"
+          />
         </div>
-        <div
-          aria-label="调整图层侧栏宽度"
-          aria-orientation="vertical"
-          aria-valuemax={Math.min(MAX_LAYERS_WIDTH, Math.floor(window.innerWidth * 0.7))}
-          aria-valuemin={MIN_LAYERS_WIDTH}
-          aria-valuenow={layersWidth}
-          className="app-layer-sidebar__resize-handle"
-          onMouseDown={startLayersResize}
-          onKeyDown={resizeLayersByKeyboard}
-          role="separator"
-        />
       </aside>
       <section
         className="canvas-stage"
@@ -1504,6 +1546,7 @@ export default function App({
           )
         }}
         onOpenSettings={() => setDialog('shortcuts')}
+        onStartResize={startInspectorResize}
         readOnly={readOnly}
         store={canvasStore}
       />

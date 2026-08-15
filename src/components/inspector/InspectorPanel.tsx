@@ -24,7 +24,6 @@ import {
   Link2,
   Unlink2,
   ChevronRight,
-  ChevronDown,
   Maximize2,
   Settings,
   PanelRightClose,
@@ -47,11 +46,32 @@ interface InspectorPanelProps {
   collaborationMembers?: ReadonlyArray<{
     id: string
     displayName: string
-    color: string
+    color?: string
   }>
   onOpenCollaboration?: () => void
   onOpenApiManagement?: () => void
   currentNickname?: string
+  onStartResize?: (event: React.MouseEvent<HTMLDivElement>) => void
+}
+
+const AVATAR_COLORS = [
+  '#0d99ff', // blue
+  '#22c55e', // green
+  '#f59e0b', // amber
+  '#ec4899', // pink
+  '#8b5cf6', // violet
+  '#06b6d4', // cyan
+  '#f97316', // orange
+  '#a855f7', // purple
+]
+
+function getAvatarColor(name: string, index: number): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  const colorIndex = Math.abs(hash + index) % AVATAR_COLORS.length
+  return AVATAR_COLORS[colorIndex]
 }
 
 const FRAME_PRESETS = [
@@ -74,6 +94,7 @@ export function InspectorPanel({
   onOpenCollaboration,
   onOpenApiManagement,
   currentNickname,
+  onStartResize,
 }: InspectorPanelProps) {
   const snapshot = useStore(store, (state: CanvasStoreState) => state.snapshot)
   const selectedNodeIds = useStore(store, (state: CanvasStoreState) => state.selectedNodeIds)
@@ -138,22 +159,71 @@ export function InspectorPanel({
     }
   }
 
-  const isCollaborationActive =
-    collaborationStatus !== 'inactive' &&
-    Boolean(currentNickname && currentNickname.trim())
+  const hasMembers = collaborationMembers && collaborationMembers.length > 0
+  const hasSelfName = Boolean(currentNickname && currentNickname.trim())
+
+  const renderAvatars = () => {
+    if (hasMembers) {
+      return (
+        <div
+          className="inspector-top-bar__avatars"
+          onClick={onOpenCollaboration}
+          title={`协作成员 (${collaborationMembers!.length}人) - 点击查看`}
+        >
+          {collaborationMembers!.map((member, idx) => {
+            const char = (member.displayName || '名').trim().slice(0, 1).toUpperCase()
+            const bg = member.color || getAvatarColor(member.displayName || '名', idx)
+            return (
+              <div
+                key={member.id || idx}
+                className="inspector-top-bar__avatar-bubble"
+                style={{ background: bg, zIndex: 10 - idx }}
+                title={member.displayName}
+              >
+                {char}
+              </div>
+            )
+          })}
+        </div>
+      )
+    }
+
+    if (hasSelfName) {
+      return (
+        <div
+          className="inspector-top-bar__avatars"
+          onClick={onOpenCollaboration}
+          title={`当前用户：${currentNickname} (点击开启多人协作)`}
+        >
+          <div
+            className="inspector-top-bar__avatar-bubble"
+            style={{ background: getAvatarColor(currentNickname!, 0) }}
+          >
+            {currentNickname!.trim().slice(0, 1).toUpperCase()}
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div
+        className="inspector-top-bar__avatars"
+        onClick={onOpenCollaboration}
+        title="暂无协作者 (点击开启协作)"
+      >
+        <div
+          className="inspector-top-bar__avatar-bubble inspector-top-bar__avatar-bubble--none"
+          style={{ background: '#475569' }}
+        >
+          无
+        </div>
+      </div>
+    )
+  }
 
   const renderTopBar = () => (
     <div className="inspector-top-bar" data-testid="inspector-top-bar">
-      {isCollaborationActive ? (
-        <div className="inspector-top-bar__profile" title={`当前协作用户：${currentNickname}`}>
-          <div className="inspector-top-bar__avatar">
-            {currentNickname!.trim().slice(0, 1).toUpperCase()}
-          </div>
-          <ChevronDown className="inspector-top-bar__chevron" size={11} />
-        </div>
-      ) : (
-        <div className="inspector-top-bar__spacer" />
-      )}
+      {renderAvatars()}
 
       <div className="inspector-top-bar__actions">
         {onOpenApiManagement && (
@@ -209,6 +279,15 @@ export function InspectorPanel({
   if (selectedNodes.length > 1) {
     return (
       <aside className="inspector-panel" data-testid="inspector-panel">
+        {onStartResize && (
+          <div
+            aria-label="调整属性面板宽度"
+            aria-orientation="vertical"
+            className="inspector-panel__resize-handle"
+            onMouseDown={onStartResize}
+            role="separator"
+          />
+        )}
         {renderTopBar()}
         <div className="inspector-header">
           <div className="inspector-header__title-group">
@@ -259,6 +338,15 @@ export function InspectorPanel({
   if (!activeNode) {
     return (
       <aside className="inspector-panel" data-testid="inspector-panel">
+        {onStartResize && (
+          <div
+            aria-label="调整属性面板宽度"
+            aria-orientation="vertical"
+            className="inspector-panel__resize-handle"
+            onMouseDown={onStartResize}
+            role="separator"
+          />
+        )}
         {renderTopBar()}
         <div className="inspector-header">
           <div className="inspector-header__title-group">
@@ -355,6 +443,15 @@ export function InspectorPanel({
 
   return (
     <aside className="inspector-panel" data-testid="inspector-panel">
+      {onStartResize && (
+        <div
+          aria-label="调整属性面板宽度"
+          aria-orientation="vertical"
+          className="inspector-panel__resize-handle"
+          onMouseDown={onStartResize}
+          role="separator"
+        />
+      )}
       {renderTopBar()}
       {/* Header */}
       <div className="inspector-header">

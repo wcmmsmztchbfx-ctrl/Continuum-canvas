@@ -3,6 +3,10 @@ export const DEFAULT_LAYERS_WIDTH = 240
 export const MIN_LAYERS_WIDTH = 220
 export const MAX_LAYERS_WIDTH = 4096
 
+export const DEFAULT_INSPECTOR_WIDTH = 280
+export const MIN_INSPECTOR_WIDTH = 220
+export const MAX_INSPECTOR_WIDTH = 560
+
 export interface UiPreferences {
   hideConnections: boolean
   snapToGrid: boolean
@@ -12,6 +16,7 @@ export interface UiPreferences {
   showZoom: boolean
   layersOpen: boolean
   layersWidth: number
+  inspectorWidth?: number
 }
 
 export interface StorageLike {
@@ -35,6 +40,13 @@ export function normalizeLayersWidth(value: unknown): number {
     return DEFAULT_LAYERS_WIDTH
   }
   return Math.min(MAX_LAYERS_WIDTH, Math.max(MIN_LAYERS_WIDTH, Math.round(value)))
+}
+
+export function normalizeInspectorWidth(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_INSPECTOR_WIDTH
+  }
+  return Math.min(MAX_INSPECTOR_WIDTH, Math.max(MIN_INSPECTOR_WIDTH, Math.round(value)))
 }
 
 function defaults(): UiPreferences {
@@ -77,12 +89,15 @@ function normalizePreferences(value: unknown): UiPreferences {
   }
   if (typeof value.layersOpen === 'boolean') result.layersOpen = value.layersOpen
   result.layersWidth = normalizeLayersWidth(value.layersWidth)
+  if (typeof value.inspectorWidth === 'number') {
+    result.inspectorWidth = normalizeInspectorWidth(value.inspectorWidth)
+  }
   return result
 }
 
 function serializePreferences(preferences: UiPreferences): string {
   const normalized = normalizePreferences(preferences)
-  return JSON.stringify({
+  const result: Record<string, unknown> = {
     hideConnections: normalized.hideConnections,
     lastOpenPanel: normalized.lastOpenPanel,
     showZoom: normalized.showZoom,
@@ -91,7 +106,11 @@ function serializePreferences(preferences: UiPreferences): string {
     smartSnap: normalized.smartSnap,
     layersOpen: normalized.layersOpen,
     layersWidth: normalized.layersWidth,
-  })
+  }
+  if (typeof normalized.inspectorWidth === 'number') {
+    result.inspectorWidth = normalized.inspectorWidth
+  }
+  return JSON.stringify(result)
 }
 
 export function loadUiPreferences(storage?: StorageLike): UiPreferences {

@@ -63,7 +63,6 @@ import { FrameNode, PathNode, ShapeNode } from './CreativeNodes'
 import { canEditReferencesWithCatalog, resolveVideoMode } from './generationUi'
 import { CollaborationPresenceLayer } from './CollaborationPresenceLayer'
 import { ImageEditorWorkspace } from './ImageEditorModal'
-import { CommentsPanel } from './CommentsPanel'
 import { parseAspectRatio, sizeForAspectRatio } from './mediaGeometry'
 import { snapRect, snapResizeRect, unionRect, type ResizeDirection, type SnapDistance, type SnapGuide, type SnapRect, type SnapState } from './smartSnapping'
 import { stabilizeProjectedEdges, stabilizeProjectedNodes } from './flowProjection'
@@ -2492,14 +2491,6 @@ export function CanvasWorkspace({
       {collaborationLockNotice ? (
         <div className="collaboration-lock-notice" role="status">{collaborationLockNotice}</div>
       ) : null}
-      <CommentsPanel
-        author={{ id: collaboration?.localMemberId ?? 'local', name: '本地用户' }}
-        comments={snapshot.comments ?? []}
-        onAdd={(comment) => store.getState().addComment(comment)}
-        onUpdate={(id, updater) => store.getState().updateComment(id, updater)}
-        selectedNodeId={selectedNodeIds.length === 1 ? selectedNodeIds[0] : undefined}
-        viewportCenter={{ x: (window.innerWidth / 2 - snapshot.viewport.x) / snapshot.viewport.zoom, y: (window.innerHeight / 2 - snapshot.viewport.y) / snapshot.viewport.zoom }}
-      />
     </div>
   )
 }

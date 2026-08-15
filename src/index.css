@@ -265,12 +265,13 @@ select:focus-visible {
   position: absolute;
   z-index: 100;
   top: 0;
-  right: 0;
+  right: -4px;
   bottom: 0;
-  width: 16px;
+  width: 8px;
   cursor: ew-resize;
   touch-action: none;
   outline: none;
+  pointer-events: auto;
 }
 
 .app-layer-sidebar__resize-handle::after {
@@ -284,10 +285,11 @@ select:focus-visible {
 
 .app-layer-sidebar__resize-handle:hover::after,
 .app-shell[data-layers-resizing] .app-layer-sidebar__resize-handle::after {
-  background: #22d3e3;
+  background: #0d99ff;
 }
 
-.app-shell[data-layers-resizing] {
+.app-shell[data-layers-resizing],
+.app-shell[data-inspector-resizing] {
   cursor: ew-resize;
   user-select: none;
 }
@@ -296,7 +298,7 @@ select:focus-visible {
   position: absolute;
   left: 48px;
   top: 0;
-  right: 280px;
+  right: var(--inspector-sidebar-width, 280px);
   bottom: 0;
   height: 100vh;
   overflow: hidden;
@@ -308,7 +310,39 @@ select:focus-visible {
   right: 0;
   top: 0;
   bottom: 0;
+  width: var(--inspector-sidebar-width, 280px);
+  min-width: var(--inspector-sidebar-width, 280px);
+  max-width: var(--inspector-sidebar-width, 280px);
   z-index: 45;
+  background: #1e1e1e;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.inspector-panel__resize-handle {
+  position: absolute;
+  z-index: 100;
+  top: 0;
+  left: -4px;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  touch-action: none;
+  outline: none;
+  pointer-events: auto;
+}
+
+.inspector-panel__resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 3px;
+  width: 2px;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+
+.inspector-panel__resize-handle:hover::after,
+.app-shell[data-inspector-resizing] .inspector-panel__resize-handle::after {
+  background: #0d99ff;
 }
 
 /* Sidebar Assets Panel */
