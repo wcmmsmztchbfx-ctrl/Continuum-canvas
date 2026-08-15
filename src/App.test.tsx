@@ -109,7 +109,7 @@ describe('canvas application integration', () => {
     expect(screen.getByRole('button', { name: /未命名工作区/ })).toBeVisible()
     expect(screen.queryByRole('button', { name: '故事板' })).toBeNull()
     expect(screen.getByRole('button', { name: '选择 V' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByTestId('canvas-workspace')).toBeVisible()
+    await waitFor(() => expect(screen.getByTestId('canvas-workspace')).toBeVisible())
   })
 
   it('opens primary menus and closes them with Escape', async () => {
@@ -269,8 +269,9 @@ describe('canvas application integration', () => {
     expect(screen.getByTestId('layers-sidebar')).toBeInTheDocument()
   })
 
-  it('keeps the canvas selectable while opening node tools', () => {
+  it('keeps the canvas selectable while opening node tools', async () => {
     render(<App />)
+    await waitFor(() => expect(screen.getByTestId('canvas-workspace')).toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: '上传媒体 U' }))
     expect(screen.getByTestId('canvas-workspace')).toHaveAttribute(
@@ -322,5 +323,90 @@ describe('canvas application integration', () => {
     // Press 'v' to return to select mode
     fireEvent.keyDown(document, { key: 'v' })
     expect(workspace).toHaveAttribute('data-active-tool', 'select')
+  })
+
+  it('triggers undo and redo via bottom toolbar buttons and keyboard shortcuts', async () => {
+    render(<App />)
+    const shell = screen.getByTestId('app-shell')
+    await waitFor(() => {
+      expect(shell).toHaveAttribute('data-hydrated', 'true')
+    })
+
+    const initialNodesCount = canvasStore.getState().snapshot.nodes.length
+
+    // Add a node
+    canvasStore.getState().addNode({
+      id: 'test-undo-node-1',
+      type: 'text',
+      name: '测试文本',
+      position: { x: 100, y: 100 },
+      size: { width: 200, height: 100 },
+      data: { text: 'Hello Undo' },
+    })
+    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount + 1)
+
+    // Click undo in bottom toolbar
+    const undoButton = screen.getByRole('button', { name: /撤销/ })
+    fireEvent.click(undoButton)
+    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount)
+
+    // Click redo in bottom toolbar
+    const redoButton = screen.getByRole('button', { name: /重做/ })
+    fireEvent.click(redoButton)
+    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount + 1)
+
+    // Test Ctrl+Z shortcut
+    fireEvent.keyDown(document, { ctrlKey: true, key: 'z' })
+    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount)
+
+    // Test Ctrl+Shift+Z shortcut
+    fireEvent.keyDown(document, { ctrlKey: true, shiftKey: true, key: 'z' })
+    expect(canvasStore.getState().snapshot.nodes.length).toBe(initialNodesCount + 1)
+  })
+
+  it('restores node positions when undoing node move and layout', async () => {
+    render(<App />)
+    const shell = screen.getByTestId('app-shell')
+    await waitFor(() => {
+      expect(shell).toHaveAttribute('data-hydrated', 'true')
+    })
+
+    canvasStore.getState().addNode({
+      id: 'move-node-1',
+      type: 'text',
+      name: 'Text 1',
+      position: { x: 100, y: 100 },
+      size: { width: 200, height: 100 },
+      data: { text: '1' },
+    })
+    canvasStore.getState().addNode({
+      id: 'move-node-2',
+      type: 'text',
+      name: 'Text 2',
+      position: { x: 400, y: 100 },
+      size: { width: 200, height: 100 },
+      data: { text: '2' },
+    })
+
+    // Move node 1
+    canvasStore.getState().moveNodes([{ id: 'move-node-1', position: { x: 600, y: 400 } }])
+    expect(canvasStore.getState().snapshot.nodes.find((n) => n.id === 'move-node-1')?.position.x).toBe(600)
+
+    // Undo move via Ctrl+Z
+    fireEvent.keyDown(document, { ctrlKey: true, key: 'z' })
+    expect(canvasStore.getState().snapshot.nodes.find((n) => n.id === 'move-node-1')?.position.x).toBe(100)
+
+    // Redo move via Ctrl+Shift+Z
+    fireEvent.keyDown(document, { ctrlKey: true, shiftKey: true, key: 'z' })
+    expect(canvasStore.getState().snapshot.nodes.find((n) => n.id === 'move-node-1')?.position.x).toBe(600)
+
+    // Layout nodes
+    canvasStore.getState().layoutNodes(['move-node-1', 'move-node-2'])
+
+    // Undo layout via button
+    const undoButton = screen.getByRole('button', { name: /撤销/ })
+    fireEvent.click(undoButton)
+    expect(canvasStore.getState().snapshot.nodes.find((n) => n.id === 'move-node-1')?.position.x).toBe(600)
+    expect(canvasStore.getState().snapshot.nodes.find((n) => n.id === 'move-node-2')?.position.x).toBe(400)
   })
 })

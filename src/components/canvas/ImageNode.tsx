@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { NodeResizer, Position, type NodeProps } from '@xyflow/react'
+import { NodeResizer, Position, useViewport, type NodeProps } from '@xyflow/react'
 
 import { EmptyMediaPlaceholder } from './EmptyMediaPlaceholder'
 import { EditableNodeLabel } from './EditableNodeLabel'
@@ -8,7 +8,55 @@ import { MediaDownloadButton } from './MediaDownloadButton'
 import type { CanvasFlowNode } from './mapping'
 import { NodeGeneratorPanel } from './NodeGeneratorPanel'
 import { NodeHandle } from './NodeHandle'
+import {
+  getFastThumbnailUrl,
+  subscribeThumbnailReady,
+} from '../../services/imageThumbnailCache'
+import {
+  isMediaLoaded,
+  requestMediaLoad,
+  type LoadPriority,
+} from '../../services/mediaLoadQueue'
 import './canvas.css'
+
+function calculateLoadPriority(
+  nodePos: { x: number; y: number } | undefined,
+  nodeSize: { width: number; height: number } | undefined,
+  viewport: { x: number; y: number; zoom: number },
+): LoadPriority {
+  if (!nodePos || typeof window === 'undefined') return 'normal'
+  const zoom = Math.max(0.01, viewport.zoom)
+  const viewLeft = -viewport.x / zoom
+  const viewTop = -viewport.y / zoom
+  const viewRight = (window.innerWidth - viewport.x) / zoom
+  const viewBottom = (window.innerHeight - viewport.y) / zoom
+
+  const buffer = 1000 / zoom
+  const nodeWidth = nodeSize?.width || 300
+  const nodeHeight = nodeSize?.height || 200
+  const nodeRight = nodePos.x + nodeWidth
+  const nodeBottom = nodePos.y + nodeHeight
+
+  if (
+    nodeRight >= viewLeft &&
+    nodePos.x <= viewRight &&
+    nodeBottom >= viewTop &&
+    nodePos.y <= viewBottom
+  ) {
+    return 'high'
+  }
+
+  if (
+    nodeRight >= viewLeft - buffer &&
+    nodePos.x <= viewRight + buffer &&
+    nodeBottom >= viewTop - buffer &&
+    nodePos.y <= viewBottom + buffer
+  ) {
+    return 'normal'
+  }
+
+  return 'low'
+}
 
 function ImageNodeContent({
   id,
@@ -17,13 +65,98 @@ function ImageNodeContent({
   isConnectable,
 }: NodeProps<CanvasFlowNode>) {
   const [failed, setFailed] = useState(false)
+  const [highResLoaded, setHighResLoaded] = useState(false)
+  const [thumbnailAllowed, setThumbnailAllowed] = useState(false)
+  const [highResAllowed, setHighResAllowed] = useState(false)
+  const [generatedThumbnail, setGeneratedThumbnail] = useState<string | undefined>(undefined)
   const resizeGranted = useRef(false)
-  useEffect(() => setFailed(false), [data.url])
+
+  let viewport = { x: 0, y: 0, zoom: 1 }
+  try {
+    const vp = useViewport()
+    viewport = { x: vp.x, y: vp.y, zoom: vp.zoom }
+  } catch {
+    viewport = { x: 0, y: 0, zoom: 1 }
+  }
+
+  const zoom = viewport.zoom
+  const priority = calculateLoadPriority(
+    data.node?.position,
+    data.node?.size,
+    viewport,
+  )
+
+  useEffect(() => {
+    setFailed(false)
+    setHighResLoaded(false)
+    setHighResAllowed(false)
+  }, [data.url])
+
+  useEffect(() => {
+    if (!data.url) return
+    const initialThumb = getFastThumbnailUrl(data.url, data.thumbnailUrl)
+    setGeneratedThumbnail(initialThumb)
+    return subscribeThumbnailReady((url, thumb) => {
+      if (url === data.url) {
+        setGeneratedThumbnail(thumb)
+      }
+    })
+  }, [data.url, data.thumbnailUrl])
+
   const hasImage = Boolean(data.url) && !failed
   const isLayerMode = data.node?.type === 'image' && data.node.data.displayMode === 'layer'
   const showResizer = isLayerMode && selected && data.isSoleSelection !== false
   const showDetails = selected && data.isSoleSelection !== false && !isLayerMode
   const modelData = data.node?.type === 'image' ? data.node.data : undefined
+
+  const explicitThumbnail =
+    data.thumbnailUrl ||
+    (data.url && data.versions?.[0]?.url && data.versions[0].url !== data.url
+      ? data.versions[0].url
+      : undefined)
+  const effectiveThumbnailUrl = explicitThumbnail || generatedThumbnail
+  const hasThumbnail = Boolean(effectiveThumbnailUrl)
+  const isLowResMode = zoom <= 0.35
+  const shouldRenderHighRes = !isLowResMode || !hasThumbnail
+
+  useEffect(() => {
+    if (!effectiveThumbnailUrl) {
+      setThumbnailAllowed(true)
+      return
+    }
+    if (isMediaLoaded(effectiveThumbnailUrl)) {
+      setThumbnailAllowed(true)
+      return
+    }
+    const { promise, cancel } = requestMediaLoad(effectiveThumbnailUrl, priority)
+    let active = true
+    promise.then(() => {
+      if (active) setThumbnailAllowed(true)
+    })
+    return () => {
+      active = false
+      cancel()
+    }
+  }, [effectiveThumbnailUrl, priority])
+
+  useEffect(() => {
+    if (!data.url || !shouldRenderHighRes) {
+      return
+    }
+    if (isMediaLoaded(data.url)) {
+      setHighResAllowed(true)
+      return
+    }
+    const { promise, cancel } = requestMediaLoad(data.url, priority)
+    let active = true
+    promise.then(() => {
+      if (active) setHighResAllowed(true)
+    })
+    return () => {
+      active = false
+      cancel()
+    }
+  }, [data.url, shouldRenderHighRes, priority])
 
   return (
     <article
@@ -78,10 +211,24 @@ function ImageNodeContent({
           overflow: 'hidden',
         }}
       >
-        {hasImage ? (
+        {hasThumbnail ? (
           <img
-            className="canvas-media-node__content"
-            src={data.url}
+            alt={data.alt ?? data.name}
+            className="canvas-media-node__content canvas-image-thumbnail"
+            decoding="async"
+            draggable={false}
+            src={thumbnailAllowed ? effectiveThumbnailUrl : undefined}
+            style={{
+              objectFit: modelData?.objectFit ?? 'cover',
+              borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
+            }}
+          />
+        ) : null}
+        {hasImage && shouldRenderHighRes ? (
+          <img
+            className={`canvas-media-node__content ${hasThumbnail ? 'canvas-image-highres' : ''} ${highResLoaded ? 'is-loaded' : ''}`}
+            decoding="async"
+            src={highResAllowed || !hasThumbnail ? data.url : undefined}
             alt={data.alt ?? data.name}
             draggable={false}
             style={{
@@ -89,17 +236,22 @@ function ImageNodeContent({
               borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
             }}
             onLoad={(event) => {
+              setHighResLoaded(true)
               data.onImageNaturalSize?.(
                 id,
                 event.currentTarget.naturalWidth,
                 event.currentTarget.naturalHeight,
               )
             }}
-            onError={() => setFailed(true)}
+            onError={() => {
+              if (!hasThumbnail) {
+                setFailed(true)
+              }
+            }}
           />
-        ) : (
+        ) : !hasThumbnail && !hasImage ? (
           <EmptyMediaPlaceholder kind="image" />
-        )}
+        ) : null}
         {data.generation?.status === 'generating' ? (
           <GenerationOverlay />
         ) : null}

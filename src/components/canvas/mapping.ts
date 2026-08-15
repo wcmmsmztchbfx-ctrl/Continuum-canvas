@@ -40,6 +40,7 @@ export type CanvasFlowNodeData = {
   lockedBy?: CanvasFlowNodeData['remoteLock']
   interactionLeaseLost?: number
   url: string
+  thumbnailUrl?: string
   alt?: string
   poster?: string
   durationSec?: number
