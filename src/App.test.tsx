@@ -268,7 +268,7 @@ describe('canvas application integration', () => {
     expect(sidebar).toHaveAttribute('aria-hidden', 'true')
     fireEvent.click(screen.getByRole('button', { name: '展开图层' }))
     expect(sidebar).toHaveAttribute('aria-hidden', 'false')
-    fireEvent.click(screen.getAllByRole('button', { name: '收起图层' })[1])
+    fireEvent.click(screen.getByRole('button', { name: '收起图层' }))
     expect(sidebar).toHaveAttribute('aria-hidden', 'true')
     expect(screen.getByTestId('layers-sidebar')).toBeInTheDocument()
   })

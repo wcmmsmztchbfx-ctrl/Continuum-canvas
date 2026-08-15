@@ -1,5 +1,5 @@
 import { useMemo, useState, type ComponentType, type DragEvent, type ReactNode } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, Circle, Eye, EyeOff, Frame, Image, Layers3, Lock, MousePointerSquareDashed, PenTool, Search, Type, Unlock, Video } from 'lucide-react'
+import { ChevronDown, ChevronRight, Circle, Eye, EyeOff, Frame, Image, Layers3, Lock, MousePointerSquareDashed, PenTool, Search, Type, Unlock, Video } from 'lucide-react'
 import type { CanvasNode } from '../../model/project'
 import { getFastThumbnailUrl } from '../../services/imageThumbnailCache'
 
@@ -125,20 +125,11 @@ export function LayersPanel(props: LayersPanelProps) {
   }
   return (
     <aside aria-label="图层" className="layers-panel">
-      <div className="layers-panel__workspace">
-        {props.header}
-        <button aria-label="收起图层" onClick={(event) => { event.currentTarget.blur(); props.onOpenChange(false) }} type="button">
-          <ChevronLeft />
-        </button>
-      </div>
-      <header>
-        <strong><Layers3 />图层</strong>
-        <button aria-label="收起图层" className="layers-panel__collapse" onClick={(event) => { event.currentTarget.blur(); props.onOpenChange(false) }} type="button">
-          <ChevronLeft />
-        </button>
+      <header className="layers-panel__section-header">
+        <strong>图层</strong>
       </header>
       <label className="layers-panel__search">
-        <Search />
+        <Search size={13} />
         <input aria-label="搜索图层" onChange={(event) => setQuery(event.target.value)} placeholder="搜索图层" type="search" value={query} />
       </label>
       <div className="layers-panel__list">
@@ -166,7 +157,7 @@ export function LayersPanel(props: LayersPanelProps) {
                 event.dataTransfer.effectAllowed = 'move'
               }}
               onDrop={(event) => commitDrop(event, node)}
-              style={{ paddingLeft: 8 + depth * 16 }}
+              style={{ paddingLeft: 6 + depth * 14 }}
             >
               <button
                 aria-label={expandable ? `${collapsed.has(node.id) ? '展开' : '收起'} ${node.name}` : undefined}
@@ -183,23 +174,28 @@ export function LayersPanel(props: LayersPanelProps) {
                 }}
                 type="button"
               >
-                {expandable ? collapsed.has(node.id) ? <ChevronRight /> : <ChevronDown /> : null}
+                {expandable ? collapsed.has(node.id) ? <ChevronRight size={11} /> : <ChevronDown size={11} /> : null}
               </button>
-              {node.type === 'path' && getPathSvg(node) ? (
+              <span className="layers-panel__type-icon">
+                <Icon size={13} />
+              </span>
+              {node.type === 'path' ? (
                 <span className="layers-panel__thumb layers-panel__thumb--path" title="画笔笔画">
-                  <svg
-                    preserveAspectRatio="xMidYMid meet"
-                    viewBox={`0 0 ${Math.max(1, node.size.width)} ${Math.max(1, node.size.height)}`}
-                  >
-                    <path
-                      d={getPathSvg(node)}
-                      fill={node.data.fill && node.data.fill !== 'transparent' ? node.data.fill : 'none'}
-                      stroke={node.data.stroke || '#ffffff'}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={Math.max(4, (node.data.strokeWidth ?? 1) * 2)}
-                    />
-                  </svg>
+                  {getPathSvg(node) ? (
+                    <svg
+                      preserveAspectRatio="xMidYMid meet"
+                      viewBox={`0 0 ${Math.max(1, node.size.width)} ${Math.max(1, node.size.height)}`}
+                    >
+                      <path
+                        d={getPathSvg(node)}
+                        fill={node.data.fill && node.data.fill !== 'transparent' ? node.data.fill : 'none'}
+                        stroke={node.data.stroke || '#ffffff'}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={Math.max(4, (node.data.strokeWidth ?? 1) * 2)}
+                      />
+                    </svg>
+                  ) : null}
                 </span>
               ) : node.type === 'shape' ? (
                 <span className="layers-panel__thumb" title="几何图形">
@@ -225,20 +221,30 @@ export function LayersPanel(props: LayersPanelProps) {
                     #
                   </span>
                 </span>
-              ) : mediaUrl ? (
-                <span className="layers-panel__thumb" title="媒体">
-                  <span className="layers-panel__thumb-media">
-                    <img
-                      alt=""
-                      decoding="async"
-                      loading="lazy"
-                      src={getFastThumbnailUrl(mediaUrl) || mediaUrl}
-                    />
-                    {node.type === 'video' ? <span className="layers-panel__thumb-play">▶</span> : null}
-                  </span>
+              ) : node.type === 'text' ? (
+                <span className="layers-panel__thumb layers-panel__thumb--text" title="文本">
+                  <span className="layers-panel__thumb-text-inner">T</span>
+                </span>
+              ) : (node.type === 'image' || node.type === 'video') ? (
+                <span className="layers-panel__thumb" title={node.type === 'video' ? '视频' : '图片'}>
+                  {mediaUrl ? (
+                    <span className="layers-panel__thumb-media">
+                      <img
+                        alt=""
+                        decoding="async"
+                        loading="lazy"
+                        src={getFastThumbnailUrl(mediaUrl) || mediaUrl}
+                      />
+                      {node.type === 'video' ? <span className="layers-panel__thumb-play">▶</span> : null}
+                    </span>
+                  ) : (
+                    <span className="layers-panel__thumb-placeholder">{node.type === 'video' ? '▶' : '🖼'}</span>
+                  )}
                 </span>
               ) : (
-                <span className="layers-panel__icon"><Icon size={14} /></span>
+                <span className="layers-panel__thumb layers-panel__thumb--group" title="组">
+                  <span className="layers-panel__thumb-group-inner">⚏</span>
+                </span>
               )}
               {editingId === node.id ? (
                 <input
@@ -280,7 +286,7 @@ export function LayersPanel(props: LayersPanelProps) {
                   }}
                   type="button"
                 >
-                  {node.hidden ? <EyeOff /> : <Eye />}
+                  {node.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
                 </button>
                 <button
                   aria-label={node.locked ? '解锁' : '锁定'}
@@ -291,7 +297,7 @@ export function LayersPanel(props: LayersPanelProps) {
                   }}
                   type="button"
                 >
-                  {node.locked ? <Lock /> : <Unlock />}
+                  {node.locked ? <Lock size={13} /> : <Unlock size={13} />}
                 </button>
               </span>
             </div>

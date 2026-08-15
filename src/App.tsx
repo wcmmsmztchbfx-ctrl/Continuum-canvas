@@ -9,7 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { useStore } from 'zustand'
-import { Package, Cpu, Layers3, Settings } from 'lucide-react'
+import { Package, Cpu, Layers3, Settings, PanelLeftClose } from 'lucide-react'
 
 import { CanvasWorkspace, LayersPanel } from './components/canvas'
 import {
@@ -1235,12 +1235,23 @@ export default function App({
           </button>
         </div>
         <div className="app-layer-sidebar__content">
-          <WorkspaceMenu
-            canvasName={snapshot.name}
-            onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
-            testId="workspace-control-sidebar"
-            workspaceName={projectName ?? '未命名工作区'}
-          />
+          <div className="app-layer-sidebar__header">
+            <WorkspaceMenu
+              canvasName={snapshot.name}
+              onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
+              testId="workspace-control-sidebar"
+              workspaceName={projectName ?? '未命名工作区'}
+            />
+            <button
+              aria-label="收起图层"
+              className="app-layer-sidebar__toggle-btn"
+              onClick={() => persistPreferences({ layersOpen: false })}
+              title="收起图层 (Ctrl+\)"
+              type="button"
+            >
+              <PanelLeftClose size={16} />
+            </button>
+          </div>
           <LayersPanel
             nodes={snapshot.nodes}
             onFocusNode={(id) => {
