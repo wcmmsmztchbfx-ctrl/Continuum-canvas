@@ -1,13 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   Check,
+  Eye,
+  EyeOff,
   KeyRound,
   Plus,
   RefreshCw,
   Save,
   ServerCog,
   TestTube2,
-  Trash2,
   X,
 } from 'lucide-react'
 
@@ -75,6 +76,7 @@ export function ProviderDrawer({
   const [draft, setDraft] = useState<ProviderDraft>(emptyDraft)
   const [adding, setAdding] = useState(false)
   const [secret, setSecret] = useState('')
+  const [showSecret, setShowSecret] = useState(false)
   const [createStage, setCreateStage] = useState<string>()
   const surfaceRef = useRef<HTMLElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
@@ -143,6 +145,10 @@ export function ProviderDrawer({
       imageRequestMode: draft.imageRequestMode,
     })
     if (!saved) return
+    if (secret.trim()) {
+      await state.setProviderSecret(id, secret.trim())
+      setSecret('')
+    }
     setAdding(false)
     setSelectedId(saved.id)
     setDraft(providerDraft(saved))
@@ -185,7 +191,7 @@ export function ProviderDrawer({
   const saveSecret = async () => {
     if (readOnly) return
     if (!selectedId || unsupported || !secret.trim()) return
-    const saved = await state.setProviderSecret(selectedId, secret)
+    const saved = await state.setProviderSecret(selectedId, secret.trim())
     if (!saved) return
     setSecret('')
     onNotify?.('API Key 已更新', 'success')
@@ -235,7 +241,7 @@ export function ProviderDrawer({
             <ServerCog aria-hidden="true" />
             <div>
               <strong>管理 API 接入</strong>
-              <small>供应商元数据与密钥分开保存</small>
+              <small>配置 AI 模型服务商与接口凭证</small>
             </div>
           </div>
           <button
@@ -388,6 +394,59 @@ export function ProviderDrawer({
                   </small>
                 </label>
               ) : null}
+
+              {!unsupported ? (
+                <label className="integration-field provider-form-grid__wide">
+                  <div className="provider-form-grid__label-row">
+                    <span>API Key</span>
+                    {!adding && selected?.secretConfigured ? (
+                      <span className="provider-form-grid__key-status">
+                        已配置密钥
+                        <button
+                          className="provider-form-grid__clear-key-link"
+                          disabled={readOnly || state.busyAction === `secret:${selected.id}`}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            void clearSecret()
+                          }}
+                          type="button"
+                        >
+                          清除
+                        </button>
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="integration-field__input-wrapper">
+                    <input
+                      aria-label={adding ? 'API Key' : '替换 API Key'}
+                      autoComplete="off"
+                      disabled={readOnly}
+                      onChange={(event) => setSecret(event.target.value)}
+                      placeholder={
+                        adding
+                          ? '输入供应商 API Key'
+                          : selected?.secretConfigured
+                            ? (selected.maskedSecret ?? '已配置密钥（输入以替换）')
+                            : '输入供应商 API Key'
+                      }
+                      spellCheck={false}
+                      type={showSecret ? 'text' : 'password'}
+                      value={secret}
+                    />
+                    <button
+                      aria-label={showSecret ? '隐藏密钥' : '显示明文'}
+                      className="integration-field__toggle-visibility"
+                      onClick={() => setShowSecret((prev) => !prev)}
+                      tabIndex={-1}
+                      title={showSecret ? '隐藏密钥' : '显示明文'}
+                      type="button"
+                    >
+                      {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  {createStage ? <p aria-live="polite" className="provider-form-grid__stage">{createStage}</p> : null}
+                </label>
+              ) : null}
             </div>
 
             <div className="provider-toggle-row">
@@ -439,6 +498,16 @@ export function ProviderDrawer({
                 <Save aria-hidden="true" />
                 保存供应商
               </button>
+              {!adding && !unsupported && secret.trim() ? (
+                <button
+                  className="overlay-primary-button"
+                  disabled={readOnly || state.busyAction === `secret:${selected?.id}`}
+                  onClick={() => void saveSecret()}
+                  type="button"
+                >
+                  <KeyRound aria-hidden="true" />保存新密钥
+                </button>
+              ) : null}
               {!adding && !unsupported ? (
                 <>
                   <button
@@ -461,64 +530,6 @@ export function ProviderDrawer({
               ) : null}
             </div>
 
-            {adding && !unsupported ? (
-              <section className="provider-secret-panel">
-                <div><KeyRound aria-hidden="true" /><div><strong>API Key</strong><small>仅发送到本地网关</small></div></div>
-                <label className="integration-field">
-                  <span>API Key</span>
-                  <input aria-label="API Key" autoComplete="new-password" disabled={readOnly}
-                    onChange={(event) => setSecret(event.target.value)}
-                    placeholder="输入供应商密钥" type="password" value={secret} />
-                </label>
-                {createStage ? <p aria-live="polite">{createStage}</p> : null}
-              </section>
-            ) : null}
-
-            {!adding && selected && !unsupported ? (
-              <section className="provider-secret-panel">
-                <div>
-                  <KeyRound aria-hidden="true" />
-                  <div>
-                    <strong>API Key</strong>
-                    <small>
-                      {selected.secretConfigured
-                        ? selected.maskedSecret ?? '已配置'
-                        : '尚未配置'}
-                    </small>
-                  </div>
-                </div>
-                <label className="integration-field">
-                  <span>替换 API Key</span>
-                  <input
-                    aria-label="替换 API Key"
-                    autoComplete="new-password"
-                    disabled={readOnly}
-                    onChange={(event) => setSecret(event.target.value)}
-                    placeholder="仅在点击保存后发送到本地网关"
-                    type="password"
-                    value={secret}
-                  />
-                </label>
-                <div>
-                  <button
-                    className="overlay-primary-button"
-                    disabled={readOnly || !secret.trim() || state.busyAction === `secret:${selected.id}`}
-                    onClick={() => void saveSecret()}
-                    type="button"
-                  >
-                    <KeyRound aria-hidden="true" />保存新密钥
-                  </button>
-                  <button
-                    className="overlay-text-button provider-secret-panel__clear"
-                    disabled={readOnly || !selected.secretConfigured || state.busyAction === `secret:${selected.id}`}
-                    onClick={() => void clearSecret()}
-                    type="button"
-                  >
-                    <Trash2 aria-hidden="true" />清除密钥
-                  </button>
-                </div>
-              </section>
-            ) : null}
             {!adding && selected && !unsupported && !state.catalog && !state.error ? (
               <p className="provider-drawer__catalog-empty">
                 {selected.secretConfigured
