@@ -28,6 +28,172 @@
   visibility: hidden;
 }
 
+/* ==========================================================================
+   Figma-Style Top Bar inside Inspector
+   ========================================================================== */
+
+.inspector-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #1e1e1e;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.inspector-top-bar__profile {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 3px 6px 3px 3px;
+  border-radius: 6px;
+  transition: background 120ms ease;
+}
+
+.inspector-top-bar__profile:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.inspector-top-bar__avatar {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e11d48;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.inspector-top-bar__chevron {
+  color: #888888;
+}
+
+.inspector-top-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inspector-top-bar__icon-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: transparent;
+  border: 0;
+  color: #8c8c8c;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.inspector-top-bar__icon-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.inspector-top-bar__share-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: #0d99ff;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  border: 0;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.inspector-top-bar__share-btn:hover {
+  background: #0088ee;
+}
+
+.inspector-top-bar__share-btn--synced {
+  background: #0d99ff;
+  box-shadow: 0 0 10px rgba(13, 153, 255, 0.3);
+}
+
+.inspector-top-bar__share-badge {
+  display: grid;
+  place-items: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.3);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+/* Tools list in overview */
+.inspector-tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inspector-tool-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  background: #252628;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 120ms ease;
+  text-align: left;
+}
+
+.inspector-tool-item:hover {
+  background: #2d2e30;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.inspector-tool-item__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inspector-tool-item__icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+}
+
+.inspector-tool-item__label {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.inspector-tool-item__arrow {
+  color: #777777;
+}
+
+.inspector-tool-item__status {
+  font-size: 10px;
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
 .inspector-header {
   display: flex;
   align-items: center;

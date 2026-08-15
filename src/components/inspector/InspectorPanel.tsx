@@ -24,9 +24,12 @@ import {
   Link2,
   Unlink2,
   ChevronRight,
+  ChevronDown,
   Maximize2,
   Settings,
   PanelRightClose,
+  Cpu,
+  UsersRound,
 } from 'lucide-react'
 
 import type { CanvasStore, CanvasStoreState } from '../../store/canvas-store'
@@ -40,6 +43,15 @@ interface InspectorPanelProps {
   collapsed?: boolean
   onToggleCollapse?: () => void
   onOpenSettings?: () => void
+  collaborationStatus?: 'inactive' | 'enabling' | 'connecting' | 'synced' | 'offline' | 'error'
+  collaborationMembers?: ReadonlyArray<{
+    id: string
+    displayName: string
+    color: string
+  }>
+  onOpenCollaboration?: () => void
+  onOpenApiManagement?: () => void
+  currentNickname?: string
 }
 
 const FRAME_PRESETS = [
@@ -57,6 +69,11 @@ export function InspectorPanel({
   collapsed = false,
   onToggleCollapse,
   onOpenSettings,
+  collaborationStatus = 'inactive',
+  collaborationMembers = [],
+  onOpenCollaboration,
+  onOpenApiManagement,
+  currentNickname,
 }: InspectorPanelProps) {
   const snapshot = useStore(store, (state: CanvasStoreState) => state.snapshot)
   const selectedNodeIds = useStore(store, (state: CanvasStoreState) => state.selectedNodeIds)
@@ -121,6 +138,61 @@ export function InspectorPanel({
     }
   }
 
+  const renderTopBar = () => (
+    <div className="inspector-top-bar" data-testid="inspector-top-bar">
+      <div className="inspector-top-bar__profile" title="当前协作用户">
+        <div className="inspector-top-bar__avatar">
+          {(currentNickname || '平').slice(0, 1).toUpperCase()}
+        </div>
+        <ChevronDown className="inspector-top-bar__chevron" size={11} />
+      </div>
+
+      <div className="inspector-top-bar__actions">
+        {onOpenApiManagement && (
+          <button
+            aria-label="API 接入与模型"
+            className="inspector-top-bar__icon-btn"
+            onClick={onOpenApiManagement}
+            title="API 接入与模型设置"
+            type="button"
+          >
+            <Cpu size={14} />
+          </button>
+        )}
+
+        {onOpenCollaboration && (
+          <button
+            aria-label="多人协作"
+            className={`inspector-top-bar__share-btn ${collaborationStatus === 'synced' ? 'inspector-top-bar__share-btn--synced' : ''}`}
+            onClick={onOpenCollaboration}
+            title="多人协作"
+            type="button"
+          >
+            <UsersRound size={12} />
+            <span>协作</span>
+            {collaborationMembers && collaborationMembers.length > 1 && (
+              <span className="inspector-top-bar__share-badge">
+                {collaborationMembers.length}
+              </span>
+            )}
+          </button>
+        )}
+
+        {onToggleCollapse ? (
+          <button
+            aria-label="收起属性面板"
+            className="inspector-icon-btn"
+            onClick={onToggleCollapse}
+            title="收起属性面板"
+            type="button"
+          >
+            <PanelRightClose size={13} />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+
   if (collapsed) {
     return <aside className="inspector-panel inspector-panel--collapsed" />
   }
@@ -129,6 +201,7 @@ export function InspectorPanel({
   if (selectedNodes.length > 1) {
     return (
       <aside className="inspector-panel" data-testid="inspector-panel">
+        {renderTopBar()}
         <div className="inspector-header">
           <div className="inspector-header__title-group">
             <span className="inspector-header__icon"><Sliders size={14} /></span>
@@ -145,17 +218,6 @@ export function InspectorPanel({
             >
               <Trash2 size={13} />
             </button>
-            {onToggleCollapse ? (
-              <button
-                aria-label="收起属性面板"
-                className="inspector-icon-btn"
-                onClick={onToggleCollapse}
-                title="收起属性面板"
-                type="button"
-              >
-                <PanelRightClose size={13} />
-              </button>
-            ) : null}
           </div>
         </div>
         <div className="inspector-body">
@@ -189,26 +251,57 @@ export function InspectorPanel({
   if (!activeNode) {
     return (
       <aside className="inspector-panel" data-testid="inspector-panel">
+        {renderTopBar()}
         <div className="inspector-header">
           <div className="inspector-header__title-group">
             <span className="inspector-header__icon"><Sliders size={14} /></span>
             <span style={{ fontWeight: 600, fontSize: '12px' }}>画布属性</span>
           </div>
-          {onToggleCollapse ? (
-            <div className="inspector-header__actions">
-              <button
-                aria-label="收起属性面板"
-                className="inspector-icon-btn"
-                onClick={onToggleCollapse}
-                title="收起属性面板"
-                type="button"
-              >
-                <PanelRightClose size={13} />
-              </button>
-            </div>
-          ) : null}
         </div>
         <div className="inspector-body">
+          {/* Tools & Integrations Section */}
+          <div className="inspector-section">
+            <div className="inspector-section__header">
+              <span>工具与接入 (Tools)</span>
+            </div>
+            <div className="inspector-tools-list">
+              {onOpenApiManagement && (
+                <button
+                  aria-label="打开 API 接入与模型配置"
+                  className="inspector-tool-item"
+                  onClick={onOpenApiManagement}
+                  type="button"
+                >
+                  <div className="inspector-tool-item__left">
+                    <span className="inspector-tool-item__icon" style={{ background: 'rgba(13, 153, 255, 0.15)', color: '#0d99ff' }}>
+                      <Cpu size={13} />
+                    </span>
+                    <span className="inspector-tool-item__label">API 与模型接入</span>
+                  </div>
+                  <ChevronRight className="inspector-tool-item__arrow" size={12} />
+                </button>
+              )}
+              {onOpenCollaboration && (
+                <button
+                  aria-label="打开多人协作"
+                  className="inspector-tool-item"
+                  onClick={onOpenCollaboration}
+                  type="button"
+                >
+                  <div className="inspector-tool-item__left">
+                    <span className="inspector-tool-item__icon" style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e' }}>
+                      <UsersRound size={13} />
+                    </span>
+                    <span className="inspector-tool-item__label">多人实时协作</span>
+                  </div>
+                  <span className="inspector-tool-item__status">
+                    {collaborationStatus === 'synced' ? '已同步' : collaborationStatus === 'connecting' ? '连接中' : '未开启'}
+                  </span>
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="inspector-section">
             <div className="inspector-section__header">
               <span>画布概览</span>
@@ -297,6 +390,7 @@ export function InspectorPanel({
 
   return (
     <aside className="inspector-panel" data-testid="inspector-panel">
+      {renderTopBar()}
       {/* Header */}
       <div className="inspector-header">
         <div className="inspector-header__title-group">

@@ -184,11 +184,13 @@ describe('canvas application integration', () => {
     )
     await screen.findByTestId('canvas-workspace')
 
-    // Click API rail button -> opens API ProviderDrawer
-    fireEvent.click(screen.getByRole('button', { name: /API/, hidden: true }))
+    // Click API button in inspector topbar -> opens API ProviderDrawer
+    const apiBtn = screen.getByRole('button', { name: 'API 接入与模型' })
+    fireEvent.click(apiBtn)
     expect(await screen.findByRole('dialog')).toBeVisible()
 
-    fireEvent.click(screen.getByRole('button', { name: '打开多人协作' }))
+    // Click collaboration button in inspector topbar -> opens collaboration dialog
+    fireEvent.click(screen.getByRole('button', { name: '多人协作' }))
     expect(screen.queryByRole('button', { name: '关闭管理 API 接入' })).toBeNull()
     expect(screen.getByRole('dialog', { name: '多人协作' })).toBeVisible()
     expect(screen.getByRole('textbox', { name: '协作昵称' })).toBeVisible()
@@ -198,8 +200,9 @@ describe('canvas application integration', () => {
     expect(screen.queryByRole('button', { name: '分享' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '关闭多人协作' }))
 
-    fireEvent.click(screen.getByRole('button', { name: /Agent/ }))
-    expect(screen.getByRole('complementary', { name: 'Agent' })).toBeVisible()
+    // Click Agent in left rail -> opens Agent sidebar panel
+    fireEvent.click(screen.getByRole('button', { name: 'Agent 助手' }))
+    expect(screen.getByLabelText('Agent 智能助手')).toBeVisible()
   })
 
   it('persists connection visibility preferences locally', () => {

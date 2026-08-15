@@ -9,9 +9,10 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { useStore } from 'zustand'
-import { Package, Cpu, Layers3, Settings, PanelLeftClose } from 'lucide-react'
+import { Package, Layers3, Settings, PanelLeftClose, Bot } from 'lucide-react'
 
 import { CanvasWorkspace, LayersPanel } from './components/canvas'
+import { AssetsSidebarPanel, AgentSidebarPanel } from './components/sidebar'
 import { assetRegistry } from './services/assetRegistry'
 import {
   AppOverlays,
@@ -31,9 +32,7 @@ import {
   BottomStatusBar,
   LibTvLogo,
   ToolDock,
-  TopBar,
   WorkspaceMenu,
-  type ShellMode,
   type ToolDockTool,
 } from './components/shell'
 import { InspectorPanel } from './components/inspector/InspectorPanel'
@@ -202,12 +201,12 @@ export default function App({
     width: number
     cleanup: () => void
   } | undefined>(undefined)
-  const [mode, setMode] = useState<ShellMode>('workflow')
   const [activeTool, setActiveTool] = useState<ToolDockTool>('select')
   const [popup, setPopup] = useState<Popup>(null)
   const [providerDrawerOpen, setProviderDrawerOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [assetManagerOpen, setAssetManagerOpen] = useState(false)
+  const [activeLeftTab, setActiveLeftTab] = useState<'layers' | 'assets' | 'agent'>('layers')
   const [dialog, setDialog] = useState<Dialog>(null)
   const [panel, setPanel] = useState<SidePanelKind | null>(() =>
     isSidePanelKind(preferences.lastOpenPanel) &&
@@ -786,7 +785,8 @@ export default function App({
     ) => {
     if (readOnly && kind !== 'asset-library' && kind !== 'generation-history') return
     if (kind === 'asset-library') {
-      setAssetManagerOpen(true)
+      setActiveLeftTab('assets')
+      persistPreferences({ layersOpen: true })
       return
     }
     if (kind === 'generation-history') {
@@ -1185,10 +1185,7 @@ export default function App({
       style={{ '--layers-sidebar-width': `${Math.min(layersWidth, Math.floor(window.innerWidth * 0.7))}px` } as CSSProperties}
     >
       <aside
-        aria-hidden={!preferences.layersOpen}
         className="app-layer-sidebar"
-        data-testid="layers-sidebar"
-        inert={!preferences.layersOpen}
       >
         <div className="app-layer-sidebar__rail">
           <button
@@ -1203,8 +1200,18 @@ export default function App({
           <div className="app-layer-sidebar__rail-divider" />
           <button
             aria-label="图层"
-            className={`app-layer-sidebar__rail-btn ${panel === null ? 'app-layer-sidebar__rail-btn--active' : ''}`}
-            onClick={() => closePanel()}
+            className={`app-layer-sidebar__rail-btn ${preferences.layersOpen && activeLeftTab === 'layers' ? 'app-layer-sidebar__rail-btn--active' : ''}`}
+            onClick={() => {
+              if (!preferences.layersOpen) {
+                setActiveLeftTab('layers')
+                persistPreferences({ layersOpen: true })
+              } else if (activeLeftTab === 'layers') {
+                persistPreferences({ layersOpen: false })
+              } else {
+                setActiveLeftTab('layers')
+              }
+              setPopup(null)
+            }}
             title="图层树"
             type="button"
           >
@@ -1213,29 +1220,43 @@ export default function App({
           </button>
           <button
             aria-label="资产管理"
-            className={`app-layer-sidebar__rail-btn ${assetManagerOpen ? 'app-layer-sidebar__rail-btn--active' : ''}`}
+            className={`app-layer-sidebar__rail-btn ${preferences.layersOpen && activeLeftTab === 'assets' ? 'app-layer-sidebar__rail-btn--active' : ''}`}
             onClick={() => {
-              setAssetManagerOpen((open) => !open)
+              if (!preferences.layersOpen) {
+                setActiveLeftTab('assets')
+                persistPreferences({ layersOpen: true })
+              } else if (activeLeftTab === 'assets') {
+                persistPreferences({ layersOpen: false })
+              } else {
+                setActiveLeftTab('assets')
+              }
               setPopup(null)
             }}
-            title="资产管理"
+            title="资产库"
             type="button"
           >
             <Package size={18} />
             <span className="app-layer-sidebar__rail-label">资产</span>
           </button>
           <button
-            aria-label="API 接入"
-            className={`app-layer-sidebar__rail-btn ${providerDrawerOpen ? 'app-layer-sidebar__rail-btn--active' : ''}`}
+            aria-label="Agent 助手"
+            className={`app-layer-sidebar__rail-btn ${preferences.layersOpen && activeLeftTab === 'agent' ? 'app-layer-sidebar__rail-btn--active' : ''}`}
             onClick={() => {
-              setProviderDrawerOpen((open) => !open)
+              if (!preferences.layersOpen) {
+                setActiveLeftTab('agent')
+                persistPreferences({ layersOpen: true })
+              } else if (activeLeftTab === 'agent') {
+                persistPreferences({ layersOpen: false })
+              } else {
+                setActiveLeftTab('agent')
+              }
               setPopup(null)
             }}
-            title="API 接入与模型"
+            title="Agent 智能助手"
             type="button"
           >
-            <Cpu size={18} />
-            <span className="app-layer-sidebar__rail-label">API</span>
+            <Bot size={18} />
+            <span className="app-layer-sidebar__rail-label">Agent</span>
           </button>
           <button
             aria-label="设置"
@@ -1249,7 +1270,12 @@ export default function App({
             <span className="app-layer-sidebar__rail-label">设置</span>
           </button>
         </div>
-        <div className="app-layer-sidebar__content">
+        <div
+          aria-hidden={!preferences.layersOpen}
+          className="app-layer-sidebar__content"
+          data-testid="layers-sidebar"
+          inert={!preferences.layersOpen}
+        >
           <div className="app-layer-sidebar__header">
             <WorkspaceMenu
               canvasName={snapshot.name}
@@ -1267,23 +1293,69 @@ export default function App({
               <PanelLeftClose size={16} />
             </button>
           </div>
-          <LayersPanel
-            nodes={snapshot.nodes}
-            onFocusNode={(id) => {
-              if (imageSelectionGuardRef.current(id)) {
-                canvasStore.getState().selectNode(id)
-              }
-              setFocusNodeRequest({ id, nonce: Date.now() })
-            }}
-            onOpenChange={(layersOpen) => persistPreferences({ layersOpen })}
-            onRename={(id, name) => canvasStore.getState().renameNode(id, name)}
-            onReorder={(ids, targetId, placement) => canvasStore.getState().reorderNodes(ids, targetId, placement)}
-            onSelect={(id) => { if (imageSelectionGuardRef.current(id)) canvasStore.getState().selectNode(id) }}
-            onToggleHidden={(id) => canvasStore.getState().setNodeVisibility(id, Boolean(snapshot.nodes.find((node) => node.id === id)?.hidden))}
-            onToggleLocked={(id) => canvasStore.getState().setNodeLocked(id, !snapshot.nodes.find((node) => node.id === id)?.locked)}
-            open
-            selectedIds={selectedNodeIds}
-          />
+          {activeLeftTab === 'layers' && (
+            <LayersPanel
+              nodes={snapshot.nodes}
+              onFocusNode={(id) => {
+                if (imageSelectionGuardRef.current(id)) {
+                  canvasStore.getState().selectNode(id)
+                }
+                setFocusNodeRequest({ id, nonce: Date.now() })
+              }}
+              onOpenChange={(layersOpen) => persistPreferences({ layersOpen })}
+              onRename={(id, name) => canvasStore.getState().renameNode(id, name)}
+              onReorder={(ids, targetId, placement) => canvasStore.getState().reorderNodes(ids, targetId, placement)}
+              onSelect={(id) => { if (imageSelectionGuardRef.current(id)) canvasStore.getState().selectNode(id) }}
+              onToggleHidden={(id) => canvasStore.getState().setNodeVisibility(id, Boolean(snapshot.nodes.find((node) => node.id === id)?.hidden))}
+              onToggleLocked={(id) => canvasStore.getState().setNodeLocked(id, !snapshot.nodes.find((node) => node.id === id)?.locked)}
+              open
+              selectedIds={selectedNodeIds}
+            />
+          )}
+          {activeLeftTab === 'assets' && (
+            <AssetsSidebarPanel
+              onInsertAsset={(asset) => {
+                if (readOnly) return
+                const state = canvasStore.getState()
+                const viewport = state.snapshot.viewport
+                const zoom = Math.max(viewport.zoom, 0.01)
+                const centerPos = {
+                  x: (window.innerWidth / 2 - viewport.x) / zoom,
+                  y: (window.innerHeight / 2 - viewport.y) / zoom,
+                }
+                const nodeId = `asset-${asset.type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+                if (asset.type === 'video') {
+                  state.addNode({
+                    id: nodeId,
+                    type: 'video',
+                    name: asset.name,
+                    position: centerPos,
+                    size: { width: asset.width || 480, height: asset.height || 270 },
+                    data: {
+                      url: asset.url,
+                      poster: asset.posterUrl || asset.thumbnailUrl,
+                    },
+                  })
+                } else {
+                  state.addNode({
+                    id: nodeId,
+                    type: 'image',
+                    name: asset.name,
+                    position: centerPos,
+                    size: { width: asset.width || 400, height: asset.height || 400 },
+                    data: {
+                      url: asset.url,
+                    },
+                  })
+                }
+              }}
+              onNotify={notify}
+              projectId={snapshot.projectId}
+            />
+          )}
+          {activeLeftTab === 'agent' && (
+            <AgentSidebarPanel onNotify={notify} />
+          )}
         </div>
         <div
           aria-label="调整图层侧栏宽度"
@@ -1361,25 +1433,18 @@ export default function App({
         <div className="canvas-stage__loading" aria-busy="true" />
       )}
 
-      <TopBar
-        collaborationStatus={collaborationState.status}
-        collaborationMembers={topbarCollaborationMembers}
-        mode={mode}
-        onAgent={() => openPanel('agent')}
-        onCollaboration={() => {
-          setProviderDrawerOpen(false)
-          setContextMenu(null)
-          setAddNodePosition(undefined)
-          setPopup((current) =>
-            current === 'collaboration' ? null : 'collaboration',
-          )
-        }}
-        onModeChange={setMode}
-      />
-
       <BottomStatusBar
         hideConnections={preferences.hideConnections}
-        onAssetManager={() => setAssetManagerOpen((open) => !open)}
+        onAssetManager={() => {
+          if (!preferences.layersOpen) {
+            setActiveLeftTab('assets')
+            persistPreferences({ layersOpen: true })
+          } else if (activeLeftTab === 'assets') {
+            persistPreferences({ layersOpen: false })
+          } else {
+            setActiveLeftTab('assets')
+          }
+        }}
         onHistory={() => setHistoryOpen(true)}
         onFitCanvas={() => {
           setFitViewRequest((current) => current + 1)
@@ -1422,9 +1487,23 @@ export default function App({
       </section>
 
       <InspectorPanel
-        collapsed={!preferences.layersOpen}
+        collapsed={false}
+        collaborationMembers={topbarCollaborationMembers}
+        collaborationStatus={collaborationState.status}
+        currentNickname={collaborationState.session?.displayName || '平'}
+        onOpenApiManagement={() => {
+          setProviderDrawerOpen(true)
+          setPopup(null)
+        }}
+        onOpenCollaboration={() => {
+          setProviderDrawerOpen(false)
+          setContextMenu(null)
+          setAddNodePosition(undefined)
+          setPopup((current) =>
+            current === 'collaboration' ? null : 'collaboration',
+          )
+        }}
         onOpenSettings={() => setDialog('shortcuts')}
-        onToggleCollapse={() => persistPreferences({ layersOpen: !preferences.layersOpen })}
         readOnly={readOnly}
         store={canvasStore}
       />
