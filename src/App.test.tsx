@@ -184,7 +184,12 @@ describe('canvas application integration', () => {
     )
     await screen.findByTestId('canvas-workspace')
 
+    // Click API rail button -> opens API ProviderDrawer
+    fireEvent.click(screen.getByRole('button', { name: /API/, hidden: true }))
+    expect(await screen.findByRole('dialog')).toBeVisible()
+
     fireEvent.click(screen.getByRole('button', { name: '打开多人协作' }))
+    expect(screen.queryByRole('button', { name: '关闭管理 API 接入' })).toBeNull()
     expect(screen.getByRole('dialog', { name: '多人协作' })).toBeVisible()
     expect(screen.getByRole('textbox', { name: '协作昵称' })).toBeVisible()
     expect(screen.queryByPlaceholderText('输入邮箱或成员账号')).toBeNull()

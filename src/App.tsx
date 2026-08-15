@@ -9,7 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { useStore } from 'zustand'
-import { FolderKanban, Layers3, Settings } from 'lucide-react'
+import { Package, Cpu, Layers3, Settings } from 'lucide-react'
 
 import { CanvasWorkspace, LayersPanel } from './components/canvas'
 import {
@@ -1197,14 +1197,30 @@ export default function App({
             <span className="app-layer-sidebar__rail-label">图层</span>
           </button>
           <button
-            aria-label="素材库"
-            className={`app-layer-sidebar__rail-btn ${panel === 'assets' ? 'app-layer-sidebar__rail-btn--active' : ''}`}
-            onClick={() => (panel === 'assets' ? closePanel() : openPanel('assets'))}
-            title="素材库"
+            aria-label="资产管理"
+            className={`app-layer-sidebar__rail-btn ${historyOpen ? 'app-layer-sidebar__rail-btn--active' : ''}`}
+            onClick={() => {
+              setHistoryOpen((open) => !open)
+              setPopup(null)
+            }}
+            title="资产管理"
             type="button"
           >
-            <FolderKanban size={18} />
-            <span className="app-layer-sidebar__rail-label">素材</span>
+            <Package size={18} />
+            <span className="app-layer-sidebar__rail-label">资产</span>
+          </button>
+          <button
+            aria-label="API 接入"
+            className={`app-layer-sidebar__rail-btn ${providerDrawerOpen ? 'app-layer-sidebar__rail-btn--active' : ''}`}
+            onClick={() => {
+              setProviderDrawerOpen((open) => !open)
+              setPopup(null)
+            }}
+            title="API 接入与模型"
+            type="button"
+          >
+            <Cpu size={18} />
+            <span className="app-layer-sidebar__rail-label">API</span>
           </button>
           <button
             aria-label="设置"
