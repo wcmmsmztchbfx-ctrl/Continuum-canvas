@@ -389,3 +389,13 @@ export class MockApi {
     return this.history.map((record) => ({ ...record }))
   }
 }
+
+export const mockApi = new MockApi()
+
+let defaultWorkspacePromise: Promise<Workspace> | undefined
+
+export function ensureMockWorkspace(api: MockApi = mockApi): Promise<Workspace> {
+  defaultWorkspacePromise ??= api.createWorkspace('未命名工作区')
+  return defaultWorkspacePromise
+}
+

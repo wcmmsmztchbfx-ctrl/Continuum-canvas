@@ -55,7 +55,7 @@ export interface ProviderGateway {
   ) => Promise<ProviderMetadata>
 }
 
-interface ProviderCatalogState {
+export interface ProviderCatalogState {
   providers: ProviderMetadata[]
   preferredProvider?: ProviderMetadata
   selectedProvider?: ProviderMetadata

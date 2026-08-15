@@ -2,14 +2,12 @@ import { lazy, Suspense } from 'react'
 
 import type { CollaborationCapabilities } from '../../collaboration/capabilities'
 import type { CanvasCollaborationController, CollaborationControllerState } from '../../collaboration/controller'
-import type { PresenceState } from '../../collaboration/document'
-import type { BlankContextAction, NodeContextAction, OverlayPosition } from '../../types'
-import type { CanvasNodeType, CanvasSnapshotV2, ProjectSnapshot } from '../../model/project'
+import type { PresenceState } from '../../contracts/collaboration'
+import type { ProjectSnapshot } from '../../model/project'
 import { canvasStore } from '../../store/canvas-store'
 import type { WorkspaceRepository } from '../../workspace'
 import { ensureMockWorkspace, mockApi } from '../../services/mockApi'
 import { copyText } from '../../utils/clipboard'
-import type { ContextMenuKind, DialogKind, PopupKind, SidePanelKind } from '../../hooks/useAppModals'
 
 import {
   AddNodeMenu,
@@ -24,6 +22,14 @@ import {
   RenameProjectDialog,
   SidePanel,
   WorkspaceDropdown,
+  type AddNodeKind,
+  type BlankContextAction,
+  type HelpAction,
+  type NodeContextAction,
+  type OverlayPosition,
+  type PublishVisibility,
+  type SidePanelKind,
+  type WorkspaceAction,
 } from './index'
 import { GenerationHistoryModal } from './GenerationHistoryModal'
 
@@ -33,12 +39,16 @@ const ProviderDrawer = lazy(() =>
   })),
 )
 
+export type AppPopup = 'workspace' | 'add' | 'api-integration' | 'collaboration' | 'help' | null
+export type AppDialog = 'publish' | 'shortcuts' | 'delete' | 'rename' | null
+export type AppContextMenu = 'blank' | 'node' | null
+
 export interface AppOverlaysProps {
-  popup: PopupKind | null
-  setPopup: (popup: PopupKind | null) => void
-  dialog: DialogKind | null
-  setDialog: (dialog: DialogKind | null) => void
-  contextMenu: ContextMenuKind | null
+  popup: AppPopup
+  setPopup: (popup: AppPopup) => void
+  dialog: AppDialog
+  setDialog: (dialog: AppDialog) => void
+  contextMenu: AppContextMenu
   contextPosition: OverlayPosition
   addNodePosition?: OverlayPosition
   providerDrawerOpen: boolean
@@ -47,16 +57,22 @@ export interface AppOverlaysProps {
   setHistoryOpen: (open: boolean) => void
   panel: SidePanelKind | null
   closePanel: () => void
-  handleAddNode: (type: CanvasNodeType, promptText?: string) => void
-  handleWorkspaceAction: (action: string) => void
-  handleHelpAction: (action: string) => void
+  handleAddNode: (
+    kind: AddNodeKind,
+    content?: string,
+    fileName?: string,
+    assetId?: string,
+    posterUrl?: string,
+  ) => void
+  handleWorkspaceAction: (action: WorkspaceAction) => void
+  handleHelpAction: (action: HelpAction) => void
   handleBlankContextAction: (action: BlankContextAction) => void
   handleNodeContextAction: (action: NodeContextAction) => void
   closeFloatingUi: () => void
   dismissContextMenu: () => void
   closeProductPopup: (kind: 'api-integration' | 'collaboration') => void
   collaborationState: CollaborationControllerState
-  collaborationPresence: PresenceState[]
+  collaborationPresence: readonly PresenceState[]
   followingMemberId?: string
   setFollowingMemberId: (id?: string) => void
   collaborationControllerRef: React.RefObject<CanvasCollaborationController | null>
@@ -65,16 +81,16 @@ export interface AppOverlaysProps {
   capabilities: CollaborationCapabilities
   readOnly: boolean
   canvasId?: string
-  snapshot: CanvasSnapshotV2
-  selectedNodeIds: string[]
+  snapshot: ProjectSnapshot
+  selectedNodeIds: readonly string[]
   renameProjectName: string
   setRenameProjectName: (name: string) => void
   publishDescription: string
   setPublishDescription: (desc: string) => void
-  publishVisibility: string
-  setPublishVisibility: (vis: string) => void
+  publishVisibility: PublishVisibility
+  setPublishVisibility: (vis: PublishVisibility) => void
   workspaceRepository: WorkspaceRepository
-  onNavigateWorkspace?: (target?: 'workspace' | 'canvas') => void
+  onNavigateWorkspace?: (create?: 'canvas' | 'project') => void
   notify: (message: string, tone?: 'info' | 'success' | 'error' | 'warning') => void
   runMockAction: (task: Promise<unknown>, successMessage: string) => void
   restoreProjectFrom: (task: Promise<ProjectSnapshot>, successMessage?: string) => void

@@ -167,7 +167,7 @@ function generateVideoThumbnail(videoUrl: string): void {
           if (blob) {
             const objectUrl = URL.createObjectURL(blob)
             memoryThumbnailCache.set(videoUrl, objectUrl)
-            notifyThumbnailListeners(videoUrl, objectUrl)
+            notifyThumbnailReady(videoUrl, objectUrl)
           }
         }, 'image/webp', 0.8)
         return

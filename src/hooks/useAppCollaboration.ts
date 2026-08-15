@@ -5,7 +5,7 @@ import {
   CanvasCollaborationController,
   type CollaborationControllerState,
 } from '../collaboration/controller'
-import type { PresenceState } from '../collaboration/document'
+import type { PresenceState } from '../contracts/collaboration'
 import type { ProviderCatalogState } from '../components/providers/ProviderCatalogContext'
 import { canvasStore } from '../store/canvas-store'
 import type { WorkspaceRepository } from '../workspace'

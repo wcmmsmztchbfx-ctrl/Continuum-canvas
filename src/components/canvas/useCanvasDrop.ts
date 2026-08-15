@@ -10,7 +10,7 @@ import { uploadAndPrepareMediaAsset } from '../../services/localMedia'
 
 interface UseCanvasDropOptions {
   readOnly?: boolean
-  flowInstance: ReactFlowInstance | null
+  flowInstance: ReactFlowInstance<any, any> | null
   addNode: (node: CanvasNode) => void
   selectNode: (nodeId: string) => void
 }

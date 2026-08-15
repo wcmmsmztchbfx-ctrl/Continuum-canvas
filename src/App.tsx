@@ -51,7 +51,13 @@ import {
   defaultWorkspaceRepository,
   type WorkspaceRepository,
 } from './workspace'
-import { gatewayClient, MockApi, persistLocalMedia, uploadAndPrepareMediaAsset } from './services'
+import {
+  ensureMockWorkspace,
+  gatewayClient,
+  mockApi,
+  persistLocalMedia,
+  uploadAndPrepareMediaAsset,
+} from './services'
 import { canvasStore } from './store/canvas-store'
 import type { CanvasNode, ProjectSnapshot } from './model/project'
 import {
@@ -74,7 +80,6 @@ import {
 } from './clipboard-import'
 import { useAppCollaboration } from './hooks/useAppCollaboration'
 import { useAppHotkeys } from './hooks/useAppHotkeys'
-import type { AppContextMenu, AppDialog, AppPopup } from './hooks/useAppModals'
 import { copyText } from './utils/clipboard'
 
 type Popup =
@@ -98,7 +103,6 @@ const sidePanelKinds: ReadonlyArray<SidePanelKind> = [
   'agent',
 ]
 
-const mockApi = new MockApi()
 const ACTIVE_PROJECT_STORAGE_KEY = 'libtv.active-project.v1'
 const DEFAULT_INITIAL_PROJECT: ProjectSnapshot = {
   version: 1,
@@ -111,13 +115,6 @@ const DEFAULT_INITIAL_PROJECT: ProjectSnapshot = {
 
 async function ensureReferenceProject(): Promise<ProjectSnapshot> {
   return DEFAULT_INITIAL_PROJECT
-}
-
-let workspacePromise: ReturnType<MockApi['createWorkspace']> | undefined
-
-function ensureMockWorkspace() {
-  workspacePromise ??= mockApi.createWorkspace('未命名工作区')
-  return workspacePromise
 }
 
 function readActiveProjectId(): string | null {

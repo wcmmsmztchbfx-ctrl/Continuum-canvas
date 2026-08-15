@@ -2,13 +2,19 @@ import { useEffect } from 'react'
 
 import { collaborationCapabilities } from '../collaboration/capabilities'
 import type { CanvasCollaborationController } from '../collaboration/controller'
-import { canvasStore, createLocalNodeId } from '../store/canvas-store'
-import type { ToolType } from '../types'
+import type { ToolDockTool } from '../components/shell/ToolDock'
+import { canvasStore } from '../store/canvas-store'
+import { createCanvasId } from '../utils/id'
+
+function createLocalNodeId(kind: string): string {
+  const prefix = (kind === 'group' ? 'g' : kind.startsWith('v') ? 'v' : kind.startsWith('i') ? 'i' : kind.startsWith('t') ? 't' : 'g') as 'i' | 'v' | 't' | 'g' | 'e'
+  return createCanvasId(prefix)
+}
 
 export interface UseAppHotkeysOptions {
   hydrated: boolean
   collaborationControllerRef: React.RefObject<CanvasCollaborationController | null>
-  setActiveTool: (tool: ToolType) => void
+  setActiveTool: (tool: ToolDockTool) => void
   performUndo: () => void
   performRedo: () => void
   copySelectedNodes: (nodeIds: string[]) => Promise<void>
