@@ -9,7 +9,9 @@ import type { CanvasFlowNode } from './mapping'
 import { NodeGeneratorPanel } from './NodeGeneratorPanel'
 import { NodeHandle } from './NodeHandle'
 import {
+  calculateImageLod,
   getFastThumbnailUrl,
+  getLodImageUrl,
   subscribeThumbnailReady,
 } from '../../services/imageThumbnailCache'
 import {
@@ -77,10 +79,23 @@ function ImageNodeContent({
     (data.url && data.versions?.[0]?.url && data.versions[0].url !== data.url
       ? data.versions[0].url
       : undefined)
-  const effectiveThumbnailUrl = explicitThumbnail || generatedThumbnail
+  const effectiveThumbnailUrl =
+    explicitThumbnail || generatedThumbnail || getFastThumbnailUrl(data.url)
   const hasThumbnail = Boolean(effectiveThumbnailUrl)
   const isLowResMode = zoom <= 0.35
-  const shouldRenderHighRes = !isLowResMode || !hasThumbnail
+
+  const targetLod = calculateImageLod(
+    data.node?.size?.width || 300,
+    data.node?.size?.height || 200,
+    zoom,
+  )
+  const responsiveHighResUrl = getLodImageUrl(data.url, targetLod) || data.url
+
+  // Prevent unmounting loaded images when zooming out: once loaded, keep mounted
+  const isHighResAlreadyLoaded =
+    isMediaLoaded(responsiveHighResUrl) || isMediaLoaded(data.url)
+  const shouldRenderHighRes =
+    !isLowResMode || !hasThumbnail || isHighResAlreadyLoaded || highResLoaded
 
   useEffect(() => {
     if (!effectiveThumbnailUrl) {
@@ -93,8 +108,8 @@ function ImageNodeContent({
     }
     const { promise, cancel } = requestMediaLoad(effectiveThumbnailUrl, priority)
     let active = true
-    promise.then(() => {
-      if (active) setThumbnailAllowed(true)
+    promise.then((success) => {
+      if (active && success) setThumbnailAllowed(true)
     })
     return () => {
       active = false
@@ -103,23 +118,26 @@ function ImageNodeContent({
   }, [effectiveThumbnailUrl, priority])
 
   useEffect(() => {
-    if (!data.url || !shouldRenderHighRes) {
+    if (!responsiveHighResUrl) {
       return
     }
-    if (isMediaLoaded(data.url)) {
+    if (isMediaLoaded(responsiveHighResUrl)) {
       setHighResAllowed(true)
       return
     }
-    const { promise, cancel } = requestMediaLoad(data.url, priority)
+    if (!shouldRenderHighRes) {
+      return
+    }
+    const { promise, cancel } = requestMediaLoad(responsiveHighResUrl, priority)
     let active = true
-    promise.then(() => {
-      if (active) setHighResAllowed(true)
+    promise.then((success) => {
+      if (active && success) setHighResAllowed(true)
     })
     return () => {
       active = false
       cancel()
     }
-  }, [data.url, shouldRenderHighRes, priority])
+  }, [responsiveHighResUrl, shouldRenderHighRes, priority])
 
   return (
     <article
@@ -194,7 +212,7 @@ function ImageNodeContent({
             decoding="async"
             draggable={false}
             loading="lazy"
-            src={highResAllowed ? data.url : undefined}
+            src={highResAllowed ? responsiveHighResUrl : undefined}
             alt={data.alt ?? data.name}
             style={{
               objectFit: modelData?.objectFit ?? 'cover',

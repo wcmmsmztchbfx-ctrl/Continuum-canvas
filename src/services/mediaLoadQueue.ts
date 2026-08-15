@@ -106,6 +106,13 @@ export function requestMediaLoad(
     }
   }
 
+  if (inFlightMap.has(url)) {
+    return {
+      promise: inFlightMap.get(url)!,
+      cancel: () => {},
+    }
+  }
+
   let cancelFn = () => {}
   const promise = new Promise<boolean>((resolve) => {
     const item: QueueItem = {

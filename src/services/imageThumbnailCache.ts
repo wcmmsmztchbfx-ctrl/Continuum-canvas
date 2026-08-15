@@ -15,6 +15,57 @@ function notifyThumbnailReady(url: string, thumbnailUrl: string) {
   }
 }
 
+export type LodLevel = 'thumbnail' | 'medium' | 'high' | 'original'
+
+/**
+ * Computes the recommended Level-of-Detail (LOD) tier based on node size and current zoom.
+ * - 'thumbnail': screen width <= 360px (or zoom <= 0.35)
+ * - 'medium': 360px < screen width <= 720px (or zoom <= 0.75)
+ * - 'high': 720px < screen width <= 1440px
+ * - 'original': screen width > 1440px or zoom >= 1.5
+ */
+export function calculateImageLod(
+  nodeWidth: number = 300,
+  _nodeHeight: number = 200,
+  zoom: number = 1,
+): LodLevel {
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+  const effectiveWidth = nodeWidth * zoom * dpr
+  if (effectiveWidth <= 240 || zoom <= 0.35) return 'thumbnail'
+  if (effectiveWidth <= 720 || zoom <= 0.75) return 'medium'
+  if (effectiveWidth <= 1440) return 'high'
+  return 'original'
+}
+
+/**
+ * Returns a responsive URL for the requested LOD level.
+ * If the URL is hosted on LibLib / Aliyun CDN, automatically attaches OSS WebP formatting and sizing.
+ */
+export function getLodImageUrl(
+  url?: string,
+  lod: LodLevel = 'high',
+): string | undefined {
+  if (!url) return undefined
+  if (!url.includes('libtv-res.liblib.art') && !url.includes('.aliyuncs.com')) {
+    return url
+  }
+  if (url.includes('x-oss-process')) {
+    return url
+  }
+  const separator = url.includes('?') ? '&' : '?'
+  switch (lod) {
+    case 'thumbnail':
+      return `${url}${separator}x-oss-process=image/resize,w_360/format,webp`
+    case 'medium':
+      return `${url}${separator}x-oss-process=image/resize,w_720/format,webp`
+    case 'high':
+      return `${url}${separator}x-oss-process=image/resize,w_1440/format,webp`
+    case 'original':
+    default:
+      return `${url}${separator}x-oss-process=image/format,webp`
+  }
+}
+
 /**
  * Returns a fast thumbnail URL for a given image URL if immediately available,
  * or triggers lightweight background thumbnail derivation.
@@ -32,7 +83,7 @@ export function getFastThumbnailUrl(
   if (url.includes('libtv-res.liblib.art') || url.includes('.aliyuncs.com')) {
     if (!url.includes('x-oss-process')) {
       const separator = url.includes('?') ? '&' : '?'
-      return `${url}${separator}x-oss-process=image/resize,w_480/format,webp`
+      return `${url}${separator}x-oss-process=image/resize,w_360/format,webp`
     }
   }
 
