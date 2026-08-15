@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { GenerationRequest, ProviderCatalog } from '../../src/contracts/generation.ts'
 import type { ImageRequestMode } from '../../src/contracts/catalog.ts'
-import { createFallbackOpenAICatalog, mapOpenAICompatibleCatalog } from '../catalog.ts'
+import { createFallbackOpenAICatalog, mapOpenAICompatibleCatalog, VIDEO_MODEL_PATTERN } from '../catalog.ts'
 import {
   ProviderRequestRejectedError,
   type LocalReference,
@@ -148,15 +148,23 @@ export class OpenAICompatibleAdapter {
 
   async createGeneration(request: GenerationRequest, references: StagedReference[], signal?: AbortSignal): Promise<string> {
     const stagedKeys = new Set<string>()
-    const imageRefs = references.filter((item) => (item.mediaType ?? 'image') === 'image')
-    for (const ref of imageRefs) {
+    for (const ref of references) {
       const key = stagedKeyFromUrl(ref.url)
       if (key) stagedKeys.add(key)
     }
     try {
-      const result = imageRefs.length > 0
-        ? await this.createEdits(request, imageRefs, signal)
-        : await this.createGenerations(request, signal)
+      const isVideo = request.mediaType === 'video' || VIDEO_MODEL_PATTERN.test(request.model)
+      const imageRefs = references.filter((item) => (item.mediaType ?? 'image') === 'image')
+
+      let result: CreateResult
+      if (isVideo) {
+        result = await this.createVideo(request, references, signal)
+      } else if (imageRefs.length > 0) {
+        result = await this.createEdits(request, imageRefs, signal)
+      } else {
+        result = await this.createGenerations(request, signal)
+      }
+
       if (result.kind === 'async') return result.taskId
       // 同步：本地 task 文件承载结果，跨进程可恢复
       const taskId = `sync-${randomUUID()}`
@@ -167,8 +175,6 @@ export class OpenAICompatibleAdapter {
       )
       return taskId
     } finally {
-      // Once createGeneration returns or fails with a terminal error the job
-      // runner never restages these references, so the local copies can go.
       for (const key of stagedKeys) {
         await rm(this.stagedPath(key), { force: true }).catch(() => {})
       }
@@ -218,42 +224,115 @@ export class OpenAICompatibleAdapter {
       return this.createResponses(request, references, signal)
     }
     if (this.mode === 'openai-json') {
-      // 本地直通桩 URL 不能发上游：读 staging 字节内联为 data URL（单图）
-      let image: string | undefined
-      const key = stagedKeyFromUrl(references[0]?.url)
-      if (key) image = toDataUrl(await readFile(this.stagedPath(key)))
-      const body: Record<string, unknown> = {
-        model: request.model,
-        prompt: request.prompt,
-        ...(image ? { image } : {}),
+      return this.createJsonEdits(request, references, signal)
+    }
+    try {
+      const form = new FormData()
+      form.append('model', request.model)
+      form.append('prompt', request.prompt)
+      for (const ref of references) {
+        const key = stagedKeyFromUrl(ref.url)
+        if (!key) continue
+        const bytes = await readFile(this.stagedPath(key))
+        form.append('image', new Blob([bytes], { type: 'image/png' }), `${key}.png`)
       }
-      if (request.n !== undefined && request.n > 1) body.n = request.n
+      if (request.n !== undefined && request.n > 1) form.append('n', String(request.n))
       const size = IMAGE_SIZE_MAP[request.aspectRatio ?? '']
-      if (size) body.size = size
+      if (size) form.append('size', size)
+      const payload = await this.request('/images/edits', {
+        method: 'POST',
+        body: form,
+      }, signal)
+      return this.classifyPayload(payload)
+    } catch (error) {
+      if (
+        error instanceof ProviderRequestRejectedError &&
+        (error.providerCode === '404' || /not found|unsupported|route/i.test(error.message))
+      ) {
+        return this.createJsonEdits(request, references, signal)
+      }
+      throw error
+    }
+  }
+
+  private async createJsonEdits(
+    request: GenerationRequest,
+    references: StagedReference[],
+    signal?: AbortSignal,
+  ): Promise<CreateResult> {
+    let image: string | undefined
+    const key = stagedKeyFromUrl(references[0]?.url)
+    if (key) image = toDataUrl(await readFile(this.stagedPath(key)))
+    const body: Record<string, unknown> = {
+      model: request.model,
+      prompt: request.prompt,
+      ...(image ? { image, image_url: image } : {}),
+    }
+    if (request.n !== undefined && request.n > 1) body.n = request.n
+    const size = IMAGE_SIZE_MAP[request.aspectRatio ?? '']
+    if (size) body.size = size
+
+    try {
       const payload = await this.request('/images/edits', {
         method: 'POST',
         body: JSON.stringify(body),
       }, signal)
       return this.classifyPayload(payload)
+    } catch (error) {
+      if (
+        error instanceof ProviderRequestRejectedError &&
+        (error.providerCode === '404' || /not found/i.test(error.message))
+      ) {
+        const genPayload = await this.request('/images/generations', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }, signal)
+        return this.classifyPayload(genPayload)
+      }
+      throw error
     }
-    // openai：multipart FormData
-    const form = new FormData()
-    form.append('model', request.model)
-    form.append('prompt', request.prompt)
-    for (const ref of references) {
-      const key = stagedKeyFromUrl(ref.url)
-      if (!key) continue
-      const bytes = await readFile(this.stagedPath(key))
-      form.append('image', new Blob([bytes], { type: 'image/png' }), `${key}.png`)
+  }
+
+  private async createVideo(
+    request: GenerationRequest,
+    references: StagedReference[],
+    signal?: AbortSignal,
+  ): Promise<CreateResult> {
+    let imageUrl: string | undefined
+    const imageRef = references.find((r) => (r.mediaType ?? 'image') === 'image')
+    if (imageRef) {
+      const key = stagedKeyFromUrl(imageRef.url)
+      if (key) imageUrl = toDataUrl(await readFile(this.stagedPath(key)))
     }
-    if (request.n !== undefined && request.n > 1) form.append('n', String(request.n))
-    const size = IMAGE_SIZE_MAP[request.aspectRatio ?? '']
-    if (size) form.append('size', size)
-    const payload = await this.request('/images/edits', {
-      method: 'POST',
-      body: form,
-    }, signal)
-    return this.classifyPayload(payload)
+    const body: Record<string, unknown> = {
+      model: request.model,
+      prompt: request.prompt,
+      aspect_ratio: request.aspectRatio || '16:9',
+      duration: request.duration || 5,
+      ...(imageUrl ? { image_url: imageUrl, input_image: imageUrl, image: imageUrl } : {}),
+    }
+
+    const videoPaths = ['/videos/generations', '/video/generations', '/images/generations']
+    let lastError: unknown
+    for (const path of videoPaths) {
+      try {
+        const payload = await this.request(path, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }, signal)
+        return this.classifyPayload(payload)
+      } catch (error) {
+        lastError = error
+        if (
+          error instanceof ProviderRequestRejectedError &&
+          (error.providerCode === '404' || /not found/i.test(error.message))
+        ) {
+          continue
+        }
+        throw error
+      }
+    }
+    throw (lastError ?? new Error('Video generation request failed'))
   }
 
   private async createResponses(
@@ -300,9 +379,20 @@ export class OpenAICompatibleAdapter {
 
   private async queryTaskStatus(taskId: string, signal?: AbortSignal): Promise<UpstreamTaskStatus> {
     let payload: unknown
-    try {
-      payload = await this.request(`/tasks/${encodeURIComponent(taskId)}`, {}, signal)
-    } catch {
+    const queryPaths = [
+      `/tasks/${encodeURIComponent(taskId)}`,
+      `/videos/generations/${encodeURIComponent(taskId)}`,
+      `/video/generations/${encodeURIComponent(taskId)}`,
+    ]
+    for (const path of queryPaths) {
+      try {
+        payload = await this.request(path, {}, signal)
+        break
+      } catch {
+        // try next endpoint path
+      }
+    }
+    if (!payload) {
       // 404 / 网络异常 / 超时：视为进行中，由 jobs 的 maxRunTimeMs 兜底
       return { taskId, status: 2 }
     }
@@ -394,16 +484,41 @@ function b64ToDataUrl(value: string): string | undefined {
 }
 
 function extractOutputUrls(payload: unknown): string[] {
-  if (!isRecord(payload) || !Array.isArray(payload.data)) return []
-  return payload.data.flatMap((entry) => {
-    if (!isRecord(entry)) return []
-    if (typeof entry.url === 'string' && entry.url) return [entry.url]
+  if (!isRecord(payload)) return []
+  const candidates: unknown[] = [payload]
+
+  const collectCandidates = (obj: Record<string, unknown>, depth = 0) => {
+    if (depth > 3) return
+    for (const key of ['data', 'output', 'outputs', 'videos', 'images', 'results', 'result']) {
+      const val = obj[key]
+      if (Array.isArray(val)) {
+        for (const item of val) {
+          if (isRecord(item)) candidates.push(item)
+        }
+      } else if (isRecord(val)) {
+        candidates.push(val)
+        collectCandidates(val, depth + 1)
+      }
+    }
+  }
+
+  collectCandidates(payload)
+
+  const urls: string[] = []
+  for (const entry of candidates) {
+    if (!isRecord(entry)) continue
+    for (const key of ['url', 'video_url', 'image_url', 'output_url', 'file_url', 'download_url']) {
+      const val = entry[key]
+      if (typeof val === 'string' && (val.startsWith('http') || val.startsWith('data:'))) {
+        urls.push(val)
+      }
+    }
     if (typeof entry.b64_json === 'string' && entry.b64_json) {
       const dataUrl = b64ToDataUrl(entry.b64_json)
-      return dataUrl ? [dataUrl] : []
+      if (dataUrl) urls.push(dataUrl)
     }
-    return []
-  })
+  }
+  return [...new Set(urls)]
 }
 
 function extractResponsesOutputUrls(payload: unknown): string[] {
@@ -413,7 +528,7 @@ function extractResponsesOutputUrls(payload: unknown): string[] {
     if (Array.isArray(item.content)) {
       const fromContent = item.content.flatMap((part): string[] => {
         if (!isRecord(part)) return []
-        const url = part.url ?? part.image_url
+        const url = part.url ?? part.image_url ?? part.video_url
         if (typeof url === 'string' && url) return [url]
         if (typeof part.b64_json === 'string' && part.b64_json) {
           const dataUrl = b64ToDataUrl(part.b64_json)
@@ -427,7 +542,7 @@ function extractResponsesOutputUrls(payload: unknown): string[] {
       const wrapped = extractOutputUrls({ data: item.data })
       if (wrapped.length > 0) return wrapped
     }
-    const url = item.url ?? item.image_url
+    const url = item.url ?? item.image_url ?? item.video_url
     if (typeof url === 'string' && url) return [url]
     if (typeof item.b64_json === 'string' && item.b64_json) {
       const dataUrl = b64ToDataUrl(item.b64_json)
@@ -439,13 +554,19 @@ function extractResponsesOutputUrls(payload: unknown): string[] {
 
 function taskIdFromPayload(payload: unknown): string | undefined {
   if (!isRecord(payload)) return undefined
-  for (const key of ['task_id', 'taskId', 'id']) {
+  for (const key of ['task_id', 'taskId', 'id', 'job_id', 'jobId', 'task_no']) {
     const value = payload[key]
     if (typeof value === 'string' && value) return value
   }
   if (Array.isArray(payload.data) && isRecord(payload.data[0])) {
-    for (const key of ['task_id', 'taskId', 'id']) {
+    for (const key of ['task_id', 'taskId', 'id', 'job_id', 'jobId', 'task_no']) {
       const value = payload.data[0][key]
+      if (typeof value === 'string' && value) return value
+    }
+  }
+  if (isRecord(payload.data)) {
+    for (const key of ['task_id', 'taskId', 'id', 'job_id', 'jobId', 'task_no']) {
+      const value = (payload.data as Record<string, unknown>)[key]
       if (typeof value === 'string' && value) return value
     }
   }
@@ -474,22 +595,8 @@ function mapTaskPayload(taskId: string, payload: unknown): UpstreamTaskStatus {
   const rawStatus = root.status ?? data?.status ?? root.task_status ?? data?.task_status
   const status = mapTaskStatus(rawStatus)
   if (status !== 3) return { taskId, status }
-  if (Array.isArray(root.data)) {
-    const outputs = extractOutputUrls({ data: root.data })
-    return { taskId, status: 3, ...(outputs.length > 0 ? { outputs } : {}) }
-  }
-  for (const candidate of [root, data ?? {}]) {
-    for (const key of ['outputs', 'output', 'result']) {
-      const value = candidate[key]
-      if (Array.isArray(value)) {
-        const outputs = extractOutputUrls({ data: value })
-        if (outputs.length > 0) return { taskId, status: 3, outputs }
-      } else if (isRecord(value)) {
-        const outputs = extractOutputUrls({ data: [value] })
-        if (outputs.length > 0) return { taskId, status: 3, outputs }
-      }
-    }
-  }
+  const outputs = extractOutputUrls(payload)
+  if (outputs.length > 0) return { taskId, status: 3, outputs }
   return { taskId, status: 3 }
 }
 

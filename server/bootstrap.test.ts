@@ -113,7 +113,7 @@ describe('runtime bootstrap', () => {
       host: '127.0.0.7',
       port: 5103,
       dataDir: join(rootDir, 'explicit-data'),
-      envFile: join(rootDir, '.env.local'),
+      envFile: join(rootDir, 'data', 'secrets.env'),
       assetImportTimeoutMs: 93_000,
       generationMaxRunTimeMs: 1_800_003,
     }))
@@ -141,7 +141,7 @@ describe('runtime bootstrap', () => {
     expect(start).toHaveBeenCalledWith(expect.objectContaining({
       rootDir: PROJECT_ROOT,
       dataDir: join(PROJECT_ROOT, 'data'),
-      envFile: join(PROJECT_ROOT, '.env.local'),
+      envFile: join(PROJECT_ROOT, 'data', 'secrets.env'),
       assetImportTimeoutMs: 90_000,
       generationMaxRunTimeMs: 1_800_000,
     }))

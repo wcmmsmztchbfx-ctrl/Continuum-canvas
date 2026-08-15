@@ -35,7 +35,7 @@ function makeRequest(overrides: Partial<GenerationRequest> = {}): GenerationRequ
 }
 
 describe('OpenAICompatibleAdapter', () => {
-  it('classifies image models from /v1/models and skips video models', async () => {
+  it('classifies image and video models from /v1/models', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({
       data: [
         { id: 'gpt-image-1', owned_by: 'openai' },
@@ -63,19 +63,22 @@ describe('OpenAICompatibleAdapter', () => {
       'gpt-image-1',
       'dall-e-3',
       'black-forest-labs/FLUX.1-schnell',
+      'kling-video-1.6',
     ])
+    expect(catalog.models[0]?.mediaType).toBe('image')
     expect(catalog.models[0]?.qualityOptions).toEqual([
       { value: 'standard', label: '标准', pricing: { type: 'fixed_total', credits: 1 } },
     ])
     expect(catalog.models[0]?.inputLimits).toEqual({ images: 4, videos: 0, audios: 0 })
+    expect(catalog.models[3]?.mediaType).toBe('video')
     expect(catalog.version).toMatch(/^[0-9a-f]{64}$/)
     const again = await adapter.syncCatalog()
     expect(again.version).toBe(catalog.version)
   })
 
-  it('rejects a catalog with no compatible image models', async () => {
+  it('falls back to default models when /v1/models has no compatible models', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
-      data: [{ id: 'kling-video-1.6', owned_by: 'kuaishou' }],
+      data: [{ id: 'text-embedding-3-small', owned_by: 'openai' }],
     }))
     const adapter = new OpenAICompatibleAdapter({
       apiKey: 'unit-secret',
@@ -83,7 +86,10 @@ describe('OpenAICompatibleAdapter', () => {
       fetcher,
       stagingDir: await tempDirectory(),
     })
-    await expect(adapter.syncCatalog()).rejects.toThrow('no compatible models')
+    const catalog = await adapter.syncCatalog()
+    expect(catalog.models.length).toBeGreaterThan(0)
+    expect(catalog.models.some((m) => m.mediaType === 'image')).toBe(true)
+    expect(catalog.models.some((m) => m.mediaType === 'video')).toBe(true)
   })
 
   it('maps rejected 4xx JSON to ProviderRequestRejectedError', async () => {
@@ -501,6 +507,73 @@ describe('OpenAICompatibleAdapter', () => {
       })
       const taskId = await adapter.createGeneration(makeRequest(), [])
       expect(await adapter.getGenerationStatus([taskId])).toEqual([{ taskId, status: 2 }])
+    })
+
+    it('gracefully falls back to /images/generations when /images/edits returns 404', async () => {
+      const dir = await tempDirectory()
+      const pngBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+      const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+        const url = String(input)
+        if (url.endsWith('/images/edits')) {
+          return jsonResponse({ error: { message: 'Not Found', code: '404' } }, 404)
+        }
+        if (url.endsWith('/images/generations')) {
+          return jsonResponse({ data: [{ url: 'https://cdn.example/fallback-out.png' }] })
+        }
+        return jsonResponse({}, 404)
+      })
+      const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'unit-secret',
+        baseUrl: 'https://api.topapis.cn/v1',
+        fetcher,
+        stagingDir: dir,
+      })
+      const grant = await adapter.presignReference({
+        filename: 'ref.png', contentType: 'image/png', size: 8,
+        openStream: () => Readable.from(pngBytes),
+      })
+      await adapter.uploadReference(
+        { filename: 'ref.png', contentType: 'image/png', size: 8, openStream: () => Readable.from(pngBytes) },
+        grant,
+      )
+
+      const taskId = await adapter.createGeneration(makeRequest(), [{
+        alias: 1,
+        url: `${openaiCompatibleStagedRefPrefix}${grant.fileKey}`,
+        mediaType: 'image',
+      }])
+
+      expect(taskId).toMatch(/^sync-/)
+      const [status] = await adapter.getGenerationStatus([taskId])
+      expect(status?.outputs?.[0]).toBe('https://cdn.example/fallback-out.png')
+    })
+
+    it('submits video generation to /videos/generations and returns task id', async () => {
+      const dir = await tempDirectory()
+      const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+        const url = String(input)
+        if (url.endsWith('/videos/generations')) {
+          return jsonResponse({ task_id: 'vid_task_123', status: 'processing' })
+        }
+        if (url.endsWith('/tasks/vid_task_123')) {
+          return jsonResponse({ status: 'completed', video_url: 'https://cdn.example/out.mp4' })
+        }
+        return jsonResponse({})
+      })
+      const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'unit-secret',
+        baseUrl: 'https://api.openai.com/v1',
+        fetcher,
+        stagingDir: dir,
+      })
+      const taskId = await adapter.createGeneration(makeRequest({
+        mediaType: 'video',
+        channel: 'video',
+        model: 'kling-v1.5',
+      }), [])
+      expect(taskId).toBe('vid_task_123')
+      const [status] = await adapter.getGenerationStatus([taskId])
+      expect(status).toEqual({ taskId: 'vid_task_123', status: 3, outputs: ['https://cdn.example/out.mp4'] })
     })
   })
 })

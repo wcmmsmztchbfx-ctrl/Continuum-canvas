@@ -101,10 +101,9 @@ function mapSection(mediaType: CatalogModel['mediaType'], section: unknown): Cat
   })
 }
 
-// OpenAI-compatible model classification: a model is an image model when its
-// id looks like an image generator and does not look like a video generator.
-const IMAGE_MODEL_PATTERN = /dall-e|gpt-image|image|flux|stable-diffusion|\bsd[0-9]|schnell|kolors|playground|seedream|midjourney|nano-banana/i
-const VIDEO_MODEL_PATTERN = /video|kling|veo|sora|wan|hunyuan|seedance|pixverse|runway|luma|dreamina|minimax|hailuo/i
+// OpenAI-compatible model classification: categorized into image and video models.
+export const IMAGE_MODEL_PATTERN = /dall-e|gpt-image|image|flux|stable-diffusion|\bsd[0-9]|schnell|kolors|playground|seedream|midjourney|nano-banana|qwen-image|ideogram/i
+export const VIDEO_MODEL_PATTERN = /video|kling|veo|sora|wan|hunyuan|seedance|pixverse|runway|luma|dreamina|minimax|hailuo|cogvideo/i
 
 export const DEFAULT_OPENAI_COMPATIBLE_MODELS: CatalogModel[] = [
   {
@@ -198,6 +197,45 @@ export const DEFAULT_OPENAI_COMPATIBLE_MODELS: CatalogModel[] = [
     inputLimits: { images: 4, videos: 0, audios: 0 },
     raw: { id: 'midjourney' },
   },
+  {
+    mediaType: 'video',
+    channel: 'video',
+    channelTitle: '视频生成',
+    model: 'kling-v1.5',
+    title: 'Kling v1.5',
+    label: 'Kling v1.5',
+    qualityOptions: [
+      { value: 'standard', label: '标准', pricing: { type: 'fixed_total', credits: 5 } },
+      { value: 'hd', label: '高清', pricing: { type: 'fixed_total', credits: 10 } },
+    ],
+    aspectRatios: ['16:9', '9:16', '1:1', 'Auto'],
+    countOptions: [1],
+    durationOptions: [5, 10],
+    countRange: { min: 1, max: 1, options: [1] },
+    durationRange: { min: 5, max: 10, options: [5, 10] },
+    modes: ['text2video', 'image2video'],
+    inputLimits: { images: 2, videos: 1, audios: 1 },
+    raw: { id: 'kling-v1.5' },
+  },
+  {
+    mediaType: 'video',
+    channel: 'video',
+    channelTitle: '视频生成',
+    model: 'sora-1.0',
+    title: 'Sora 1.0',
+    label: 'Sora 1.0',
+    qualityOptions: [
+      { value: 'standard', label: '标准', pricing: { type: 'fixed_total', credits: 10 } },
+    ],
+    aspectRatios: ['16:9', '9:16', '1:1', 'Auto'],
+    countOptions: [1],
+    durationOptions: [5, 10],
+    countRange: { min: 1, max: 1, options: [1] },
+    durationRange: { min: 5, max: 10, options: [5, 10] },
+    modes: ['text2video', 'image2video'],
+    inputLimits: { images: 2, videos: 1, audios: 1 },
+    raw: { id: 'sora-1.0' },
+  },
 ]
 
 export function createFallbackOpenAICatalog(
@@ -223,9 +261,34 @@ export function mapOpenAICompatibleCatalog(
   const models = entries.flatMap((entry): CatalogModel[] => {
     if (!isRecord(entry) || typeof entry.id !== 'string' || !entry.id) return []
     const id = entry.id
-    if (VIDEO_MODEL_PATTERN.test(id) || !IMAGE_MODEL_PATTERN.test(id)) return []
-    // /v1/models carries no pricing; the fixed placeholder keeps the catalog
-    // contract satisfied. A per-provider pricing table can come later.
+    const isVideo = VIDEO_MODEL_PATTERN.test(id)
+    const isImage = IMAGE_MODEL_PATTERN.test(id)
+    if (!isVideo && !isImage) return []
+
+    if (isVideo) {
+      return [{
+        mediaType: 'video',
+        channel: 'video',
+        channelTitle: '视频生成',
+        model: id,
+        title: id,
+        label: id,
+        qualityOptions: [{
+          value: 'standard',
+          label: '标准',
+          pricing: { type: 'fixed_total', credits: 5 },
+        }],
+        aspectRatios: ['16:9', '9:16', '1:1', 'Auto'],
+        countOptions: [1],
+        durationOptions: [5, 10],
+        countRange: { min: 1, max: 1, options: [1] },
+        durationRange: { min: 5, max: 10, options: [5, 10] },
+        modes: ['text2video', 'image2video'],
+        inputLimits: { images: 2, videos: 1, audios: 1 },
+        raw: structuredClone(entry),
+      }]
+    }
+
     return [{
       mediaType: 'image',
       channel: 'image',

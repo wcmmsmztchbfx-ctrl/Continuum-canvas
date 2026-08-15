@@ -81,27 +81,43 @@ describe('mapOpenAICompatibleCatalog', () => {
     ],
   }
 
-  it('maps image models with conservative capability defaults', () => {
+  it('maps image and video models with conservative capability defaults', () => {
     const catalog = mapOpenAICompatibleCatalog('openai', payload, '2026-07-16T00:00:00.000Z')
     expect(catalog.providerId).toBe('openai')
-    expect(catalog.models).toHaveLength(1)
-    const model = catalog.models[0]
-    expect(model.mediaType).toBe('image')
-    expect(model.channel).toBe('image')
-    expect(model.model).toBe('gpt-image-1')
-    expect(model.qualityOptions).toEqual([
+    expect(catalog.models).toHaveLength(2)
+
+    const imageModel = catalog.models[0]
+    expect(imageModel.mediaType).toBe('image')
+    expect(imageModel.channel).toBe('image')
+    expect(imageModel.model).toBe('gpt-image-1')
+    expect(imageModel.qualityOptions).toEqual([
       { value: 'standard', label: '标准', pricing: { type: 'fixed_total', credits: 1 } },
     ])
-    expect(model.aspectRatios).toEqual(['Auto', '1:1', '16:9', '9:16'])
-    expect(model.countOptions).toEqual([1])
-    expect(model.durationOptions).toEqual([1])
-    expect(model.modes).toEqual(['text2image', 'image2image'])
-    expect(model.inputLimits).toEqual({ images: 4, videos: 0, audios: 0 })
+    expect(imageModel.aspectRatios).toEqual(['Auto', '1:1', '16:9', '9:16'])
+    expect(imageModel.countOptions).toEqual([1])
+    expect(imageModel.durationOptions).toEqual([1])
+    expect(imageModel.modes).toEqual(['text2image', 'image2image'])
+    expect(imageModel.inputLimits).toEqual({ images: 4, videos: 0, audios: 0 })
+
+    const videoModel = catalog.models[1]
+    expect(videoModel.mediaType).toBe('video')
+    expect(videoModel.channel).toBe('video')
+    expect(videoModel.model).toBe('kling-video-1.6')
+    expect(videoModel.qualityOptions).toEqual([
+      { value: 'standard', label: '标准', pricing: { type: 'fixed_total', credits: 5 } },
+    ])
+    expect(videoModel.aspectRatios).toEqual(['16:9', '9:16', '1:1', 'Auto'])
+    expect(videoModel.countOptions).toEqual([1])
+    expect(videoModel.durationOptions).toEqual([5, 10])
+    expect(videoModel.modes).toEqual(['text2video', 'image2video'])
+    expect(videoModel.inputLimits).toEqual({ images: 2, videos: 1, audios: 1 })
   })
 
-  it('rejects a payload with no image models', () => {
-    expect(() => mapOpenAICompatibleCatalog('openai', { data: [{ id: 'kling-video-1.6' }] }, 'now'))
-      .toThrow('no compatible models')
+  it('falls back to default models for a payload with no compatible models', () => {
+    const catalog = mapOpenAICompatibleCatalog('openai', { data: [{ id: 'text-embedding-3-small' }] }, 'now')
+    expect(catalog.models.length).toBeGreaterThan(0)
+    expect(catalog.models.some((m) => m.mediaType === 'image')).toBe(true)
+    expect(catalog.models.some((m) => m.mediaType === 'video')).toBe(true)
   })
 
   it('produces a deterministic version independent of fetchedAt', () => {
