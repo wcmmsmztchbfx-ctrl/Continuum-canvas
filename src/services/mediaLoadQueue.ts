@@ -8,10 +8,11 @@ interface QueueItem {
   isCancelled: boolean
 }
 
-const MAX_CONCURRENT_LOADS = 3
+const MAX_CONCURRENT_LOADS = 2
 let activeLoads = 0
 const queue: QueueItem[] = []
 const loadedCache = new Set<string>()
+const inFlightMap = new Map<string, Promise<boolean>>()
 
 const PRIORITY_ORDER: Record<LoadPriority, number> = {
   high: 1,
@@ -67,7 +68,11 @@ function performImageLoad(url: string): Promise<boolean> {
     return Promise.resolve(true)
   }
 
-  return new Promise((resolve) => {
+  if (inFlightMap.has(url)) {
+    return inFlightMap.get(url)!
+  }
+
+  const promise = new Promise<boolean>((resolve) => {
     const img = new Image()
     img.decoding = 'async'
     img.onload = () => {
@@ -79,7 +84,12 @@ function performImageLoad(url: string): Promise<boolean> {
     }
     img.onerror = () => resolve(false)
     img.src = url
+  }).finally(() => {
+    inFlightMap.delete(url)
   })
+
+  inFlightMap.set(url, promise)
+  return promise
 }
 
 /**

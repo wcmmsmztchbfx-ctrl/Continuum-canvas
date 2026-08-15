@@ -90,13 +90,10 @@ describe('media canvas nodes', () => {
       />,
     )
 
-    expect(html).toContain('src="https://assets.example/video.mp4"')
-    expect(html).toContain('poster="https://assets.example/poster.jpg"')
-    expect(html).toContain('preload="metadata"')
+    expect(html).toContain('src="https://assets.example/poster.jpg"')
     expect(html).toContain('aria-label="播放视频"')
     expect(html).toContain('aria-label="下载视频 视频节点"')
     expect(html).toContain('download="视频节点.mp4"')
-    expect(html).not.toContain('controls=""')
     expect(html).not.toContain('autoplay')
     expect(html).toContain('data-node-kind="video"')
   })

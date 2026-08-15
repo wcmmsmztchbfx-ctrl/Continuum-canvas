@@ -5,7 +5,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { NodeResizer, Position, useViewport, type NodeProps } from '@xyflow/react'
+import { NodeResizer, Position, type NodeProps } from '@xyflow/react'
 
 import { EmptyMediaPlaceholder } from './EmptyMediaPlaceholder'
 import { EditableNodeLabel } from './EditableNodeLabel'
@@ -33,7 +33,6 @@ function VideoNodeContent({
   const [playing, setPlaying] = useState(false)
   const [duration, setDuration] = useState(0)
   const [muted, setMuted] = useState(false)
-  const [isHovered, setIsHovered] = useState(false)
   const [videoReady, setVideoReady] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const sliderRef = useRef<HTMLInputElement | null>(null)
@@ -41,14 +40,6 @@ function VideoNodeContent({
   const isSeeking = useRef(false)
   const resizeGranted = useRef(false)
   const currentTimeRef = useRef(0)
-
-  let zoom = 1
-  try {
-    const vp = useViewport()
-    zoom = vp.zoom
-  } catch {
-    zoom = 1
-  }
 
   const updateScrubberDom = (time: number, dur: number) => {
     const vDur = Number.isFinite(dur) && dur > 0 ? dur : 0
@@ -99,27 +90,29 @@ function VideoNodeContent({
   const showResizer = selected && data.isSoleSelection !== false
   const showDetails = showResizer && !isLayerMode
   const modelData = data.node?.type === 'video' ? data.node.data : undefined
-  const isLowResMode = zoom <= 0.35
-  const shouldMountVideo = hasVideo && (!isLowResMode || playing || selected) && (selected || isHovered || playing || data.generation?.status === 'generating')
+  const shouldMountVideo = hasVideo && (playing || data.generation?.status === 'generating')
 
   const togglePlayback = () => {
     if (!hasVideo) return
-    const video = videoRef.current
-    if (!video) {
+    if (!playing) {
       setPlaying(true)
-      return
-    }
-    if (video.paused) {
-      void video.play().then(() => setPlaying(true)).catch(() => setPlaying(false))
     } else {
-      video.pause()
+      const video = videoRef.current
+      if (video) video.pause()
       setPlaying(false)
     }
   }
 
   useEffect(() => {
     if (playing && videoRef.current && videoRef.current.paused) {
-      void videoRef.current.play().catch(() => setPlaying(false))
+      try {
+        const res = videoRef.current.play()
+        if (res && typeof res.catch === 'function') {
+          res.catch(() => setPlaying(false))
+        }
+      } catch {
+        setPlaying(false)
+      }
     }
   }, [playing, shouldMountVideo])
 
@@ -190,8 +183,6 @@ function VideoNodeContent({
       />
       <div
         className="canvas-media-node__frame"
-        onPointerEnter={() => setIsHovered(true)}
-        onPointerLeave={() => setIsHovered(false)}
         style={{
           borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
           border: modelData?.stroke
@@ -203,14 +194,15 @@ function VideoNodeContent({
         {hasPoster ? (
           <img
             alt={`${data.name} 视频封面`}
-            className="canvas-media-node__content canvas-media-node__poster"
+            className={`canvas-media-node__content canvas-media-node__poster ${playing && videoReady ? 'is-hidden' : ''}`}
             decoding="async"
             draggable={false}
             src={data.poster}
           />
         ) : null}
-        {hasVideo ? (
+        {shouldMountVideo ? (
           <video
+            autoPlay={playing}
             className={`canvas-media-node__content canvas-video-element ${videoReady ? 'is-ready' : ''}`}
             draggable={false}
             onCanPlay={() => {
@@ -248,7 +240,7 @@ function VideoNodeContent({
             src={data.url}
             poster={data.poster}
             ref={videoRef}
-            preload="metadata"
+            preload="auto"
             onError={() => setFailed(true)}
           />
         ) : !hasPoster ? (
