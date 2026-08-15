@@ -68,14 +68,14 @@ export class WebSocketCollaborationTransport implements CollaborationTransport {
 
   sendDurable(data: Uint8Array): void {
     if (this.socket.readyState === 1) {
-      this.socket.send(data)
+      this.socket.send(data as any)
     }
   }
 
   sendEphemeral(data: Uint8Array): void {
     // In WebSocket fallback, ephemeral data travels over the primary socket
     if (this.socket.readyState === 1) {
-      this.socket.send(data)
+      this.socket.send(data as any)
     }
   }
 
