@@ -1768,26 +1768,35 @@ export function CanvasWorkspace({
 
   useEffect(() => {
     if (!focusNodeRequest?.id || !flowInstance) return
-    const target = flowInstance.getNode(focusNodeRequest.id)
     const modelNode = store.getState().snapshot.nodes.find((n) => n.id === focusNodeRequest.id)
-    if (target && modelNode) {
-      const nodeWidth = modelNode.size.width
-      const nodeHeight = modelNode.size.height
-      const hasGenerator = modelNode.type === 'image' || modelNode.type === 'video'
-      
-      const visualCenterX = target.position.x + nodeWidth / 2
-      const visualCenterY = target.position.y + nodeHeight / 2 + (hasGenerator ? 100 : 0)
-      
-      const stageHeight = workspaceRef.current?.clientHeight ?? window.innerHeight
-      const availableHeight = Math.max(320, stageHeight - 160)
-      const totalVisualHeight = nodeHeight + (hasGenerator ? 280 : 0)
-      const targetZoom = Math.min(1.0, Math.max(0.4, availableHeight / totalVisualHeight))
+    if (!modelNode) return
 
-      void flowInstance.setCenter(visualCenterX, visualCenterY, {
-        duration: 600,
-        zoom: targetZoom,
-      })
-    }
+    const internal = flowInstance.getInternalNode(focusNodeRequest.id)
+    const positionAbsolute = internal?.internals.positionAbsolute ?? modelNode.position
+    const nodeWidth = modelNode.size.width
+    const nodeHeight = modelNode.size.height
+    const hasGenerator = modelNode.type === 'image' || modelNode.type === 'video'
+    
+    const extraHeight = hasGenerator ? 240 : 40
+    const totalHeight = nodeHeight + extraHeight
+    
+    const visualCenterX = positionAbsolute.x + nodeWidth / 2
+    const visualCenterY = positionAbsolute.y + (hasGenerator ? (nodeHeight + 200) / 2 : nodeHeight / 2)
+    
+    const stageHeight = workspaceRef.current?.clientHeight ?? window.innerHeight
+    const stageWidth = workspaceRef.current?.clientWidth ?? window.innerWidth
+    
+    const availableHeight = Math.max(300, stageHeight - 140)
+    const availableWidth = Math.max(400, stageWidth - 140)
+    
+    const verticalZoom = availableHeight / totalHeight
+    const horizontalZoom = availableWidth / Math.max(nodeWidth, hasGenerator ? 680 : nodeWidth)
+    const targetZoom = Math.min(1.0, Math.max(0.35, Math.min(verticalZoom, horizontalZoom)))
+
+    void flowInstance.setCenter(visualCenterX, visualCenterY, {
+      duration: 400,
+      zoom: targetZoom,
+    })
   }, [focusNodeRequest, flowInstance, store])
 
   const syncSelection = useCallback(

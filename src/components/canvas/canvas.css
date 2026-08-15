@@ -1112,10 +1112,7 @@
   color: #eeeeee;
   background: #242424;
   box-shadow: 0 10px 36px rgba(0, 0, 0, 0.34);
-  transform: scale(var(--canvas-ui-scale)) translate(
-    calc(-50% + var(--generator-shift-x, 0px)),
-    calc(16px + var(--generator-shift-y, 0px))
-  );
+  transform: scale(var(--canvas-ui-scale)) translate(-50%, 16px);
   transform-origin: top left;
   animation: canvas-node-editor-in 150ms ease-out both;
 }

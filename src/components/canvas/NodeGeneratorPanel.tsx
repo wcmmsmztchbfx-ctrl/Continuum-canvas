@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react'
@@ -56,7 +55,6 @@ import {
   validateGenerationUi,
 } from './generationUi'
 import { GenerationSettingsPopover } from './GenerationSettingsPopover'
-import { correctViewportOverflow } from './floatingGeometry'
 import { FloatingChoiceMenu } from './FloatingChoiceMenu'
 import {
   ReferencePromptEditor,
@@ -440,7 +438,6 @@ export function NodeGeneratorPanel({
   const expandedDialogRef = useRef<HTMLDivElement | null>(null)
   const interactionHeld = useRef(false)
   const [interactionLockMessage, setInteractionLockMessage] = useState<string>()
-  const [panelShift, setPanelShift] = useState({ x: 0, y: 0 })
   const modelInitialFocusRef = useRef<'first' | 'last'>('first')
   const modeInitialFocusRef = useRef<'first' | 'last'>('first')
   const providerInitialFocusRef = useRef<'first' | 'last'>('first')
@@ -589,43 +586,6 @@ export function NodeGeneratorPanel({
   useEffect(() => {
     if (providerMenuOpen) focusMenuItem(providerMenuRef.current, providerInitialFocusRef.current)
   }, [providerMenuOpen])
-
-  useEffect(() => {
-    let frame = 0
-    const update = () => {
-      window.cancelAnimationFrame(frame)
-      frame = window.requestAnimationFrame(() => {
-        const bounds = panelRef.current?.getBoundingClientRect()
-        if (!bounds?.width || !bounds.height) return
-        const correction = correctViewportOverflow(bounds, {
-          width: window.innerWidth,
-          height: window.innerHeight,
-        })
-        if (correction.x === 0 && correction.y === 0) return
-        setPanelShift((current) => ({
-          x: current.x + correction.x,
-          y: current.y + correction.y,
-        }))
-      })
-    }
-    update()
-    window.addEventListener('resize', update)
-    const flowViewport = panelRef.current
-      ?.closest('.react-flow')
-      ?.querySelector('.react-flow__viewport')
-    const viewportObserver = flowViewport && typeof MutationObserver !== 'undefined'
-      ? new MutationObserver(update)
-      : undefined
-    if (flowViewport) viewportObserver?.observe(flowViewport, {
-      attributeFilter: ['style'],
-      attributes: true,
-    })
-    return () => {
-      window.cancelAnimationFrame(frame)
-      window.removeEventListener('resize', update)
-      viewportObserver?.disconnect()
-    }
-  }, [])
 
   const catalogErrorIdentity = error?.code === 'catalog_changed'
     ? `${generation?.clientRequestId ?? 'legacy'}:${error.message}`
@@ -1103,14 +1063,7 @@ export function NodeGeneratorPanel({
     >
       <div
         className="canvas-node-generator"
-        data-viewport-clamped="true"
         ref={panelRef}
-        style={
-          {
-            '--generator-shift-x': `${panelShift.x}px`,
-            '--generator-shift-y': `${panelShift.y}px`,
-          } as CSSProperties
-        }
       >
         <div className="canvas-node-generator__toolbar">
           {kind === 'image' && editContent ? <div className="canvas-node-generator__modes" role="tablist" aria-label="图片操作模式"><button aria-selected={mode === 'generate'} onClick={() => onModeChange?.('generate')} role="tab" type="button">生成</button><button aria-selected={mode === 'edit'} onClick={() => onModeChange?.('edit')} role="tab" type="button">编辑</button></div> : null}
