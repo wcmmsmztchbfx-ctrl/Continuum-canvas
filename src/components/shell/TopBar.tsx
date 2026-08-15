@@ -1,4 +1,4 @@
-import { Cable, Package, UsersRound } from 'lucide-react'
+import { Package, UsersRound } from 'lucide-react'
 
 import { AgentButton } from './AgentButton'
 import { IconButton } from './IconButton'
@@ -6,7 +6,6 @@ import type { ShellMode } from './ModeSwitch'
 import { TopBarFeatureButton } from './TopBarFeatureButton'
 
 export interface TopBarProps {
-  apiIntegrationDisabled?: boolean
   collaborationStatus?: 'inactive' | 'enabling' | 'connecting' | 'synced' | 'offline' | 'error'
   collaborationMembers?: ReadonlyArray<{
     id: string
@@ -15,18 +14,15 @@ export interface TopBarProps {
   }>
   mode?: ShellMode
   onAgent?: () => void
-  onApiIntegration?: () => void
   onAssets?: () => void
   onCollaboration?: () => void
   onModeChange?: (mode: ShellMode) => void
 }
 
 export function TopBar({
-  apiIntegrationDisabled,
   collaborationStatus = 'inactive',
   collaborationMembers = [],
   onAgent,
-  onApiIntegration,
   onAssets,
   onCollaboration,
 }: TopBarProps) {
@@ -53,15 +49,6 @@ export function TopBar({
           label="资产库"
           onClick={onAssets}
         />
-        {!apiIntegrationDisabled ? (
-          <TopBarFeatureButton
-            className="api-integration-button"
-            icon={Cable}
-            id="api-integration-trigger"
-            label="API 接入"
-            onClick={onApiIntegration}
-          />
-        ) : null}
         <TopBarFeatureButton
           className="collaboration-button"
           icon={UsersRound}

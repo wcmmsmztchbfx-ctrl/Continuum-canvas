@@ -16,7 +16,6 @@ import { FolderKanban, Cpu, Layers3, Settings } from 'lucide-react'
 import { CanvasWorkspace, LayersPanel } from './components/canvas'
 import {
   AddNodeMenu,
-  ApiIntegrationPopover,
   BlankContextMenu,
   CollaborationNicknameDialog,
   CollaborationPopover,
@@ -1379,13 +1378,10 @@ export default function App({
           </button>
           <button
             aria-label="API 接入"
-            className={`app-layer-sidebar__rail-btn ${popup === 'api-integration' || providerDrawerOpen ? 'app-layer-sidebar__rail-btn--active' : ''}`}
+            className={`app-layer-sidebar__rail-btn ${providerDrawerOpen ? 'app-layer-sidebar__rail-btn--active' : ''}`}
             onClick={() => {
-              if (capabilities.canManageApi) {
-                setProviderDrawerOpen(true)
-              } else {
-                setPopup((curr) => (curr === 'api-integration' ? null : 'api-integration'))
-              }
+              setProviderDrawerOpen((open) => !open)
+              setPopup(null)
             }}
             title="API 接入与模型"
             type="button"
@@ -1507,20 +1503,10 @@ export default function App({
       )}
 
       <TopBar
-        apiIntegrationDisabled={!capabilities.canManageApi}
         collaborationStatus={collaborationState.status}
         collaborationMembers={topbarCollaborationMembers}
         mode={mode}
         onAgent={() => openPanel('agent')}
-        onApiIntegration={() => {
-          if (!capabilities.canManageApi) return
-          setProviderDrawerOpen(false)
-          setContextMenu(null)
-          setAddNodePosition(undefined)
-          setPopup((current) =>
-            current === 'api-integration' ? null : 'api-integration',
-          )
-        }}
         onAssets={() => openPanel('assets')}
         onCollaboration={() => {
           setProviderDrawerOpen(false)
@@ -1597,17 +1583,6 @@ export default function App({
         onSelect={handleAddNode}
         open={popup === 'add'}
         position={addNodePosition}
-      />
-      <ApiIntegrationPopover
-        onClose={() => closeProductPopup('api-integration')}
-        onManage={() => {
-          if (!capabilities.canManageApi) return
-          // TODO(security): enforce owner role server-side once provider routes accept room context.
-          setPopup(null)
-          setProviderDrawerOpen(true)
-        }}
-        onUnavailable={() => notify('本地 API 网关暂不可用', 'error')}
-        open={popup === 'api-integration'}
       />
       {providerDrawerOpen ? (
         <Suspense fallback={null}>

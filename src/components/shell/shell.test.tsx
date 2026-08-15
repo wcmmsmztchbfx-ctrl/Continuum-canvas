@@ -59,12 +59,11 @@ describe('shell controls', () => {
     expect(html).toMatch(/aria-label="故事板"[^>]*aria-pressed="false"/)
   })
 
-  it('renders API, collaboration, and Agent commands without membership state', () => {
+  it('renders collaboration and Agent commands without membership state', () => {
     const html = markup(
       <TopBar />,
     )
 
-    expect(html).toContain('aria-label="打开 API 接入"')
     expect(html).toContain('aria-label="打开多人协作"')
     expect(html).toContain('aria-label="打开 Agent"')
     expect(html).not.toContain('会员中心')
@@ -72,25 +71,22 @@ describe('shell controls', () => {
     expect(html).not.toContain('限时')
   })
 
-  it('keeps API and collaboration reachable as icon buttons below 900px', () => {
+  it('keeps collaboration reachable as an icon button below 900px', () => {
     const css = shellCss()
     const narrowRule = css.match(/@media \(max-width: 900px\) \{[\s\S]*?\n\}/g)?.join('\n') ?? ''
 
     expect(narrowRule).toContain('.topbar-feature-button > span')
-    expect(narrowRule).toMatch(/\.api-integration-button,[\s\S]*?width:\s*42px/)
     expect(narrowRule).not.toContain('.collaboration-button {\n    display: none')
   })
 
   it('composes all primary commands in the top bar', () => {
     const onAssets = vi.fn()
-    const onApiIntegration = vi.fn()
     const onCollaboration = vi.fn()
     const onModeChange = vi.fn()
 
     const html = markup(
       <TopBar
         mode="workflow"
-        onApiIntegration={onApiIntegration}
         onAssets={onAssets}
         onCollaboration={onCollaboration}
         onModeChange={onModeChange}
@@ -99,18 +95,9 @@ describe('shell controls', () => {
 
     expect(html).toContain('aria-label="画布顶部工具栏"')
     expect(html).toContain('aria-label="资产库"')
-    expect(html).toContain('aria-label="打开 API 接入"')
     expect(html).toContain('aria-label="打开多人协作"')
     expect(html).toContain('aria-label="打开 Agent"')
     expect(html).not.toContain('aria-label="分享"')
-  })
-
-  it('hides API management while collaboration capability is unavailable', () => {
-    const html = markup(<TopBar apiIntegrationDisabled collaborationStatus="connecting" />)
-
-    expect(html).not.toContain('aria-label="打开 API 接入"')
-    expect(html).not.toContain('api-integration-button')
-    expect(html).toContain('data-collaboration-status="connecting"')
   })
 
   it('shows collaboration connection state and caps the avatar stack at four members', () => {

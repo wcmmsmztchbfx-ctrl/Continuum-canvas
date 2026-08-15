@@ -7,6 +7,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
+import { ProviderCatalogProvider } from './components/providers/ProviderCatalogContext'
 import { canvasStore } from './store/canvas-store'
 import type { CanvasSnapshotV2 } from './model/project'
 import type { WorkspaceRepository } from './workspace'
@@ -176,16 +177,18 @@ describe('canvas application integration', () => {
   })
 
   it('supports gateway-backed API, real collaboration entry, and Agent shells', async () => {
-    render(<App />)
+    render(
+      <ProviderCatalogProvider>
+        <App />
+      </ProviderCatalogProvider>,
+    )
+    await screen.findByTestId('canvas-workspace')
 
-    fireEvent.click(screen.getByRole('button', { name: '打开 API 接入' }))
-    expect(screen.getByRole('dialog', { name: 'API 接入' })).toBeVisible()
-    expect(screen.getByText('尚未添加供应商')).toBeVisible()
-    expect(screen.getByRole('button', { name: '快速测试' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '同步配置' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /API/, hidden: true }))
+    expect(await screen.findByRole('dialog')).toBeVisible()
 
     fireEvent.click(screen.getByRole('button', { name: '打开多人协作' }))
-    expect(screen.queryByRole('dialog', { name: 'API 接入' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '关闭管理 API 接入' })).toBeNull()
     expect(screen.getByRole('dialog', { name: '多人协作' })).toBeVisible()
     expect(screen.getByRole('textbox', { name: '协作昵称' })).toBeVisible()
     expect(screen.queryByPlaceholderText('输入邮箱或成员账号')).toBeNull()

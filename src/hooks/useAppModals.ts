@@ -3,7 +3,6 @@ import { useState, useCallback } from 'react'
 export type AppPopup =
   | 'workspace'
   | 'add'
-  | 'api-integration'
   | 'collaboration'
   | 'help'
   | null

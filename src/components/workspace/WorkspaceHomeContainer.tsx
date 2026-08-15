@@ -1,6 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 
-import { ApiIntegrationPopover } from '../overlays'
 import { gatewayClient, type GatewayClient } from '../../services/gatewayClient'
 import {
   defaultWorkspaceRepository,
@@ -49,7 +48,6 @@ export function WorkspaceHome({
 }: WorkspaceHomeProps) {
   const [manifest, setManifest] = useState<WorkspaceManifestV1 | null>(null)
   const [editing, setEditing] = useState<EditingItem>(null)
-  const [apiOpen, setApiOpen] = useState(false)
   const [providerDrawerOpen, setProviderDrawerOpen] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [createHandled, setCreateHandled] = useState(false)
@@ -244,8 +242,7 @@ export function WorkspaceHome({
         manifest={manifest}
         thumbnailUrls={thumbnailUrls}
         onApiIntegration={() => {
-          setProviderDrawerOpen(false)
-          setApiOpen((current) => !current)
+          setProviderDrawerOpen((current) => !current)
         }}
         onCancelRename={() => setEditing(null)}
         onCommitRename={commitRename}
@@ -379,15 +376,7 @@ export function WorkspaceHome({
           void repository.updateViewport(viewport).catch(reportError)
         }}
       />
-      <ApiIntegrationPopover
-        onClose={() => setApiOpen(false)}
-        onManage={() => {
-          setApiOpen(false)
-          setProviderDrawerOpen(true)
-        }}
-        onUnavailable={() => setMessage('本地 API 网关暂不可用')}
-        open={apiOpen}
-      />
+
       {providerDrawerOpen ? (
         <Suspense fallback={null}>
           <ProviderDrawer onClose={() => setProviderDrawerOpen(false)} open />
