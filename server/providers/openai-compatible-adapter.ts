@@ -6,11 +6,12 @@ import { pipeline } from 'node:stream/promises'
 import type { GenerationRequest, ProviderCatalog } from '../../src/contracts/generation.ts'
 import type { ImageRequestMode } from '../../src/contracts/catalog.ts'
 import { createFallbackOpenAICatalog, mapOpenAICompatibleCatalog } from '../catalog.ts'
-import type {
-  LocalReference,
-  PresignedUpload,
-  StagedReference,
-  UpstreamTaskStatus,
+import {
+  ProviderRequestRejectedError,
+  type LocalReference,
+  type PresignedUpload,
+  type StagedReference,
+  type UpstreamTaskStatus,
 } from './provider-adapter.ts'
 import {
   isRecord,
@@ -87,7 +88,23 @@ export class OpenAICompatibleAdapter {
   }
 
   async testConnection(signal?: AbortSignal): Promise<void> {
-    await this.request('/models', {}, signal)
+    try {
+      await this.request('/models', {}, signal)
+    } catch (error) {
+      if (error instanceof ProviderRequestRejectedError) {
+        if (
+          error.providerCode === '401' ||
+          error.providerCode === 'invalid_api_key' ||
+          /invalid.*(api_key|key)|unauthorized|incorrect api key/i.test(error.message)
+        ) {
+          throw error
+        }
+        // When upstream API proxy rejects /models due to group restrictions (e.g. 403 image-4K) or 404,
+        // the host is reachable and the key is recognized by the gateway, so the connection is valid!
+        return
+      }
+      throw error
+    }
   }
 
   async syncCatalog(signal?: AbortSignal): Promise<ProviderCatalog> {
