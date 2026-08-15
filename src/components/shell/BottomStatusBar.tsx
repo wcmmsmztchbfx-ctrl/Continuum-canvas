@@ -86,17 +86,19 @@ export function BottomStatusBar({
       data-testid="bottom-status-bar"
       role="status"
     >
-      <button
-        aria-label="资产管理"
-        className="bottom-status-bar__assets"
-        data-tooltip="资产管理"
-        onClick={onAssetManager}
-        title="资产管理"
-        type="button"
-      >
-        <Library aria-hidden="true" focusable="false" />
-        <span>资产管理</span>
-      </button>
+      {onAssetManager ? (
+        <button
+          aria-label="资产管理"
+          className="bottom-status-bar__assets"
+          data-tooltip="资产管理"
+          onClick={onAssetManager}
+          title="资产管理"
+          type="button"
+        >
+          <Library aria-hidden="true" focusable="false" />
+          <span>资产管理</span>
+        </button>
+      ) : null}
       <IconButton
         icon={History}
         label="历史记录"

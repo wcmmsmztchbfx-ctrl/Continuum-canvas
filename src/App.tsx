@@ -1431,6 +1431,7 @@ export default function App({
                 testId="workspace-control-floating"
                 workspaceName={projectName ?? '未命名工作区'}
               />
+              <div className="canvas-top-left-pill__divider" />
               <button
                 aria-label="展开侧边栏"
                 className="canvas-floating-expand-btn"
@@ -1568,16 +1569,6 @@ export default function App({
 
       <BottomStatusBar
         hideConnections={preferences.hideConnections}
-        onAssetManager={() => {
-          if (!preferences.layersOpen) {
-            setActiveLeftTab('assets')
-            persistPreferences({ layersOpen: true })
-          } else if (activeLeftTab === 'assets') {
-            persistPreferences({ layersOpen: false })
-          } else {
-            setActiveLeftTab('assets')
-          }
-        }}
         onHistory={() => setHistoryOpen(true)}
         onFitCanvas={() => {
           setFitViewRequest((current) => current + 1)

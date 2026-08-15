@@ -310,10 +310,11 @@ select:focus-visible {
   position: fixed;
   top: 12px;
   left: 16px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 6px 3px 4px;
+  gap: 4px;
+  height: 36px;
+  padding: 0 4px 0 0;
   background: rgba(30, 30, 30, 0.92);
   backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -323,18 +324,36 @@ select:focus-visible {
   pointer-events: auto;
 }
 
+.canvas-top-left-pill .workspace-menu {
+  position: static;
+  height: 34px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0 8px;
+  margin: 0;
+}
+
+.canvas-top-left-pill__divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+}
+
 .canvas-top-left-pill .canvas-floating-expand-btn {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   background: transparent;
   border: none;
   color: #94a3b8;
   cursor: pointer;
   padding: 0;
   transition: all 120ms ease;
+  flex-shrink: 0;
 }
 
 .canvas-top-left-pill .canvas-floating-expand-btn:hover {

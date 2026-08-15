@@ -1,5 +1,5 @@
 import { useMemo, useState, type ComponentType, type DragEvent, type ReactNode } from 'react'
-import { ChevronDown, ChevronRight, Circle, Eye, EyeOff, Frame, Image, Layers3, Lock, MousePointerSquareDashed, PenTool, Search, Type, Unlock, Video } from 'lucide-react'
+import { ChevronDown, ChevronRight, Circle, Eye, EyeOff, Frame, Image, Lock, MousePointerSquareDashed, PenTool, Search, Type, Unlock, Video } from 'lucide-react'
 import type { CanvasNode } from '../../model/project'
 import { getFastThumbnailUrl } from '../../services/imageThumbnailCache'
 
@@ -89,12 +89,7 @@ export function LayersPanel(props: LayersPanelProps) {
   }, [children, collapsed, query])
 
   if (!props.open) {
-    return (
-      <button aria-label="展开图层" className="layers-panel-toggle" onClick={() => props.onOpenChange(true)} type="button">
-        <Layers3 />
-        <ChevronRight />
-      </button>
-    )
+    return null
   }
 
   const finishRename = (id: string) => {

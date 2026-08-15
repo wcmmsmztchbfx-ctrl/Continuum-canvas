@@ -2106,10 +2106,10 @@ export function CanvasWorkspace({
           setCreationPreview(nextPreview)
           setSnapOverlay({ guides: snapped.guides, distances: snapped.distances })
         }
-        if (activeTool === 'brush' && drawingPoints.current.length > 0 && flowInstance) {
+        if (activeTool === 'brush' && activeBrushPointerId.current === event.pointerId && drawingPoints.current.length > 0 && flowInstance) {
           const next = flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
           const previous = drawingPoints.current.at(-1)!
-          if (Math.hypot(next.x - previous.x, next.y - previous.y) >= 2) {
+          if (Number.isFinite(next.x) && Number.isFinite(next.y) && Math.hypot(next.x - previous.x, next.y - previous.y) >= 2) {
             drawingPoints.current.push(next)
             setBrushPreview([...drawingPoints.current])
           }
