@@ -1171,9 +1171,11 @@ export function CanvasWorkspace({
           />
         </> : undefined
 
+        const isGenerating = activeGeneration !== undefined || (currentNode?.data && 'generation' in currentNode.data && (currentNode.data as any).generation?.status === 'generating')
+
         return {
           ...node,
-          draggable: remoteLocksRef.current.has(node.id) ? false : node.draggable,
+          draggable: (remoteLocksRef.current.has(node.id) || isGenerating) ? false : node.draggable,
           selected: selectedIds.has(node.id),
           data: {
             ...node.data,
@@ -1794,7 +1796,11 @@ export function CanvasWorkspace({
   ) => {
     if (readOnly) return false
     const snapshot = store.getState().snapshot
-    const nodeIds = nodes.map((node) => node.id)
+    const isGeneratingNode = (id: string) => {
+      const n = snapshot.nodes.find((candidate) => candidate.id === id)
+      return Boolean(n?.data && 'generation' in n.data && (n.data as any).generation?.status === 'generating')
+    }
+    const nodeIds = nodes.map((node) => node.id).filter((id) => !isGeneratingNode(id))
     const requestedEdgeIds = new Set(edges.map((edge) => edge.id))
     const affectedEdges = snapshot.edges.filter((edge) =>
       requestedEdgeIds.has(edge.id) ||
@@ -2222,7 +2228,18 @@ export function CanvasWorkspace({
           selectionGesture.current = null
         }}
         onNodeDragStart={(event, node, draggedNodes) => {
-          let nodes = draggedNodes.length > 0 ? draggedNodes : [node]
+          const snapshot = store.getState().snapshot
+          const isGeneratingNode = (id: string) => {
+            const n = snapshot.nodes.find((candidate) => candidate.id === id)
+            return Boolean(n?.data && 'generation' in n.data && (n.data as any).generation?.status === 'generating')
+          }
+          const rawNodes = draggedNodes.length > 0 ? draggedNodes : [node]
+          if (rawNodes.some((item) => isGeneratingNode(item.id))) {
+            blockedDrag.current = captureDragGeometry(rawNodes)
+            restoreDragGeometry(blockedDrag.current)
+            return
+          }
+          let nodes = rawNodes
           const isAlt = (event as MouseEvent).altKey
           if (isAlt && !readOnly) {
             const originalIds = nodes.map((item) => item.id)

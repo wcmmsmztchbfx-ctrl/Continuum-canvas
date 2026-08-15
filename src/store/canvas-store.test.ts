@@ -1343,4 +1343,55 @@ describe('canvas store reference relations', () => {
     expect(store.getState().snapshot.nodes.find((node) => node.id === first!.id)).toMatchObject({ hidden: true, locked: true })
   })
 
+  it('prevents moving, deleting, and resizing nodes that are currently generating', () => {
+    const generatingSnapshot: ProjectSnapshot = {
+      ...initialSnapshot,
+      nodes: [
+        {
+          id: 'gen-image-1',
+          type: 'image',
+          name: '生成图片',
+          position: { x: 100, y: 100 },
+          size: { width: 300, height: 200 },
+          data: {
+            generation: {
+              status: 'generating',
+              prompt: 'a cinematic cat',
+              jobId: 'job-1',
+            },
+          },
+        },
+        {
+          id: 'static-text-1',
+          type: 'text',
+          name: '文本',
+          position: { x: 500, y: 500 },
+          size: { width: 200, height: 100 },
+          data: { text: 'Hello' },
+        },
+      ],
+    }
+    const store = createCanvasStore(generatingSnapshot)
+
+    // Cannot move generating node
+    store.getState().moveNode('gen-image-1', { x: 200, y: 200 })
+    expect(store.getState().snapshot.nodes.find((n) => n.id === 'gen-image-1')?.position).toEqual({ x: 100, y: 100 })
+
+    // Can move non-generating node
+    store.getState().moveNode('static-text-1', { x: 600, y: 600 })
+    expect(store.getState().snapshot.nodes.find((n) => n.id === 'static-text-1')?.position).toEqual({ x: 600, y: 600 })
+
+    // Cannot patch position or size on generating node
+    store.getState().patchNode('gen-image-1', { position: { x: 300, y: 300 }, size: { width: 400, height: 400 } })
+    expect(store.getState().snapshot.nodes.find((n) => n.id === 'gen-image-1')?.position).toEqual({ x: 100, y: 100 })
+    expect(store.getState().snapshot.nodes.find((n) => n.id === 'gen-image-1')?.size).toEqual({ width: 300, height: 200 })
+
+    // Cannot delete generating node
+    store.getState().deleteNodes(['gen-image-1'])
+    expect(store.getState().snapshot.nodes.some((n) => n.id === 'gen-image-1')).toBe(true)
+
+    // Can delete non-generating node
+    store.getState().deleteNodes(['static-text-1'])
+    expect(store.getState().snapshot.nodes.some((n) => n.id === 'static-text-1')).toBe(false)
+  })
 })

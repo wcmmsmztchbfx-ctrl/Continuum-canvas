@@ -80,21 +80,18 @@ describe('shell controls', () => {
   })
 
   it('composes all primary commands in the top bar', () => {
-    const onAssets = vi.fn()
     const onCollaboration = vi.fn()
     const onModeChange = vi.fn()
 
     const html = markup(
       <TopBar
         mode="workflow"
-        onAssets={onAssets}
         onCollaboration={onCollaboration}
         onModeChange={onModeChange}
       />,
     )
 
     expect(html).toContain('aria-label="画布顶部工具栏"')
-    expect(html).toContain('aria-label="资产库"')
     expect(html).toContain('aria-label="打开多人协作"')
     expect(html).toContain('aria-label="打开 Agent"')
     expect(html).not.toContain('aria-label="分享"')

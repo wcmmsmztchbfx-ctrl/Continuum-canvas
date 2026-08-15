@@ -1,7 +1,6 @@
-import { Package, UsersRound } from 'lucide-react'
+import { UsersRound } from 'lucide-react'
 
 import { AgentButton } from './AgentButton'
-import { IconButton } from './IconButton'
 import type { ShellMode } from './ModeSwitch'
 import { TopBarFeatureButton } from './TopBarFeatureButton'
 
@@ -14,7 +13,6 @@ export interface TopBarProps {
   }>
   mode?: ShellMode
   onAgent?: () => void
-  onAssets?: () => void
   onCollaboration?: () => void
   onModeChange?: (mode: ShellMode) => void
 }
@@ -23,7 +21,6 @@ export function TopBar({
   collaborationStatus = 'inactive',
   collaborationMembers = [],
   onAgent,
-  onAssets,
   onCollaboration,
 }: TopBarProps) {
   const collaborationStatusLabel = collaborationStatus === 'synced'
@@ -43,12 +40,6 @@ export function TopBar({
       data-testid="top-bar"
     >
       <div className="topbar-actions">
-        <IconButton
-          className="asset-button"
-          icon={Package}
-          label="资产库"
-          onClick={onAssets}
-        />
         <TopBarFeatureButton
           className="collaboration-button"
           icon={UsersRound}

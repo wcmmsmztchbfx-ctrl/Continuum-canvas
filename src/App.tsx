@@ -9,7 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { useStore } from 'zustand'
-import { FolderKanban, Cpu, Layers3, Settings } from 'lucide-react'
+import { FolderKanban, Layers3, Settings } from 'lucide-react'
 
 import { CanvasWorkspace, LayersPanel } from './components/canvas'
 import {
@@ -1207,19 +1207,6 @@ export default function App({
             <span className="app-layer-sidebar__rail-label">素材</span>
           </button>
           <button
-            aria-label="API 接入"
-            className={`app-layer-sidebar__rail-btn ${providerDrawerOpen ? 'app-layer-sidebar__rail-btn--active' : ''}`}
-            onClick={() => {
-              setProviderDrawerOpen((open) => !open)
-              setPopup(null)
-            }}
-            title="API 接入与模型"
-            type="button"
-          >
-            <Cpu size={18} />
-            <span className="app-layer-sidebar__rail-label">API</span>
-          </button>
-          <button
             aria-label="设置"
             className="app-layer-sidebar__rail-btn"
             onClick={() => setDialog('shortcuts')}
@@ -1337,7 +1324,6 @@ export default function App({
         collaborationMembers={topbarCollaborationMembers}
         mode={mode}
         onAgent={() => openPanel('agent')}
-        onAssets={() => openPanel('assets')}
         onCollaboration={() => {
           setProviderDrawerOpen(false)
           setContextMenu(null)

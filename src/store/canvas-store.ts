@@ -314,7 +314,11 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
       if (moves.length === 0) return
 
       const current = get().snapshot
-      const positions = new Map(moves.map((move) => [move.id, move.position]))
+      const locked = lockedGenerationNodeIds(current)
+      const allowedMoves = moves.filter((move) => !locked.has(move.id))
+      if (allowedMoves.length === 0) return
+
+      const positions = new Map(allowedMoves.map((move) => [move.id, move.position]))
       let changed = false
 
       const deltas = new Map<string, Point>()
@@ -343,8 +347,11 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
     moveNodesInHierarchy: (moves, parentId) => {
       if (moves.length === 0) return
       const current = get().snapshot
-      const positions = new Map(moves.map((move) => [move.id, move.positionAbsolute]))
-      const next = applyReparent(current, moves.map((move) => move.id), parentId, undefined, positions)
+      const locked = lockedGenerationNodeIds(current)
+      const allowedMoves = moves.filter((move) => !locked.has(move.id))
+      if (allowedMoves.length === 0) return
+      const positions = new Map(allowedMoves.map((move) => [move.id, move.positionAbsolute]))
+      const next = applyReparent(current, allowedMoves.map((move) => move.id), parentId, undefined, positions)
       if (next) commitDocument(next)
     },
     reparentNodes: (nodeIds, parentId, index) => {
@@ -1073,11 +1080,12 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
       const current = get().snapshot
       const node = current.nodes.find((candidate) => candidate.id === nodeId)
       if (!node) return
+      const isGenerating = lockedGenerationNodeIds(current).has(nodeId)
       const nextNode = {
         ...node,
         ...(changes.name !== undefined ? { name: changes.name } : {}),
-        ...(changes.position !== undefined ? { position: changes.position } : {}),
-        ...(changes.size !== undefined ? { size: changes.size } : {}),
+        ...(changes.position !== undefined && !isGenerating ? { position: changes.position } : {}),
+        ...(changes.size !== undefined && !isGenerating ? { size: changes.size } : {}),
         ...(changes.data !== undefined ? { data: { ...node.data, ...changes.data } } : {}),
       }
       commitDocument({
