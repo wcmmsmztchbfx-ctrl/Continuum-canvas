@@ -95,6 +95,18 @@ export function ProviderDrawer({
     [selectedId, state.providers],
   )
 
+  const isDraftDirty = useMemo(() => {
+    if (!selected) return true
+    return (
+      draft.name.trim() !== selected.name ||
+      draft.baseUrl.trim() !== selected.baseUrl ||
+      draft.enabled !== selected.enabled ||
+      draft.preferred !== selected.preferred ||
+      draft.adapterType !== selected.adapterType ||
+      draft.imageRequestMode !== (selected.imageRequestMode ?? 'auto')
+    )
+  }, [draft, selected])
+
   useEffect(() => {
     if (!open || adding || selectedId) return
     const initial = state.preferredProvider ?? state.providers[0]
@@ -217,7 +229,7 @@ export function ProviderDrawer({
       await state.setProviderSecret(id, secret.trim())
       setSecret('')
     }
-    if (draft.name.trim() && draft.baseUrl.trim()) {
+    if (isDraftDirty && draft.name.trim() && draft.baseUrl.trim()) {
       await state.saveProvider(id, {
         name: draft.name.trim(),
         adapterType: draft.adapterType,
@@ -235,7 +247,7 @@ export function ProviderDrawer({
       })
       onNotify?.('连接测试成功！API Key 有效，服务正常', 'success')
     } else {
-      const errMsg = state.error || '连接测试失败，请检查 API Key 或接口地址'
+      const errMsg = state.error ? `连接测试失败：${state.error}` : '连接测试失败，请检查 API Key 或接口地址'
       setTestFeedback({
         type: 'error',
         message: errMsg,
@@ -252,6 +264,16 @@ export function ProviderDrawer({
       await state.setProviderSecret(id, secret.trim())
       setSecret('')
     }
+    if (isDraftDirty && draft.name.trim() && draft.baseUrl.trim()) {
+      await state.saveProvider(id, {
+        name: draft.name.trim(),
+        adapterType: draft.adapterType,
+        baseUrl: draft.baseUrl.trim(),
+        enabled: draft.enabled,
+        preferred: draft.preferred,
+        imageRequestMode: draft.imageRequestMode,
+      })
+    }
     const catalog = await state.syncProvider(id, { force: true })
     if (catalog) {
       setTestFeedback({
@@ -260,7 +282,7 @@ export function ProviderDrawer({
       })
       onNotify?.(`模型目录同步成功！已获取 ${catalog.models.length} 个可用模型`, 'success')
     } else {
-      const errMsg = state.error || '模型同步失败，请检查 API Key 或服务状态'
+      const errMsg = state.error ? `模型同步失败：${state.error}` : '模型同步失败，请检查 API Key 或服务状态'
       setTestFeedback({
         type: 'error',
         message: errMsg,

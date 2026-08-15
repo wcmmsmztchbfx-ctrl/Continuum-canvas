@@ -38,6 +38,7 @@ export function superviseChildren(children, signals = process) {
 
 export async function runDevelopment(rootDir = join(dirname(fileURLToPath(import.meta.url)), '..')) {
   const env = createLanDevelopmentEnvironment({
+    CANVAS_ENV_FILE: 'data/secrets.env',
     ...loadEnv('development', rootDir, ''),
     ...process.env,
   })

@@ -168,12 +168,13 @@ export async function loadGatewayEnvironment(options: {
   const configuredEnvFile = options.envFile
     ?? options.env?.CANVAS_ENV_FILE
     ?? processEnv.CANVAS_ENV_FILE
-    ?? '.env.local'
+    ?? 'data/secrets.env'
   const envFile = resolveProjectPath(rootDir, configuredEnvFile)
   const fileEnv = await loadEnvFile(envFile)
+  const legacyEnv = await loadEnvFile(resolveProjectPath(rootDir, '.env.local'))
   return {
     rootDir,
     envFile,
-    env: { ...fileEnv, ...processEnv, ...options.env },
+    env: { ...legacyEnv, ...fileEnv, ...processEnv, ...options.env },
   }
 }
