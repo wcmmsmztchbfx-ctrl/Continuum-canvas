@@ -8,7 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { useStore } from 'zustand'
-import { Package, Layers3, Settings, PanelLeftClose, PanelRightOpen, Bot } from 'lucide-react'
+import { Package, Layers3, Settings, PanelLeftClose, PanelLeftOpen, Cpu, UsersRound, Bot } from 'lucide-react'
 
 import { CanvasWorkspace, LayersPanel } from './components/canvas'
 import { AssetsSidebarPanel, AgentSidebarPanel } from './components/sidebar'
@@ -205,7 +205,6 @@ export default function App({
   } | undefined>(undefined)
 
   const [inspectorWidth, setInspectorWidth] = useState(preferences.inspectorWidth || 280)
-  const [inspectorOpen, setInspectorOpen] = useState(true)
   const [inspectorResizing, setInspectorResizing] = useState(false)
   const inspectorResizeRef = useRef<{
     startX: number
@@ -1223,7 +1222,6 @@ export default function App({
       data-testid="app-shell"
       data-layers-open={preferences.layersOpen || undefined}
       data-layers-resizing={layersResizing || undefined}
-      data-inspector-collapsed={!inspectorOpen || undefined}
       data-inspector-resizing={inspectorResizing || undefined}
       inert={!hydrated}
       style={{
@@ -1425,14 +1423,91 @@ export default function App({
         }}
       >
         {!preferences.layersOpen && (
-          <div className="canvas-header-bar">
-            <WorkspaceMenu
-              canvasName={snapshot.name}
-              onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
-              testId="workspace-control-floating"
-              workspaceName={projectName ?? '未命名工作区'}
-            />
-          </div>
+          <>
+            <div className="canvas-top-left-pill" data-testid="canvas-top-left-pill">
+              <WorkspaceMenu
+                canvasName={snapshot.name}
+                onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
+                testId="workspace-control-floating"
+                workspaceName={projectName ?? '未命名工作区'}
+              />
+              <button
+                aria-label="展开侧边栏"
+                className="canvas-floating-expand-btn"
+                onClick={() => persistPreferences({ layersOpen: true })}
+                title="展开侧边栏 (Ctrl+\)"
+                type="button"
+              >
+                <PanelLeftOpen size={14} />
+              </button>
+            </div>
+
+            <div className="canvas-top-right-pill" data-testid="canvas-top-right-pill">
+              <div
+                className="inspector-top-bar__avatars"
+                onClick={() => {
+                  setProviderDrawerOpen(false)
+                  setContextMenu(null)
+                  setAddNodePosition(undefined)
+                  setPopup((current) => current === 'collaboration' ? null : 'collaboration')
+                }}
+                title={topbarCollaborationMembers && topbarCollaborationMembers.length > 0 ? `协作成员 (${topbarCollaborationMembers.length}人)` : (collaborationState.session?.displayName ? `当前用户：${collaborationState.session.displayName}` : '暂无协作者')}
+              >
+                {topbarCollaborationMembers && topbarCollaborationMembers.length > 0 ? (
+                  topbarCollaborationMembers.map((member, idx) => (
+                    <div
+                      key={member.id || idx}
+                      className="inspector-top-bar__avatar-bubble"
+                      style={{ background: member.color || '#0d99ff', zIndex: 10 - idx }}
+                    >
+                      {(member.displayName || '名').trim().slice(0, 1).toUpperCase()}
+                    </div>
+                  ))
+                ) : (
+                  <div
+                    className="inspector-top-bar__avatar-bubble inspector-top-bar__avatar-bubble--none"
+                    style={{ background: '#475569' }}
+                  >
+                    {collaborationState.session?.displayName ? collaborationState.session.displayName.trim().slice(0, 1).toUpperCase() : '无'}
+                  </div>
+                )}
+              </div>
+
+              <button
+                aria-label="API 接入与模型"
+                className="inspector-top-bar__icon-btn"
+                onClick={() => {
+                  setProviderDrawerOpen(true)
+                  setPopup(null)
+                }}
+                title="API 接入与模型设置"
+                type="button"
+              >
+                <Cpu size={14} />
+              </button>
+
+              <button
+                aria-label="多人协作"
+                className={`inspector-top-bar__share-btn ${collaborationState.status === 'synced' ? 'inspector-top-bar__share-btn--synced' : ''}`}
+                onClick={() => {
+                  setProviderDrawerOpen(false)
+                  setContextMenu(null)
+                  setAddNodePosition(undefined)
+                  setPopup((current) => current === 'collaboration' ? null : 'collaboration')
+                }}
+                title="多人协作"
+                type="button"
+              >
+                <UsersRound size={12} />
+                <span>协作</span>
+                {topbarCollaborationMembers && topbarCollaborationMembers.length > 1 && (
+                  <span className="inspector-top-bar__share-badge">
+                    {topbarCollaborationMembers.length}
+                  </span>
+                )}
+              </button>
+            </div>
+          </>
         )}
       {hydrated ? (
         <CanvasWorkspace
@@ -1545,7 +1620,7 @@ export default function App({
       </section>
 
       <InspectorPanel
-        collapsed={!inspectorOpen}
+        collapsed={!preferences.layersOpen}
         collaborationMembers={topbarCollaborationMembers}
         collaborationStatus={collaborationState.status}
         currentNickname={collaborationState.session?.displayName}
@@ -1563,21 +1638,9 @@ export default function App({
         }}
         onOpenSettings={() => setDialog('shortcuts')}
         onStartResize={startInspectorResize}
-        onToggleCollapse={() => setInspectorOpen((open) => !open)}
         readOnly={readOnly}
         store={canvasStore}
       />
-      {!inspectorOpen && (
-        <button
-          aria-label="展开属性面板"
-          className="inspector-restore-btn"
-          onClick={() => setInspectorOpen(true)}
-          title="展开属性面板"
-          type="button"
-        >
-          <PanelRightOpen size={14} />
-        </button>
-      )}
 
       <AppOverlays
         popup={popup}

@@ -279,10 +279,11 @@ body {
 }
 
 .tool-dock {
-  position: absolute;
-  z-index: 40;
-  left: 50%;
-  bottom: 12px;
+  position: fixed !important;
+  z-index: 60 !important;
+  left: 50% !important;
+  bottom: 12px !important;
+  transform: translateX(-50%) !important;
   box-sizing: border-box;
   display: flex;
   gap: 7px;
@@ -291,11 +292,12 @@ body {
   width: auto;
   height: 50px;
   padding: 6px;
-  background: rgba(38, 38, 38, 0.94);
-  border: 1px solid var(--shell-border);
-  border-radius: 8px;
-  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.3);
-  transform: translateX(-50%);
+  background: rgba(30, 30, 30, 0.94);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
 }
 
 .tool-dock__button {

@@ -26,7 +26,6 @@ import {
   ChevronRight,
   Maximize2,
   Settings,
-  PanelRightClose,
   Cpu,
   UsersRound,
 } from 'lucide-react'
@@ -40,7 +39,6 @@ interface InspectorPanelProps {
   store: CanvasStore
   readOnly?: boolean
   collapsed?: boolean
-  onToggleCollapse?: () => void
   onOpenSettings?: () => void
   collaborationStatus?: 'inactive' | 'enabling' | 'connecting' | 'synced' | 'offline' | 'error'
   collaborationMembers?: ReadonlyArray<{
@@ -87,7 +85,6 @@ export function InspectorPanel({
   store,
   readOnly = false,
   collapsed = false,
-  onToggleCollapse,
   onOpenSettings,
   collaborationStatus = 'inactive',
   collaborationMembers = [],
@@ -255,18 +252,6 @@ export function InspectorPanel({
             )}
           </button>
         )}
-
-        {onToggleCollapse ? (
-          <button
-            aria-label="收起属性面板"
-            className="inspector-icon-btn"
-            onClick={onToggleCollapse}
-            title="收起属性面板"
-            type="button"
-          >
-            <PanelRightClose size={13} />
-          </button>
-        ) : null}
       </div>
     </div>
   )
@@ -496,17 +481,6 @@ export function InspectorPanel({
           >
             <Trash2 size={13} />
           </button>
-          {onToggleCollapse ? (
-            <button
-              aria-label="收起属性面板"
-              className="inspector-icon-btn"
-              onClick={onToggleCollapse}
-              title="收起属性面板"
-              type="button"
-            >
-              <PanelRightClose size={13} />
-            </button>
-          ) : null}
         </div>
       </div>
 
