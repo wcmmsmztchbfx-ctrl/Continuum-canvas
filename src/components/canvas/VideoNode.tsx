@@ -256,6 +256,7 @@ function VideoNodeContent({
             className={`canvas-media-node__content canvas-media-node__poster ${playing && videoReady ? 'is-hidden' : ''}`}
             decoding="async"
             draggable={false}
+            loading="lazy"
             src={effectivePoster}
           />
         ) : null}

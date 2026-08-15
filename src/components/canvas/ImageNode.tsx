@@ -28,7 +28,9 @@ function ImageNodeContent({
   const [failed, setFailed] = useState(false)
   const [highResLoaded, setHighResLoaded] = useState(false)
   const [thumbnailAllowed, setThumbnailAllowed] = useState(false)
-  const [highResAllowed, setHighResAllowed] = useState(false)
+  const [highResAllowed, setHighResAllowed] = useState(
+    () => typeof window === 'undefined' || typeof Image === 'undefined',
+  )
   const [generatedThumbnail, setGeneratedThumbnail] = useState<string | undefined>(undefined)
   const resizeGranted = useRef(false)
 
@@ -178,6 +180,7 @@ function ImageNodeContent({
             className="canvas-media-node__content canvas-image-thumbnail"
             decoding="async"
             draggable={false}
+            loading="lazy"
             src={thumbnailAllowed ? effectiveThumbnailUrl : undefined}
             style={{
               objectFit: modelData?.objectFit ?? 'cover',
@@ -189,9 +192,10 @@ function ImageNodeContent({
           <img
             className={`canvas-media-node__content ${hasThumbnail ? 'canvas-image-highres' : ''} ${highResLoaded ? 'is-loaded' : ''}`}
             decoding="async"
-            src={highResAllowed || !hasThumbnail ? data.url : undefined}
-            alt={data.alt ?? data.name}
             draggable={false}
+            loading="lazy"
+            src={highResAllowed ? data.url : undefined}
+            alt={data.alt ?? data.name}
             style={{
               objectFit: modelData?.objectFit ?? 'cover',
               borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,

@@ -146,6 +146,8 @@ function CanvasCard({
         {props.thumbnailUrls?.[canvas.canvasId] ? (
           <img
             alt={`${canvas.name}预览`}
+            decoding="async"
+            loading="lazy"
             src={props.thumbnailUrls[canvas.canvasId]}
           />
         ) : (

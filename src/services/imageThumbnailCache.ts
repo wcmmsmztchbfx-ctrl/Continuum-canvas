@@ -28,11 +28,6 @@ export function getFastThumbnailUrl(
     return explicitThumbnailUrl
   }
 
-  // Gateway assets can be served with thumbnail query
-  if (url.startsWith('/api/assets/')) {
-    return `${url}${url.includes('?') ? '&' : '?'}thumbnail=1`
-  }
-
   // Support cloud OSS webp thumbnail process query directly from CDN
   if (url.includes('libtv-res.liblib.art') || url.includes('.aliyuncs.com')) {
     if (!url.includes('x-oss-process')) {

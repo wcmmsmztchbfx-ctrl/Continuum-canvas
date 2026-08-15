@@ -1,6 +1,7 @@
 import { useMemo, useState, type ComponentType, type DragEvent, type ReactNode } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight, Circle, Eye, EyeOff, Frame, Image, Layers3, Lock, MousePointerSquareDashed, PenTool, Search, Type, Unlock, Video } from 'lucide-react'
 import type { CanvasNode } from '../../model/project'
+import { getFastThumbnailUrl } from '../../services/imageThumbnailCache'
 
 export interface LayersPanelProps {
   nodes: CanvasNode[]
@@ -227,7 +228,12 @@ export function LayersPanel(props: LayersPanelProps) {
               ) : mediaUrl ? (
                 <span className="layers-panel__thumb" title="媒体">
                   <span className="layers-panel__thumb-media">
-                    <img alt="" src={mediaUrl} />
+                    <img
+                      alt=""
+                      decoding="async"
+                      loading="lazy"
+                      src={getFastThumbnailUrl(mediaUrl) || mediaUrl}
+                    />
                     {node.type === 'video' ? <span className="layers-panel__thumb-play">▶</span> : null}
                   </span>
                 </span>
