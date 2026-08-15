@@ -138,14 +138,22 @@ export function InspectorPanel({
     }
   }
 
+  const isCollaborationActive =
+    collaborationStatus !== 'inactive' &&
+    Boolean(currentNickname && currentNickname.trim())
+
   const renderTopBar = () => (
     <div className="inspector-top-bar" data-testid="inspector-top-bar">
-      <div className="inspector-top-bar__profile" title="当前协作用户">
-        <div className="inspector-top-bar__avatar">
-          {(currentNickname || '平').slice(0, 1).toUpperCase()}
+      {isCollaborationActive ? (
+        <div className="inspector-top-bar__profile" title={`当前协作用户：${currentNickname}`}>
+          <div className="inspector-top-bar__avatar">
+            {currentNickname!.trim().slice(0, 1).toUpperCase()}
+          </div>
+          <ChevronDown className="inspector-top-bar__chevron" size={11} />
         </div>
-        <ChevronDown className="inspector-top-bar__chevron" size={11} />
-      </div>
+      ) : (
+        <div className="inspector-top-bar__spacer" />
+      )}
 
       <div className="inspector-top-bar__actions">
         {onOpenApiManagement && (
@@ -259,49 +267,6 @@ export function InspectorPanel({
           </div>
         </div>
         <div className="inspector-body">
-          {/* Tools & Integrations Section */}
-          <div className="inspector-section">
-            <div className="inspector-section__header">
-              <span>工具与接入 (Tools)</span>
-            </div>
-            <div className="inspector-tools-list">
-              {onOpenApiManagement && (
-                <button
-                  aria-label="打开 API 接入与模型配置"
-                  className="inspector-tool-item"
-                  onClick={onOpenApiManagement}
-                  type="button"
-                >
-                  <div className="inspector-tool-item__left">
-                    <span className="inspector-tool-item__icon" style={{ background: 'rgba(13, 153, 255, 0.15)', color: '#0d99ff' }}>
-                      <Cpu size={13} />
-                    </span>
-                    <span className="inspector-tool-item__label">API 与模型接入</span>
-                  </div>
-                  <ChevronRight className="inspector-tool-item__arrow" size={12} />
-                </button>
-              )}
-              {onOpenCollaboration && (
-                <button
-                  aria-label="打开多人协作"
-                  className="inspector-tool-item"
-                  onClick={onOpenCollaboration}
-                  type="button"
-                >
-                  <div className="inspector-tool-item__left">
-                    <span className="inspector-tool-item__icon" style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e' }}>
-                      <UsersRound size={13} />
-                    </span>
-                    <span className="inspector-tool-item__label">多人实时协作</span>
-                  </div>
-                  <span className="inspector-tool-item__status">
-                    {collaborationStatus === 'synced' ? '已同步' : collaborationStatus === 'connecting' ? '连接中' : '未开启'}
-                  </span>
-                </button>
-              )}
-            </div>
-          </div>
-
           <div className="inspector-section">
             <div className="inspector-section__header">
               <span>画布概览</span>

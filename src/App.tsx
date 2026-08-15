@@ -1490,7 +1490,7 @@ export default function App({
         collapsed={false}
         collaborationMembers={topbarCollaborationMembers}
         collaborationStatus={collaborationState.status}
-        currentNickname={collaborationState.session?.displayName || '平'}
+        currentNickname={collaborationState.session?.displayName}
         onOpenApiManagement={() => {
           setProviderDrawerOpen(true)
           setPopup(null)

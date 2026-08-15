@@ -860,8 +860,18 @@
 }
 
 .collaboration-popover {
-  right: 113px;
+  position: relative;
+  top: auto;
+  right: auto;
+  left: auto;
+  bottom: auto;
   width: 380px;
+  max-width: calc(100vw - 32px);
+  max-height: min(85vh, 600px);
+  overflow-y: auto;
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  animation: overlay-dialog-in 140ms ease-out;
 }
 
 .integration-popover__header {
@@ -2058,8 +2068,7 @@
     overflow-x: auto;
   }
 
-  .api-integration-popover,
-  .collaboration-popover {
+  .api-integration-popover {
     top: 62px;
     right: 8px;
     width: min(380px, calc(100vw - 16px));

@@ -75,10 +75,15 @@
   color: #888888;
 }
 
+.inspector-top-bar__spacer {
+  flex: 1;
+}
+
 .inspector-top-bar__actions {
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-left: auto;
 }
 
 .inspector-top-bar__icon-btn {

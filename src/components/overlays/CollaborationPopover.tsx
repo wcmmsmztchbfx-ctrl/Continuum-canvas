@@ -73,24 +73,32 @@ export function CollaborationPopover({
   }
 
   return (
-    <section aria-label="多人协作" className="overlay-surface integration-popover collaboration-popover" onKeyDownCapture={(event) => {
-      if (event.key !== 'Tab') return
-      const items = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])')]
-      if (items.length === 0) return
-      const first = items[0]!, last = items.at(-1)!
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && (document.activeElement === last || (event.target instanceof HTMLElement && event.target.dataset.focusEnd === 'true'))) { event.preventDefault(); first.focus() }
-    }} ref={surfaceRef} role="dialog">
-      <header className="integration-popover__header">
-        <div>
-          <UsersRound aria-hidden="true" />
-          <strong>多人协作</strong>
-          <span className="integration-status" data-tone={state.status === 'synced' ? 'online' : undefined}>
-            {state.status === 'inactive' ? '未开启' : state.status === 'synced' ? '已同步' : state.status === 'offline' ? '离线编辑' : state.status === 'error' ? '连接失败' : '连接中'}
-          </span>
-        </div>
-        <button aria-label="关闭多人协作" className="overlay-icon-button" onClick={onClose} type="button"><X aria-hidden="true" /></button>
-      </header>
+    <div className="overlay-backdrop" onClick={onClose} style={{ zIndex: 90 }}>
+      <section
+        aria-label="多人协作"
+        className="overlay-surface integration-popover collaboration-popover"
+        onClick={(event) => event.stopPropagation()}
+        onKeyDownCapture={(event) => {
+          if (event.key !== 'Tab') return
+          const items = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])')]
+          if (items.length === 0) return
+          const first = items[0]!, last = items.at(-1)!
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+          else if (!event.shiftKey && (document.activeElement === last || (event.target instanceof HTMLElement && event.target.dataset.focusEnd === 'true'))) { event.preventDefault(); first.focus() }
+        }}
+        ref={surfaceRef}
+        role="dialog"
+      >
+        <header className="integration-popover__header">
+          <div>
+            <UsersRound aria-hidden="true" />
+            <strong>多人协作</strong>
+            <span className="integration-status" data-tone={state.status === 'synced' ? 'online' : undefined}>
+              {state.status === 'inactive' ? '未开启' : state.status === 'synced' ? '已同步' : state.status === 'offline' ? '离线编辑' : state.status === 'error' ? '连接失败' : '连接中'}
+            </span>
+          </div>
+          <button aria-label="关闭多人协作" className="overlay-icon-button" onClick={onClose} type="button"><X aria-hidden="true" /></button>
+        </header>
 
       {!active ? (
         <div className="collaboration-start">
@@ -217,7 +225,8 @@ export function CollaborationPopover({
           </footer>
         </>
       )}
-    </section>
+      </section>
+    </div>
   )
 }
 
