@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { GenerationRequest, ProviderCatalog } from '../../src/contracts/generation.ts'
 import type { ImageRequestMode } from '../../src/contracts/catalog.ts'
-import { mapOpenAICompatibleCatalog } from '../catalog.ts'
+import { createFallbackOpenAICatalog, mapOpenAICompatibleCatalog } from '../catalog.ts'
 import type {
   LocalReference,
   PresignedUpload,
@@ -91,8 +91,12 @@ export class OpenAICompatibleAdapter {
   }
 
   async syncCatalog(signal?: AbortSignal): Promise<ProviderCatalog> {
-    const payload = await this.request('/models', {}, signal)
-    return mapOpenAICompatibleCatalog(this.providerId, payload, this.now().toISOString())
+    try {
+      const payload = await this.request('/models', {}, signal)
+      return mapOpenAICompatibleCatalog(this.providerId, payload, this.now().toISOString())
+    } catch {
+      return createFallbackOpenAICatalog(this.providerId, this.now().toISOString())
+    }
   }
 
   async presignReference(reference: LocalReference, signal?: AbortSignal): Promise<PresignedUpload> {

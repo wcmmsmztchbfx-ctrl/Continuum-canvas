@@ -106,6 +106,113 @@ function mapSection(mediaType: CatalogModel['mediaType'], section: unknown): Cat
 const IMAGE_MODEL_PATTERN = /dall-e|gpt-image|image|flux|stable-diffusion|\bsd[0-9]|schnell|kolors|playground|seedream|midjourney|nano-banana/i
 const VIDEO_MODEL_PATTERN = /video|kling|veo|sora|wan|hunyuan|seedance|pixverse|runway|luma|dreamina|minimax|hailuo/i
 
+export const DEFAULT_OPENAI_COMPATIBLE_MODELS: CatalogModel[] = [
+  {
+    mediaType: 'image',
+    channel: 'image',
+    channelTitle: '图片生成',
+    model: 'dall-e-3',
+    title: 'DALL·E 3',
+    label: 'DALL·E 3',
+    qualityOptions: [
+      { value: 'standard', label: '标准', pricing: { type: 'fixed_total', credits: 1 } },
+      { value: 'hd', label: '高清 HD', pricing: { type: 'fixed_total', credits: 2 } },
+    ],
+    aspectRatios: ['Auto', '1:1', '16:9', '9:16'],
+    countOptions: [1],
+    durationOptions: [1],
+    countRange: { min: 1, max: 1, options: [1] },
+    modes: ['text2image'],
+    inputLimits: { images: 0, videos: 0, audios: 0 },
+    raw: { id: 'dall-e-3' },
+  },
+  {
+    mediaType: 'image',
+    channel: 'image',
+    channelTitle: '图片生成',
+    model: 'flux-schnell',
+    title: 'Flux Schnell',
+    label: 'Flux Schnell',
+    qualityOptions: [
+      { value: 'standard', label: '标准', pricing: { type: 'fixed_total', credits: 1 } },
+    ],
+    aspectRatios: ['Auto', '1:1', '16:9', '9:16'],
+    countOptions: [1],
+    durationOptions: [1],
+    countRange: { min: 1, max: 1, options: [1] },
+    modes: ['text2image', 'image2image'],
+    inputLimits: { images: 4, videos: 0, audios: 0 },
+    raw: { id: 'flux-schnell' },
+  },
+  {
+    mediaType: 'image',
+    channel: 'image',
+    channelTitle: '图片生成',
+    model: 'flux-dev',
+    title: 'Flux Dev',
+    label: 'Flux Dev',
+    qualityOptions: [
+      { value: 'standard', label: '标准', pricing: { type: 'fixed_total', credits: 1 } },
+    ],
+    aspectRatios: ['Auto', '1:1', '16:9', '9:16'],
+    countOptions: [1],
+    durationOptions: [1],
+    countRange: { min: 1, max: 1, options: [1] },
+    modes: ['text2image', 'image2image'],
+    inputLimits: { images: 4, videos: 0, audios: 0 },
+    raw: { id: 'flux-dev' },
+  },
+  {
+    mediaType: 'image',
+    channel: 'image',
+    channelTitle: '图片生成',
+    model: 'dall-e-2',
+    title: 'DALL·E 2',
+    label: 'DALL·E 2',
+    qualityOptions: [
+      { value: 'standard', label: '标准', pricing: { type: 'fixed_total', credits: 1 } },
+    ],
+    aspectRatios: ['Auto', '1:1', '16:9', '9:16'],
+    countOptions: [1],
+    durationOptions: [1],
+    countRange: { min: 1, max: 1, options: [1] },
+    modes: ['text2image', 'image2image'],
+    inputLimits: { images: 4, videos: 0, audios: 0 },
+    raw: { id: 'dall-e-2' },
+  },
+  {
+    mediaType: 'image',
+    channel: 'image',
+    channelTitle: '图片生成',
+    model: 'midjourney',
+    title: 'Midjourney',
+    label: 'Midjourney',
+    qualityOptions: [
+      { value: 'standard', label: '标准', pricing: { type: 'fixed_total', credits: 1 } },
+    ],
+    aspectRatios: ['Auto', '1:1', '16:9', '9:16'],
+    countOptions: [1],
+    durationOptions: [1],
+    countRange: { min: 1, max: 1, options: [1] },
+    modes: ['text2image', 'image2image'],
+    inputLimits: { images: 4, videos: 0, audios: 0 },
+    raw: { id: 'midjourney' },
+  },
+]
+
+export function createFallbackOpenAICatalog(
+  providerId: string,
+  fetchedAt: string,
+): ProviderCatalog {
+  return {
+    providerId,
+    version: createHash('sha256').update(canonical(DEFAULT_OPENAI_COMPATIBLE_MODELS)).digest('hex'),
+    fetchedAt,
+    stale: false,
+    models: DEFAULT_OPENAI_COMPATIBLE_MODELS,
+  }
+}
+
 export function mapOpenAICompatibleCatalog(
   providerId: string,
   payload: unknown,
@@ -140,13 +247,13 @@ export function mapOpenAICompatibleCatalog(
       raw: structuredClone(entry),
     }]
   })
-  if (models.length === 0) throw new Error('Provider config contained no compatible models')
+  const resolvedModels = models.length > 0 ? models : DEFAULT_OPENAI_COMPATIBLE_MODELS
   return {
     providerId,
-    version: createHash('sha256').update(canonical(models)).digest('hex'),
+    version: createHash('sha256').update(canonical(resolvedModels)).digest('hex'),
     fetchedAt,
     stale: false,
-    models,
+    models: resolvedModels,
   }
 }
 
