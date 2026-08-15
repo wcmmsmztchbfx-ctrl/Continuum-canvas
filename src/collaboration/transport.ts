@@ -14,8 +14,10 @@ export interface CollaborationTransport {
 
 export type CollaborationWebSocketLike = Pick<
   WebSocket,
-  'binaryType' | 'readyState' | 'send' | 'close' | 'addEventListener' | 'removeEventListener'
->
+  'binaryType' | 'readyState' | 'close' | 'addEventListener' | 'removeEventListener'
+> & {
+  send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void
+}
 
 export interface CollaborationTransportOptions {
   url: string
@@ -68,14 +70,14 @@ export class WebSocketCollaborationTransport implements CollaborationTransport {
 
   sendDurable(data: Uint8Array): void {
     if (this.socket.readyState === 1) {
-      this.socket.send(data as any)
+      this.socket.send(data)
     }
   }
 
   sendEphemeral(data: Uint8Array): void {
     // In WebSocket fallback, ephemeral data travels over the primary socket
     if (this.socket.readyState === 1) {
-      this.socket.send(data as any)
+      this.socket.send(data)
     }
   }
 

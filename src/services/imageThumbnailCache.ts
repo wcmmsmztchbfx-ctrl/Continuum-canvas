@@ -33,6 +33,14 @@ export function getFastThumbnailUrl(
     return `${url}${url.includes('?') ? '&' : '?'}thumbnail=1`
   }
 
+  // Support cloud OSS webp thumbnail process query directly from CDN
+  if (url.includes('libtv-res.liblib.art') || url.includes('.aliyuncs.com')) {
+    if (!url.includes('x-oss-process')) {
+      const separator = url.includes('?') ? '&' : '?'
+      return `${url}${separator}x-oss-process=image/resize,w_480/format,webp`
+    }
+  }
+
   // Check in-memory generated blob cache
   if (memoryThumbnailCache.has(url)) {
     return memoryThumbnailCache.get(url)

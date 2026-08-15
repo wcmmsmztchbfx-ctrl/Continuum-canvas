@@ -60,6 +60,7 @@ describe('VideoNode', () => {
       },
     } as never)} /></ReactFlowProvider>)
 
+    fireEvent.click(screen.getByRole('button', { name: '播放' }))
     const video = container.querySelector('video') as HTMLVideoElement
     expect(video).not.toBeNull()
 
