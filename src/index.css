@@ -236,27 +236,31 @@ select:focus-visible {
 }
 
 .app-layer-sidebar__header .workspace-menu__chevron {
-  color: #888888;
+  background: #1e1e1e;
   flex-shrink: 0;
-  margin-left: 2px;
 }
 
-.app-layer-sidebar__toggle-btn {
+.app-layer-sidebar__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f1f5f9;
+  letter-spacing: 0.2px;
+}
+
+.app-layer-sidebar__close-btn {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
+  width: 26px;
+  height: 26px;
+  border: none;
   background: transparent;
-  border: 0;
-  color: #8c8c8c;
+  color: #94a3b8;
+  border-radius: 4px;
   cursor: pointer;
-  flex-shrink: 0;
-  padding: 0;
   transition: all 120ms ease;
 }
 
-.app-layer-sidebar__toggle-btn:hover {
+.app-layer-sidebar__close-btn:hover {
   background: rgba(255, 255, 255, 0.08);
   color: #ffffff;
 }
@@ -265,33 +269,19 @@ select:focus-visible {
   position: absolute;
   z-index: 100;
   top: 0;
-  right: -4px;
+  right: -5px;
   bottom: 0;
-  width: 8px;
+  width: 10px;
   cursor: ew-resize;
   touch-action: none;
   outline: none;
   pointer-events: auto;
 }
 
-.app-layer-sidebar__resize-handle::after {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 3px;
-  width: 2px;
-  background: transparent;
-  transition: background-color 120ms ease;
-}
-
-.app-layer-sidebar__resize-handle:hover::after,
-.app-shell[data-layers-resizing] .app-layer-sidebar__resize-handle::after {
-  background: #0d99ff;
-}
-
 .app-shell[data-layers-resizing],
 .app-shell[data-inspector-resizing] {
-  cursor: ew-resize;
-  user-select: none;
+  cursor: ew-resize !important;
+  user-select: none !important;
 }
 
 .canvas-stage {
@@ -303,6 +293,21 @@ select:focus-visible {
   height: 100vh;
   overflow: hidden;
   z-index: 1;
+}
+
+.app-shell[data-inspector-collapsed] .canvas-stage {
+  right: 0;
+}
+
+.canvas-header-bar {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 30;
+  pointer-events: auto;
 }
 
 .inspector-panel {
@@ -322,27 +327,37 @@ select:focus-visible {
   position: absolute;
   z-index: 100;
   top: 0;
-  left: -4px;
+  left: -5px;
   bottom: 0;
-  width: 8px;
+  width: 10px;
   cursor: ew-resize;
   touch-action: none;
   outline: none;
   pointer-events: auto;
 }
 
-.inspector-panel__resize-handle::after {
-  content: '';
+.inspector-restore-btn {
   position: absolute;
-  inset: 0 auto 0 3px;
-  width: 2px;
-  background: transparent;
-  transition: background-color 120ms ease;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: #1e1e1e;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #94a3b8;
+  cursor: pointer;
+  z-index: 50;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 120ms ease;
 }
 
-.inspector-panel__resize-handle:hover::after,
-.app-shell[data-inspector-resizing] .inspector-panel__resize-handle::after {
-  background: #0d99ff;
+.inspector-restore-btn:hover {
+  background: #2a2a2a;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 /* Sidebar Assets Panel */

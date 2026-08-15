@@ -8,7 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { useStore } from 'zustand'
-import { Package, Layers3, Settings, PanelLeftClose, Bot } from 'lucide-react'
+import { Package, Layers3, Settings, PanelLeftClose, PanelRightOpen, Bot } from 'lucide-react'
 
 import { CanvasWorkspace, LayersPanel } from './components/canvas'
 import { AssetsSidebarPanel, AgentSidebarPanel } from './components/sidebar'
@@ -205,6 +205,7 @@ export default function App({
   } | undefined>(undefined)
 
   const [inspectorWidth, setInspectorWidth] = useState(preferences.inspectorWidth || 280)
+  const [inspectorOpen, setInspectorOpen] = useState(true)
   const [inspectorResizing, setInspectorResizing] = useState(false)
   const inspectorResizeRef = useRef<{
     startX: number
@@ -378,14 +379,17 @@ export default function App({
     if (window.innerWidth <= 720 || event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
+    const startX = event.clientX
+    const startWidth = inspectorWidth
     const move = (moveEvent: MouseEvent) => {
-      const resize = inspectorResizeRef.current
-      if (!resize) return
-      const maximum = Math.min(MAX_INSPECTOR_WIDTH, Math.floor(window.innerWidth * 0.5))
-      const width = Math.min(maximum, Math.max(MIN_INSPECTOR_WIDTH,
-        resize.startWidth + (resize.startX - moveEvent.clientX)))
-      resize.width = normalizeInspectorWidth(width)
-      setInspectorWidth(resize.width)
+      const delta = startX - moveEvent.clientX
+      const maximum = Math.min(MAX_INSPECTOR_WIDTH, Math.floor(window.innerWidth * 0.6))
+      const width = Math.min(maximum, Math.max(MIN_INSPECTOR_WIDTH, startWidth + delta))
+      const normalized = normalizeInspectorWidth(width)
+      if (inspectorResizeRef.current) {
+        inspectorResizeRef.current.width = normalized
+      }
+      setInspectorWidth(normalized)
     }
     const end = () => finishInspectorResize()
     const cleanup = () => {
@@ -394,9 +398,9 @@ export default function App({
       window.removeEventListener('blur', end)
     }
     inspectorResizeRef.current = {
-      startX: event.clientX,
-      startWidth: inspectorWidth,
-      width: inspectorWidth,
+      startX,
+      startWidth,
+      width: startWidth,
       cleanup,
     }
     window.addEventListener('mousemove', move)
@@ -1219,6 +1223,7 @@ export default function App({
       data-testid="app-shell"
       data-layers-open={preferences.layersOpen || undefined}
       data-layers-resizing={layersResizing || undefined}
+      data-inspector-collapsed={!inspectorOpen || undefined}
       data-inspector-resizing={inspectorResizing || undefined}
       inert={!hydrated}
       style={{
@@ -1241,7 +1246,7 @@ export default function App({
           </button>
           <div className="app-layer-sidebar__rail-divider" />
           <button
-            aria-label="图层"
+            aria-label={preferences.layersOpen ? '图层' : '展开图层'}
             className={`app-layer-sidebar__rail-btn ${preferences.layersOpen && activeLeftTab === 'layers' ? 'app-layer-sidebar__rail-btn--active' : ''}`}
             onClick={() => {
               if (!preferences.layersOpen) {
@@ -1254,7 +1259,7 @@ export default function App({
               }
               setPopup(null)
             }}
-            title="图层树"
+            title={preferences.layersOpen ? '图层树 (Ctrl+\\)' : '展开图层 (Ctrl+\\)'}
             type="button"
           >
             <Layers3 size={18} />
@@ -1398,17 +1403,19 @@ export default function App({
           {activeLeftTab === 'agent' && (
             <AgentSidebarPanel onNotify={notify} />
           )}
-          <div
-            aria-label="调整图层侧栏宽度"
-            aria-orientation="vertical"
-            aria-valuemax={Math.min(MAX_LAYERS_WIDTH, Math.floor(window.innerWidth * 0.7))}
-            aria-valuemin={MIN_LAYERS_WIDTH}
-            aria-valuenow={layersWidth}
-            className="app-layer-sidebar__resize-handle"
-            onMouseDown={startLayersResize}
-            onKeyDown={resizeLayersByKeyboard}
-            role="separator"
-          />
+          {preferences.layersOpen && (
+            <div
+              aria-label="调整图层侧栏宽度"
+              aria-orientation="vertical"
+              aria-valuemax={Math.min(MAX_LAYERS_WIDTH, Math.floor(window.innerWidth * 0.7))}
+              aria-valuemin={MIN_LAYERS_WIDTH}
+              aria-valuenow={layersWidth}
+              className="app-layer-sidebar__resize-handle"
+              onMouseDown={startLayersResize}
+              onKeyDown={resizeLayersByKeyboard}
+              role="separator"
+            />
+          )}
         </div>
       </aside>
       <section
@@ -1417,7 +1424,16 @@ export default function App({
           lastCanvasPointerRef.current = { x: event.clientX, y: event.clientY }
         }}
       >
-        {!preferences.layersOpen ? <div className="collapsed-sidebar-controls"><WorkspaceMenu canvasName={snapshot.name} onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')} workspaceName={projectName ?? '未命名工作区'} /><LayersPanel nodes={snapshot.nodes} onFocusNode={(id) => { if (imageSelectionGuardRef.current(id)) { canvasStore.getState().selectNode(id) } setFocusNodeRequest({ id, nonce: Date.now() }) }} onOpenChange={(layersOpen) => persistPreferences({ layersOpen })} onRename={() => undefined} onReorder={() => undefined} onSelect={() => undefined} onToggleHidden={() => undefined} onToggleLocked={() => undefined} open={false} selectedIds={selectedNodeIds} /></div> : null}
+        {!preferences.layersOpen && (
+          <div className="canvas-header-bar">
+            <WorkspaceMenu
+              canvasName={snapshot.name}
+              onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
+              testId="workspace-control-floating"
+              workspaceName={projectName ?? '未命名工作区'}
+            />
+          </div>
+        )}
       {hydrated ? (
         <CanvasWorkspace
           activeTool={activeTool}
@@ -1529,7 +1545,7 @@ export default function App({
       </section>
 
       <InspectorPanel
-        collapsed={false}
+        collapsed={!inspectorOpen}
         collaborationMembers={topbarCollaborationMembers}
         collaborationStatus={collaborationState.status}
         currentNickname={collaborationState.session?.displayName}
@@ -1547,9 +1563,21 @@ export default function App({
         }}
         onOpenSettings={() => setDialog('shortcuts')}
         onStartResize={startInspectorResize}
+        onToggleCollapse={() => setInspectorOpen((open) => !open)}
         readOnly={readOnly}
         store={canvasStore}
       />
+      {!inspectorOpen && (
+        <button
+          aria-label="展开属性面板"
+          className="inspector-restore-btn"
+          onClick={() => setInspectorOpen(true)}
+          title="展开属性面板"
+          type="button"
+        >
+          <PanelRightOpen size={14} />
+        </button>
+      )}
 
       <AppOverlays
         popup={popup}
