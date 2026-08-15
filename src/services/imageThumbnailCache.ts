@@ -18,32 +18,13 @@ function notifyThumbnailReady(url: string, thumbnailUrl: string) {
 export type LodLevel = 'thumbnail' | 'medium' | 'high' | 'original'
 
 /**
- * Computes the recommended Level-of-Detail (LOD) tier based on node size and current zoom.
- * - 'thumbnail': screen width <= 360px (or zoom <= 0.35)
- * - 'medium': 360px < screen width <= 720px (or zoom <= 0.75)
- * - 'high': 720px < screen width <= 1440px
- * - 'original': screen width > 1440px or zoom >= 1.5
+ * Resolves the appropriate image URL purely based on zoom level:
+ * - zoom > 1.5: Original full-resolution image
+ * - zoom <= 1.5: WebP format (w_360 for zoom <= 0.35, w_960 for 0.35 < zoom <= 1.5)
  */
-export function calculateImageLod(
-  nodeWidth: number = 300,
-  _nodeHeight: number = 200,
-  zoom: number = 1,
-): LodLevel {
-  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-  const effectiveWidth = nodeWidth * zoom * dpr
-  if (effectiveWidth <= 240 || zoom <= 0.35) return 'thumbnail'
-  if (effectiveWidth <= 720 || zoom <= 0.75) return 'medium'
-  if (effectiveWidth <= 1440) return 'high'
-  return 'original'
-}
-
-/**
- * Returns a responsive URL for the requested LOD level.
- * If the URL is hosted on LibLib / Aliyun CDN, automatically attaches OSS WebP formatting and sizing.
- */
-export function getLodImageUrl(
+export function getResponsiveImageUrl(
   url?: string,
-  lod: LodLevel = 'high',
+  zoom: number = 1,
 ): string | undefined {
   if (!url) return undefined
   if (!url.includes('libtv-res.liblib.art') && !url.includes('.aliyuncs.com')) {
@@ -52,18 +33,39 @@ export function getLodImageUrl(
   if (url.includes('x-oss-process')) {
     return url
   }
-  const separator = url.includes('?') ? '&' : '?'
-  switch (lod) {
-    case 'thumbnail':
-      return `${url}${separator}x-oss-process=image/resize,w_360/format,webp`
-    case 'medium':
-      return `${url}${separator}x-oss-process=image/resize,w_720/format,webp`
-    case 'high':
-      return `${url}${separator}x-oss-process=image/resize,w_1440/format,webp`
-    case 'original':
-    default:
-      return `${url}${separator}x-oss-process=image/format,webp`
+  if (zoom > 1.5) {
+    // zoom > 1.5: load original full-resolution image
+    return url
   }
+  const separator = url.includes('?') ? '&' : '?'
+  if (zoom <= 0.35) {
+    return `${url}${separator}x-oss-process=image/resize,w_360/format,webp`
+  }
+  return `${url}${separator}x-oss-process=image/resize,w_960/format,webp`
+}
+
+/**
+ * Backwards-compatible alias for getResponsiveImageUrl
+ */
+export function getLodImageUrl(
+  url?: string,
+  lod: LodLevel = 'high',
+): string | undefined {
+  const zoom = lod === 'original' ? 2 : lod === 'thumbnail' ? 0.2 : 1
+  return getResponsiveImageUrl(url, zoom)
+}
+
+/**
+ * Computes LOD level based purely on zoom level
+ */
+export function calculateImageLod(
+  _nodeWidth: number = 300,
+  _nodeHeight: number = 200,
+  zoom: number = 1,
+): LodLevel {
+  if (zoom > 1.5) return 'original'
+  if (zoom <= 0.35) return 'thumbnail'
+  return 'medium'
 }
 
 /**
@@ -239,9 +241,10 @@ function generateVideoThumbnail(videoUrl: string): void {
 export function getVideoPosterUrl(
   videoUrl?: string,
   explicitPosterUrl?: string,
+  zoom: number = 1,
 ): string | undefined {
   if (explicitPosterUrl) {
-    return getFastThumbnailUrl(explicitPosterUrl)
+    return getResponsiveImageUrl(explicitPosterUrl, zoom) || getFastThumbnailUrl(explicitPosterUrl)
   }
   if (!videoUrl) return undefined
 
@@ -249,7 +252,14 @@ export function getVideoPosterUrl(
   if (videoUrl.includes('libtv-res.liblib.art') || videoUrl.includes('.aliyuncs.com')) {
     if (!videoUrl.includes('x-oss-process')) {
       const separator = videoUrl.includes('?') ? '&' : '?'
-      return `${videoUrl}${separator}x-oss-process=video/snapshot,t_500,f_jpg,w_480,m_fast`
+      if (zoom > 1.5) {
+        // zoom > 1.5: load high-res original-dimension frame snapshot
+        return `${videoUrl}${separator}x-oss-process=video/snapshot,t_500,f_jpg`
+      }
+      if (zoom <= 0.35) {
+        return `${videoUrl}${separator}x-oss-process=video/snapshot,t_500,f_jpg,w_360,m_fast`
+      }
+      return `${videoUrl}${separator}x-oss-process=video/snapshot,t_500,f_jpg,w_960,m_fast`
     }
   }
 

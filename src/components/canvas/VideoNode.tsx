@@ -101,6 +101,7 @@ function VideoNodeContent({
     viewport = { x: 0, y: 0, zoom: 1 }
   }
 
+  const zoom = viewport.zoom
   const priority = calculateLoadPriority(
     data.node?.position,
     data.node?.size,
@@ -108,21 +109,24 @@ function VideoNodeContent({
   )
 
   const [generatedPoster, setGeneratedPoster] = useState<string | undefined>(
-    () => getVideoPosterUrl(data.url, data.poster),
+    () => getVideoPosterUrl(data.url, data.poster, zoom),
   )
-  const [posterAllowed, setPosterAllowed] = useState(true)
+  const [posterAllowed, setPosterAllowed] = useState(
+    () => typeof window === 'undefined' || typeof Image === 'undefined',
+  )
 
   useEffect(() => {
-    const initial = getVideoPosterUrl(data.url, data.poster)
+    const initial = getVideoPosterUrl(data.url, data.poster, zoom)
     setGeneratedPoster(initial)
     return subscribeThumbnailReady((url, thumb) => {
       if (url === data.url || url === data.poster) {
         setGeneratedPoster(thumb)
       }
     })
-  }, [data.url, data.poster])
+  }, [data.url, data.poster, zoom > 1.5])
 
-  const effectivePoster = data.poster || generatedPoster
+  const effectivePoster =
+    getVideoPosterUrl(data.url, data.poster, zoom) || data.poster || generatedPoster
   const hasVideo = Boolean(data.url) && !failed
   const hasPoster = Boolean(effectivePoster)
   const isLayerMode = data.node?.type === 'video' && data.node.data.displayMode === 'layer'
@@ -142,8 +146,8 @@ function VideoNodeContent({
     }
     const { promise, cancel } = requestMediaLoad(effectivePoster, priority)
     let active = true
-    promise.then(() => {
-      if (active) setPosterAllowed(true)
+    promise.then((success) => {
+      if (active && success) setPosterAllowed(true)
     })
     return () => {
       active = false

@@ -9,9 +9,8 @@ import type { CanvasFlowNode } from './mapping'
 import { NodeGeneratorPanel } from './NodeGeneratorPanel'
 import { NodeHandle } from './NodeHandle'
 import {
-  calculateImageLod,
   getFastThumbnailUrl,
-  getLodImageUrl,
+  getResponsiveImageUrl,
   subscribeThumbnailReady,
 } from '../../services/imageThumbnailCache'
 import {
@@ -84,12 +83,8 @@ function ImageNodeContent({
   const hasThumbnail = Boolean(effectiveThumbnailUrl)
   const isLowResMode = zoom <= 0.35
 
-  const targetLod = calculateImageLod(
-    data.node?.size?.width || 300,
-    data.node?.size?.height || 200,
-    zoom,
-  )
-  const responsiveHighResUrl = getLodImageUrl(data.url, targetLod) || data.url
+  // Purely zoom-based: zoom > 1.5 -> original, zoom <= 1.5 -> WebP
+  const responsiveHighResUrl = getResponsiveImageUrl(data.url, zoom) || data.url
 
   // Prevent unmounting loaded images when zooming out: once loaded, keep mounted
   const isHighResAlreadyLoaded =

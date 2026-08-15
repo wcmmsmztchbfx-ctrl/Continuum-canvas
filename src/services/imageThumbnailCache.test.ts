@@ -5,70 +5,72 @@ import {
   calculateImageLod,
   getFastThumbnailUrl,
   getLodImageUrl,
+  getResponsiveImageUrl,
+  getVideoPosterUrl,
 } from './imageThumbnailCache'
 
-describe('image LOD and responsive specs', () => {
-  describe('calculateImageLod', () => {
-    it('returns thumbnail tier when zoomed out (zoom <= 0.35) or when effective width <= 240px', () => {
-      expect(calculateImageLod(600, 400, 0.2)).toBe('thumbnail')
-      expect(calculateImageLod(600, 400, 0.35)).toBe('thumbnail')
-      expect(calculateImageLod(200, 150, 0.5)).toBe('thumbnail')
+describe('zoom-based responsive image & video poster loading', () => {
+  const cdnImageUrl = 'https://libtv-res.liblib.art/upload-images/abc/image.png'
+  const cdnVideoUrl = 'https://libtv-res.liblib.art/upload-images/abc/video.mp4'
+
+  describe('getResponsiveImageUrl (pure zoom-based)', () => {
+    it('returns original image URL when zoom > 1.5', () => {
+      expect(getResponsiveImageUrl(cdnImageUrl, 1.6)).toBe(cdnImageUrl)
+      expect(getResponsiveImageUrl(cdnImageUrl, 2.0)).toBe(cdnImageUrl)
     })
 
-    it('returns medium tier for standard viewport zoom (0.35 < zoom <= 0.75 or effective width <= 720px)', () => {
-      expect(calculateImageLod(600, 400, 0.6)).toBe('medium')
-      expect(calculateImageLod(600, 400, 0.75)).toBe('medium')
+    it('returns webp format with w_960 when zoom <= 1.5 and > 0.35', () => {
+      expect(getResponsiveImageUrl(cdnImageUrl, 1.0)).toBe(
+        'https://libtv-res.liblib.art/upload-images/abc/image.png?x-oss-process=image/resize,w_960/format,webp',
+      )
+      expect(getResponsiveImageUrl(cdnImageUrl, 0.5)).toBe(
+        'https://libtv-res.liblib.art/upload-images/abc/image.png?x-oss-process=image/resize,w_960/format,webp',
+      )
     })
 
-    it('returns high tier for 1:1 view (720px < effective width <= 1440px)', () => {
-      expect(calculateImageLod(1000, 600, 1.0)).toBe('high')
-      expect(calculateImageLod(1200, 800, 1.0)).toBe('high')
-    })
-
-    it('returns original tier when zoomed in close (effective width > 1440px or zoom >= 1.5)', () => {
-      expect(calculateImageLod(1200, 800, 1.5)).toBe('original')
-      expect(calculateImageLod(1920, 1080, 1.0)).toBe('original')
-    })
-  })
-
-  describe('getLodImageUrl', () => {
-    const cdnUrl = 'https://libtv-res.liblib.art/upload-images/abc/image.png'
-
-    it('generates w_360 webp query for thumbnail tier', () => {
-      const url = getLodImageUrl(cdnUrl, 'thumbnail')
-      expect(url).toBe('https://libtv-res.liblib.art/upload-images/abc/image.png?x-oss-process=image/resize,w_360/format,webp')
-    })
-
-    it('generates w_720 webp query for medium tier', () => {
-      const url = getLodImageUrl(cdnUrl, 'medium')
-      expect(url).toBe('https://libtv-res.liblib.art/upload-images/abc/image.png?x-oss-process=image/resize,w_720/format,webp')
-    })
-
-    it('generates w_1440 webp query for high tier', () => {
-      const url = getLodImageUrl(cdnUrl, 'high')
-      expect(url).toBe('https://libtv-res.liblib.art/upload-images/abc/image.png?x-oss-process=image/resize,w_1440/format,webp')
-    })
-
-    it('generates format,webp for original tier', () => {
-      const url = getLodImageUrl(cdnUrl, 'original')
-      expect(url).toBe('https://libtv-res.liblib.art/upload-images/abc/image.png?x-oss-process=image/format,webp')
+    it('returns webp format with w_360 thumbnail when zoom <= 0.35', () => {
+      expect(getResponsiveImageUrl(cdnImageUrl, 0.2)).toBe(
+        'https://libtv-res.liblib.art/upload-images/abc/image.png?x-oss-process=image/resize,w_360/format,webp',
+      )
     })
 
     it('preserves non-CDN URLs without modification', () => {
-      expect(getLodImageUrl('/api/assets/1234', 'medium')).toBe('/api/assets/1234')
-      expect(getLodImageUrl('blob:http://localhost/5678', 'high')).toBe('blob:http://localhost/5678')
+      expect(getResponsiveImageUrl('/api/assets/1234', 0.5)).toBe('/api/assets/1234')
+      expect(getResponsiveImageUrl('blob:http://localhost/5678', 2.0)).toBe('blob:http://localhost/5678')
     })
   })
 
-  describe('getFastThumbnailUrl', () => {
-    it('returns fast 360px webp thumbnail for CDN images', () => {
-      const url = getFastThumbnailUrl('https://libtv-res.liblib.art/upload/photo.png')
-      expect(url).toBe('https://libtv-res.liblib.art/upload/photo.png?x-oss-process=image/resize,w_360/format,webp')
+  describe('getVideoPosterUrl (pure zoom-based)', () => {
+    it('returns high-resolution snapshot when zoom > 1.5', () => {
+      expect(getVideoPosterUrl(cdnVideoUrl, undefined, 2.0)).toBe(
+        'https://libtv-res.liblib.art/upload-images/abc/video.mp4?x-oss-process=video/snapshot,t_500,f_jpg',
+      )
     })
 
-    it('returns explicit thumbnail if provided', () => {
-      const url = getFastThumbnailUrl('https://example.com/orig.png', 'https://example.com/thumb.webp')
-      expect(url).toBe('https://example.com/thumb.webp')
+    it('returns compressed fast snapshot when zoom <= 1.5 and > 0.35', () => {
+      expect(getVideoPosterUrl(cdnVideoUrl, undefined, 1.0)).toBe(
+        'https://libtv-res.liblib.art/upload-images/abc/video.mp4?x-oss-process=video/snapshot,t_500,f_jpg,w_960,m_fast',
+      )
+    })
+
+    it('returns thumbnail fast snapshot when zoom <= 0.35', () => {
+      expect(getVideoPosterUrl(cdnVideoUrl, undefined, 0.2)).toBe(
+        'https://libtv-res.liblib.art/upload-images/abc/video.mp4?x-oss-process=video/snapshot,t_500,f_jpg,w_360,m_fast',
+      )
+    })
+  })
+
+  describe('calculateImageLod and getFastThumbnailUrl', () => {
+    it('calculates LOD purely by zoom', () => {
+      expect(calculateImageLod(600, 400, 2.0)).toBe('original')
+      expect(calculateImageLod(600, 400, 1.0)).toBe('medium')
+      expect(calculateImageLod(600, 400, 0.2)).toBe('thumbnail')
+    })
+
+    it('returns fast thumbnail for CDN images', () => {
+      expect(getFastThumbnailUrl(cdnImageUrl)).toBe(
+        'https://libtv-res.liblib.art/upload-images/abc/image.png?x-oss-process=image/resize,w_360/format,webp',
+      )
     })
   })
 })
