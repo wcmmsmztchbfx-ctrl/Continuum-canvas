@@ -78,6 +78,10 @@ export function ProviderDrawer({
   const [secret, setSecret] = useState('')
   const [showSecret, setShowSecret] = useState(false)
   const [createStage, setCreateStage] = useState<string>()
+  const [testFeedback, setTestFeedback] = useState<{
+    type: 'success' | 'error'
+    message: string
+  } | null>(null)
   const surfaceRef = useRef<HTMLElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
   useEscapeClose(open, onClose)
@@ -126,6 +130,7 @@ export function ProviderDrawer({
     setSelectedId(provider.id)
     setDraft(providerDraft(provider))
     setSecret('')
+    setTestFeedback(null)
     void state.selectProvider(provider.id)
   }
 
@@ -204,8 +209,67 @@ export function ProviderDrawer({
     if (cleared) onNotify?.('API Key 已清除', 'info')
   }
 
+  const handleTestConnection = async () => {
+    if (readOnly || !selectedId || unsupported) return
+    setTestFeedback(null)
+    const id = draft.id.trim().toLowerCase()
+    if (secret.trim()) {
+      await state.setProviderSecret(id, secret.trim())
+      setSecret('')
+    }
+    if (draft.name.trim() && draft.baseUrl.trim()) {
+      await state.saveProvider(id, {
+        name: draft.name.trim(),
+        adapterType: draft.adapterType,
+        baseUrl: draft.baseUrl.trim(),
+        enabled: draft.enabled,
+        preferred: draft.preferred,
+        imageRequestMode: draft.imageRequestMode,
+      })
+    }
+    const result = await state.testProvider(id)
+    if (result) {
+      setTestFeedback({
+        type: 'success',
+        message: '连接测试成功！API Key 有效，服务正常可用',
+      })
+      onNotify?.('连接测试成功！API Key 有效，服务正常', 'success')
+    } else {
+      const errMsg = state.error || '连接测试失败，请检查 API Key 或接口地址'
+      setTestFeedback({
+        type: 'error',
+        message: errMsg,
+      })
+      onNotify?.(errMsg, 'error')
+    }
+  }
+
+  const handleSyncCatalog = async () => {
+    if (readOnly || !selectedId || unsupported) return
+    setTestFeedback(null)
+    const id = draft.id.trim().toLowerCase()
+    if (secret.trim()) {
+      await state.setProviderSecret(id, secret.trim())
+      setSecret('')
+    }
+    const catalog = await state.syncProvider(id, { force: true })
+    if (catalog) {
+      setTestFeedback({
+        type: 'success',
+        message: `模型目录同步成功！已获取 ${catalog.models.length} 个可用模型`,
+      })
+      onNotify?.(`模型目录同步成功！已获取 ${catalog.models.length} 个可用模型`, 'success')
+    } else {
+      const errMsg = state.error || '模型同步失败，请检查 API Key 或服务状态'
+      setTestFeedback({
+        type: 'error',
+        message: errMsg,
+      })
+      onNotify?.(errMsg, 'error')
+    }
+  }
+
   const unsupported = !GENERATION_ADAPTER_TYPES.has(draft.adapterType)
-  const canOperate = Boolean(selected && selected.enabled && !unsupported)
 
   return (
     <div
@@ -284,7 +348,7 @@ export function ProviderDrawer({
                 <span>{provider.name.slice(0, 1).toUpperCase()}</span>
                 <div>
                   <strong>{provider.name}</strong>
-                  <small>{provider.available ? '可生成' : '不可用'}</small>
+                  <small>{provider.available ? '可生成' : provider.secretConfigured ? '已配密钥' : '未配置'}</small>
                 </div>
                 {provider.preferred ? <Check aria-label="首选供应商" /> : null}
               </button>
@@ -299,7 +363,7 @@ export function ProviderDrawer({
               </div>
               {!adding && selected ? (
                 <span data-available={selected.available || undefined}>
-                  {selected.available ? '可生成' : '不可生成'}
+                  {selected.available ? '可生成' : selected.secretConfigured ? '已配置密钥' : '未配置密钥'}
                 </span>
               ) : null}
             </div>
@@ -512,28 +576,66 @@ export function ProviderDrawer({
                 <>
                   <button
                     className="overlay-text-button"
-                    disabled={readOnly || !canOperate || state.busyAction === `test:${selectedId}`}
-                    onClick={() => { if (!readOnly && selectedId) void state.testProvider(selectedId) }}
+                    disabled={readOnly || state.busyAction === `test:${selectedId}` || state.busyAction === `sync:${selectedId}`}
+                    onClick={() => void handleTestConnection()}
                     type="button"
                   >
-                    <TestTube2 aria-hidden="true" />测试连接
+                    <TestTube2 aria-hidden="true" />
+                    {state.busyAction === `test:${selectedId}` ? '正在测试...' : '测试连接'}
                   </button>
                   <button
                     className="overlay-text-button"
-                    disabled={readOnly || !canOperate || state.busyAction === `sync:${selectedId}`}
-                    onClick={() => { if (!readOnly && selectedId) void state.syncProvider(selectedId) }}
+                    disabled={readOnly || state.busyAction === `test:${selectedId}` || state.busyAction === `sync:${selectedId}`}
+                    onClick={() => void handleSyncCatalog()}
                     type="button"
                   >
-                    <RefreshCw aria-hidden="true" />同步模型
+                    <RefreshCw aria-hidden="true" />
+                    {state.busyAction === `sync:${selectedId}` ? '正在同步...' : '同步模型'}
                   </button>
                 </>
               ) : null}
             </div>
 
+            {testFeedback ? (
+              <div className={`provider-drawer__test-feedback is-${testFeedback.type}`} role="status">
+                {testFeedback.type === 'success' ? <Check size={14} /> : <X size={14} />}
+                <span>{testFeedback.message}</span>
+              </div>
+            ) : null}
+
+            {!adding && selected && !unsupported && state.catalog && state.catalog.models.length > 0 ? (
+              <div className="provider-drawer__catalog-preview">
+                <div className="provider-drawer__catalog-preview-header">
+                  <span>已同步可用模型 ({state.catalog.models.length})</span>
+                  <small>
+                    {state.catalog.fetchedAt
+                      ? `更新于 ${new Date(state.catalog.fetchedAt).toLocaleTimeString()}`
+                      : '已同步'}
+                  </small>
+                </div>
+                <div className="provider-drawer__catalog-tags">
+                  {state.catalog.models.slice(0, 16).map((m) => (
+                    <span
+                      key={`${m.mediaType}-${m.channel}-${m.model}`}
+                      className="provider-drawer__model-tag"
+                      title={`${m.model} (${m.mediaType})`}
+                    >
+                      {m.label || m.title || m.model}
+                    </span>
+                  ))}
+                  {state.catalog.models.length > 16 ? (
+                    <span className="provider-drawer__model-tag-more">
+                      +{state.catalog.models.length - 16} 更多
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
             {!adding && selected && !unsupported && !state.catalog && !state.error ? (
               <p className="provider-drawer__catalog-empty">
                 {selected.secretConfigured
-                  ? '目录尚未同步'
+                  ? '目录尚未同步，点击上方「同步模型」获取可用模型'
                   : '配置密钥后同步目录'}
               </p>
             ) : null}
