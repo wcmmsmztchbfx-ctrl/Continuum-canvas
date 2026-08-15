@@ -32,6 +32,7 @@ import {
   type WorkspaceAction,
 } from './index'
 import { GenerationHistoryModal } from './GenerationHistoryModal'
+import { AssetManagerModal } from './AssetManagerModal'
 
 const ProviderDrawer = lazy(() =>
   import('../providers/ProviderDrawer').then((m) => ({
@@ -55,6 +56,8 @@ export interface AppOverlaysProps {
   setProviderDrawerOpen: (open: boolean) => void
   historyOpen: boolean
   setHistoryOpen: (open: boolean) => void
+  assetManagerOpen: boolean
+  setAssetManagerOpen: (open: boolean) => void
   panel: SidePanelKind | null
   closePanel: () => void
   handleAddNode: (
@@ -108,6 +111,8 @@ export function AppOverlays({
   setProviderDrawerOpen,
   historyOpen,
   setHistoryOpen,
+  assetManagerOpen,
+  setAssetManagerOpen,
   panel,
   closePanel,
   handleAddNode,
@@ -267,6 +272,47 @@ export function AppOverlays({
           })
         }}
         open={historyOpen}
+        projectId={snapshot.projectId}
+      />
+      <AssetManagerModal
+        onClose={() => setAssetManagerOpen(false)}
+        onInsertAsset={(asset) => {
+          if (readOnly) return
+          const state = canvasStore.getState()
+          const viewport = state.snapshot.viewport
+          const zoom = Math.max(viewport.zoom, 0.01)
+          const centerPos = {
+            x: (window.innerWidth / 2 - viewport.x) / zoom,
+            y: (window.innerHeight / 2 - viewport.y) / zoom,
+          }
+          const nodeId = `asset-${asset.type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+          if (asset.type === 'video') {
+            state.addNode({
+              id: nodeId,
+              type: 'video',
+              name: asset.name,
+              position: centerPos,
+              size: { width: asset.width || 480, height: asset.height || 270 },
+              data: {
+                url: asset.url,
+                poster: asset.posterUrl || asset.thumbnailUrl,
+              },
+            })
+          } else {
+            state.addNode({
+              id: nodeId,
+              type: 'image',
+              name: asset.name,
+              position: centerPos,
+              size: { width: asset.width || 400, height: asset.height || 400 },
+              data: {
+                url: asset.url,
+              },
+            })
+          }
+        }}
+        onNotify={(message, tone = 'info') => notify(message, tone)}
+        open={assetManagerOpen}
         projectId={snapshot.projectId}
       />
       <PublishDialog

@@ -12,6 +12,7 @@ import { useStore } from 'zustand'
 import { Package, Cpu, Layers3, Settings, PanelLeftClose } from 'lucide-react'
 
 import { CanvasWorkspace, LayersPanel } from './components/canvas'
+import { assetRegistry } from './services/assetRegistry'
 import {
   AppOverlays,
   LayoutDecisionBar,
@@ -206,6 +207,7 @@ export default function App({
   const [popup, setPopup] = useState<Popup>(null)
   const [providerDrawerOpen, setProviderDrawerOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [assetManagerOpen, setAssetManagerOpen] = useState(false)
   const [dialog, setDialog] = useState<Dialog>(null)
   const [panel, setPanel] = useState<SidePanelKind | null>(() =>
     isSidePanelKind(preferences.lastOpenPanel) &&
@@ -784,7 +786,7 @@ export default function App({
     ) => {
     if (readOnly && kind !== 'asset-library' && kind !== 'generation-history') return
     if (kind === 'asset-library') {
-      openPanel('assets')
+      setAssetManagerOpen(true)
       return
     }
     if (kind === 'generation-history') {
@@ -1095,6 +1097,19 @@ export default function App({
       canvasStore.getState().deleteNodes(selectedIds)
       return
     }
+    if (action === 'save-asset') {
+      const selectedId = selectedIds[0]
+      const node = canvasStore.getState().snapshot.nodes.find((n) => n.id === selectedId)
+      if (node) {
+        const saved = assetRegistry.registerNodeAsAsset(node, canvasStore.getState().snapshot.projectId)
+        if (saved) {
+          notify(`已将「${saved.name}」存入资产库`, 'success')
+        } else {
+          notify('当前节点不支持存入资产库', 'warning')
+        }
+      }
+      return
+    }
     if (action === 'duplicate') {
       withBulkLease(selectedIds, () => canvasStore.getState().duplicateNodes(selectedIds))
       return
@@ -1198,9 +1213,9 @@ export default function App({
           </button>
           <button
             aria-label="资产管理"
-            className={`app-layer-sidebar__rail-btn ${historyOpen ? 'app-layer-sidebar__rail-btn--active' : ''}`}
+            className={`app-layer-sidebar__rail-btn ${assetManagerOpen ? 'app-layer-sidebar__rail-btn--active' : ''}`}
             onClick={() => {
-              setHistoryOpen((open) => !open)
+              setAssetManagerOpen((open) => !open)
               setPopup(null)
             }}
             title="资产管理"
@@ -1364,7 +1379,7 @@ export default function App({
 
       <BottomStatusBar
         hideConnections={preferences.hideConnections}
-        onAssetManager={() => openPanel('project-files')}
+        onAssetManager={() => setAssetManagerOpen((open) => !open)}
         onHistory={() => setHistoryOpen(true)}
         onFitCanvas={() => {
           setFitViewRequest((current) => current + 1)
@@ -1426,6 +1441,8 @@ export default function App({
         setProviderDrawerOpen={setProviderDrawerOpen}
         historyOpen={historyOpen}
         setHistoryOpen={setHistoryOpen}
+        assetManagerOpen={assetManagerOpen}
+        setAssetManagerOpen={setAssetManagerOpen}
         panel={panel}
         closePanel={closePanel}
         handleAddNode={handleAddNode}
