@@ -25,8 +25,6 @@ import type { StoreApi } from 'zustand/vanilla'
 import { useStore } from 'zustand'
 
 import {
-  DEFAULT_IMAGE_GENERATION_SETTINGS,
-  DEFAULT_VIDEO_GENERATION_SETTINGS,
   type CanvasEdge as ProjectCanvasEdge,
   type CanvasNode,
   type MediaGenerationSettings,
@@ -76,7 +74,7 @@ import { parseAspectRatio, sizeForAspectRatio } from './mediaGeometry'
 import { placeSelectionToolbar, selectionUnionBounds } from './selectionGeometry'
 import { snapRect, snapResizeRect, unionRect, type ResizeDirection, type SnapDistance, type SnapGuide, type SnapRect, type SnapState } from './smartSnapping'
 import { stabilizeProjectedEdges, stabilizeProjectedNodes } from './flowProjection'
-import { extractVideoMetadata, persistLocalMedia } from '../../services/localMedia'
+import { useCanvasDrop } from './useCanvasDrop'
 import '@xyflow/react/dist/style.css'
 import './canvas.css'
 
@@ -2168,6 +2166,13 @@ export function CanvasWorkspace({
   )
   const showSelectionToolbar = !readOnly &&
     (selectedNodeIds.length > 1 || groupedSelection)
+  const { handleDragOver, handleDrop } = useCanvasDrop({
+    readOnly,
+    flowInstance,
+    addNode: (node) => store.getState().addNode(node),
+    selectNode: (nodeId) => store.getState().selectNode(nodeId),
+  })
+
   return (
     <div
       className={workspaceClassName}
@@ -2178,128 +2183,8 @@ export function CanvasWorkspace({
       data-reference-pick-target={referencePickTargetId ?? undefined}
       data-frame-drop-target={frameDropTargetId ?? undefined}
       ref={workspaceRef}
-      onDragOver={(event) => {
-        if (event.dataTransfer?.types.includes('Files')) {
-          event.preventDefault()
-          event.dataTransfer.dropEffect = 'copy'
-        }
-      }}
-      onDrop={async (event) => {
-        if (readOnly || !flowInstance) return
-        const files = Array.from(event.dataTransfer?.files ?? [])
-        if (files.length === 0) return
-        event.preventDefault()
-        event.stopPropagation()
-
-        const dropPos = flowInstance.screenToFlowPosition({
-          x: event.clientX,
-          y: event.clientY,
-        })
-
-        let offset = 0
-        for (const file of files) {
-          const isImage = file.type.startsWith('image/')
-          const isVideo = file.type.startsWith('video/')
-          if (!isImage && !isVideo) continue
-
-          let mediaUrl = ''
-          let assetId: string | undefined
-          try {
-            const asset = await persistLocalMedia(file)
-            mediaUrl = asset.url
-            assetId = asset.assetId
-          } catch {
-            mediaUrl = URL.createObjectURL(file)
-          }
-
-          const nodeId = createCanvasId(isImage ? 'i' : 'v')
-          const pos = { x: dropPos.x + offset, y: dropPos.y + offset }
-          offset += 30
-
-          if (isImage) {
-            let width = 360
-            let height = 240
-            try {
-              const tempUrl = URL.createObjectURL(file)
-              const img = new Image()
-              img.src = tempUrl
-              await new Promise<void>((resolve) => {
-                img.onload = () => resolve()
-                img.onerror = () => resolve()
-              })
-              URL.revokeObjectURL(tempUrl)
-              if (img.naturalWidth) {
-                width = Math.min(600, Math.max(180, img.naturalWidth))
-                height = img.naturalHeight && img.naturalWidth
-                  ? Math.round(width * (img.naturalHeight / img.naturalWidth))
-                  : 240
-              }
-            } catch {}
-
-            const newNode: CanvasNode = {
-              id: nodeId,
-              type: 'image',
-              name: file.name.replace(/\.[^.]+$/, '') || '拖入图片',
-              position: pos,
-              size: { width, height },
-              data: {
-                url: mediaUrl,
-                assetId,
-                displayMode: 'layer',
-                generationSettings: DEFAULT_IMAGE_GENERATION_SETTINGS,
-              },
-            }
-            store.getState().addNode(newNode)
-            store.getState().selectNode(nodeId)
-          } else if (isVideo) {
-            let width = 480
-            let height = 270
-            let durationSec = 5
-            let posterUrl: string | undefined
-            try {
-              const meta = await extractVideoMetadata(file)
-              if (meta.width && meta.height) {
-                width = Math.min(600, Math.max(240, meta.width))
-                height = Math.round(width * (meta.height / meta.width))
-              }
-              if (meta.durationSec) {
-                durationSec = meta.durationSec
-              }
-              if (meta.blob) {
-                try {
-                  const posterFile = new File(
-                    [meta.blob],
-                    `${file.name.replace(/\.[^.]+$/, '')}-cover.webp`,
-                    { type: 'image/webp' },
-                  )
-                  const posterAsset = await persistLocalMedia(posterFile)
-                  posterUrl = posterAsset.url
-                } catch {
-                  posterUrl = URL.createObjectURL(meta.blob)
-                }
-              }
-            } catch {}
-
-            const newNode: CanvasNode = {
-              id: nodeId,
-              type: 'video',
-              name: file.name.replace(/\.[^.]+$/, '') || '拖入视频',
-              position: pos,
-              size: { width, height },
-              data: {
-                url: mediaUrl,
-                poster: posterUrl,
-                assetId,
-                displayMode: 'layer',
-                durationSec,
-                generationSettings: DEFAULT_VIDEO_GENERATION_SETTINGS,
-              },
-            }
-            store.getState().addNode(newNode)
-            store.getState().selectNode(nodeId)
-          }
-        }
-      }}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       onPointerDownCapture={(event) => {
         const miniMapInteraction = event.target instanceof Element &&
           event.target.closest('.canvas-minimap') !== null

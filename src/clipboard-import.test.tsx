@@ -17,6 +17,13 @@ vi.mock('./services/localMedia', () => ({
     assetId: `asset-${file.name}`,
     url: `/api/assets/asset-${file.name}`,
   })),
+  uploadAndPrepareMediaAsset: vi.fn(async (file: File) => ({
+    kind: file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'image',
+    url: `/api/assets/asset-${file.name}`,
+    assetId: `asset-${file.name}`,
+    width: 480,
+    height: 320,
+  })),
 }))
 
 const emptySnapshot = (canvasId = 'clipboard-canvas'): CanvasSnapshotV2 => ({

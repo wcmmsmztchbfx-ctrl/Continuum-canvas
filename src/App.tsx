@@ -66,7 +66,7 @@ import {
   defaultWorkspaceRepository,
   type WorkspaceRepository,
 } from './workspace'
-import { gatewayClient, MockApi, persistLocalMedia } from './services'
+import { gatewayClient, MockApi, persistLocalMedia, uploadAndPrepareMediaAsset } from './services'
 import { canvasStore } from './store/canvas-store'
 import type { CanvasNode, ProjectSnapshot } from './model/project'
 import {
@@ -969,32 +969,9 @@ export default function App({
       input.onchange = async () => {
         const file = input.files?.[0]
         if (!file) return
-        const isVideo = file.type.startsWith('video/')
-        const isAudio = file.type.startsWith('audio/')
-        const targetKind: AddNodeKind = isVideo
-          ? 'video'
-          : isAudio
-            ? 'audio'
-            : 'image'
-
         try {
-          let posterUrl: string | undefined
-          if (isVideo) {
-            try {
-              const meta = await extractVideoMetadata(file)
-              if (meta.blob) {
-                const posterFile = new File(
-                  [meta.blob],
-                  `${file.name.replace(/\.[^.]+$/, '')}-cover.webp`,
-                  { type: 'image/webp' },
-                )
-                const posterAsset = await persistLocalMedia(posterFile)
-                posterUrl = posterAsset.url
-              }
-            } catch {}
-          }
-          const asset = await persistLocalMedia(file)
-          addNode(targetKind, asset.url, file.name, asset.assetId, posterUrl)
+          const prepared = await uploadAndPrepareMediaAsset(file)
+          addNode(prepared.kind, prepared.url, file.name, prepared.assetId, prepared.posterUrl)
         } catch (error: unknown) {
           notify(
             error instanceof Error ? error.message : '上传本地文件失败',
