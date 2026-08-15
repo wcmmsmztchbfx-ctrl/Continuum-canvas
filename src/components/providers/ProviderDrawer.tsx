@@ -632,14 +632,19 @@ export function ProviderDrawer({
               </div>
             ) : null}
 
-            {!adding && selected && !unsupported && !state.catalog && !state.error ? (
+            {!adding && selected && !unsupported && !state.catalog && !state.error && !testFeedback ? (
               <p className="provider-drawer__catalog-empty">
                 {selected.secretConfigured
                   ? '目录尚未同步，点击上方「同步模型」获取可用模型'
                   : '配置密钥后同步目录'}
               </p>
             ) : null}
-            {state.error ? <p className="provider-drawer__error">{state.error}</p> : null}
+            {state.error && !testFeedback ? (
+              <div className="provider-drawer__test-feedback is-error" role="alert">
+                <X size={14} />
+                <span>{state.error}</span>
+              </div>
+            ) : null}
           </main>
         </div>
       </section>

@@ -90,9 +90,28 @@ interface ProviderCatalogState {
 const ProviderCatalogContext = createContext<ProviderCatalogState | null>(null)
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message
-    ? error.message
-    : '本地 API 网关暂不可用'
+  if (error instanceof Error && error.message) {
+    const msg = error.message
+    if (
+      msg.includes('could not be accepted') ||
+      msg.includes('not configured') ||
+      msg.includes('provider_unavailable') ||
+      msg.includes('Provider is not configured')
+    ) {
+      return '当前服务商尚未配置有效 API Key 或不可用，请先在上方填入密钥并保存测试'
+    }
+    if (msg.includes('Local administrator') || msg.includes('local_admin')) {
+      return '本地服务会话未就绪，请刷新页面后重试'
+    }
+    if (msg.includes('timed out') || msg.includes('timeout')) {
+      return '服务商响应超时，请检查网络连接或接口地址'
+    }
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('network_error')) {
+      return '无法连接到本地网关服务，请确认本地服务已启动'
+    }
+    return msg
+  }
+  return '本地 API 网关暂不可用'
 }
 
 function replaceProvider(
