@@ -124,3 +124,98 @@ async function generateClientThumbnail(
     img.src = sourceUrl
   })
 }
+
+const pendingVideoThumbnails = new Set<string>()
+
+function generateVideoThumbnail(videoUrl: string): void {
+  if (pendingVideoThumbnails.has(videoUrl) || memoryThumbnailCache.has(videoUrl)) return
+  if (typeof document === 'undefined') return
+  pendingVideoThumbnails.add(videoUrl)
+
+  const video = document.createElement('video')
+  video.crossOrigin = 'anonymous'
+  video.preload = 'metadata'
+  video.muted = true
+  video.playsInline = true
+
+  let finished = false
+  const cleanup = () => {
+    if (finished) return
+    finished = true
+    pendingVideoThumbnails.delete(videoUrl)
+    video.removeAttribute('src')
+    video.load()
+  }
+
+  const timer = setTimeout(() => {
+    cleanup()
+  }, 6000)
+
+  video.onloadeddata = () => {
+    try {
+      const width = video.videoWidth || 480
+      const height = video.videoHeight || 270
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.min(480, width)
+      canvas.height = Math.round(canvas.width * (height / width))
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        canvas.toBlob((blob) => {
+          clearTimeout(timer)
+          cleanup()
+          if (blob) {
+            const objectUrl = URL.createObjectURL(blob)
+            memoryThumbnailCache.set(videoUrl, objectUrl)
+            notifyThumbnailListeners(videoUrl, objectUrl)
+          }
+        }, 'image/webp', 0.8)
+        return
+      }
+    } catch {}
+    clearTimeout(timer)
+    cleanup()
+  }
+
+  video.onerror = () => {
+    clearTimeout(timer)
+    cleanup()
+  }
+
+  video.currentTime = 0.1
+  video.src = videoUrl
+}
+
+/**
+ * Returns a fast video poster URL (via Cloud OSS snapshot, explicit poster,
+ * or background offscreen frame extraction).
+ */
+export function getVideoPosterUrl(
+  videoUrl?: string,
+  explicitPosterUrl?: string,
+): string | undefined {
+  if (explicitPosterUrl) {
+    return getFastThumbnailUrl(explicitPosterUrl)
+  }
+  if (!videoUrl) return undefined
+
+  // Cloud OSS video snapshot processing directly from CDN
+  if (videoUrl.includes('libtv-res.liblib.art') || videoUrl.includes('.aliyuncs.com')) {
+    if (!videoUrl.includes('x-oss-process')) {
+      const separator = videoUrl.includes('?') ? '&' : '?'
+      return `${videoUrl}${separator}x-oss-process=video/snapshot,t_500,f_jpg,w_480,m_fast`
+    }
+  }
+
+  // Check in-memory generated blob cache
+  if (memoryThumbnailCache.has(videoUrl)) {
+    return memoryThumbnailCache.get(videoUrl)
+  }
+
+  // Offscreen client extraction for local/gateway/blob video URLs
+  if (typeof document !== 'undefined' && !pendingVideoThumbnails.has(videoUrl)) {
+    generateVideoThumbnail(videoUrl)
+  }
+
+  return undefined
+}

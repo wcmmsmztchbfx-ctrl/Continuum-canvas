@@ -53,14 +53,15 @@ export function TopBar({
           label="资产库"
           onClick={onAssets}
         />
-        <TopBarFeatureButton
-          className="api-integration-button"
-          disabled={apiIntegrationDisabled}
-          icon={Cable}
-          id="api-integration-trigger"
-          label="API 接入"
-          onClick={onApiIntegration}
-        />
+        {!apiIntegrationDisabled ? (
+          <TopBarFeatureButton
+            className="api-integration-button"
+            icon={Cable}
+            id="api-integration-trigger"
+            label="API 接入"
+            onClick={onApiIntegration}
+          />
+        ) : null}
         <TopBarFeatureButton
           className="collaboration-button"
           icon={UsersRound}

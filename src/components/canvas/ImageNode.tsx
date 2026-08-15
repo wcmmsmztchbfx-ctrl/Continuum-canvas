@@ -13,50 +13,11 @@ import {
   subscribeThumbnailReady,
 } from '../../services/imageThumbnailCache'
 import {
+  calculateLoadPriority,
   isMediaLoaded,
   requestMediaLoad,
-  type LoadPriority,
 } from '../../services/mediaLoadQueue'
 import './canvas.css'
-
-function calculateLoadPriority(
-  nodePos: { x: number; y: number } | undefined,
-  nodeSize: { width: number; height: number } | undefined,
-  viewport: { x: number; y: number; zoom: number },
-): LoadPriority {
-  if (!nodePos || typeof window === 'undefined') return 'normal'
-  const zoom = Math.max(0.01, viewport.zoom)
-  const viewLeft = -viewport.x / zoom
-  const viewTop = -viewport.y / zoom
-  const viewRight = (window.innerWidth - viewport.x) / zoom
-  const viewBottom = (window.innerHeight - viewport.y) / zoom
-
-  const buffer = 1000 / zoom
-  const nodeWidth = nodeSize?.width || 300
-  const nodeHeight = nodeSize?.height || 200
-  const nodeRight = nodePos.x + nodeWidth
-  const nodeBottom = nodePos.y + nodeHeight
-
-  if (
-    nodeRight >= viewLeft &&
-    nodePos.x <= viewRight &&
-    nodeBottom >= viewTop &&
-    nodePos.y <= viewBottom
-  ) {
-    return 'high'
-  }
-
-  if (
-    nodeRight >= viewLeft - buffer &&
-    nodePos.x <= viewRight + buffer &&
-    nodeBottom >= viewTop - buffer &&
-    nodePos.y <= viewBottom + buffer
-  ) {
-    return 'normal'
-  }
-
-  return 'low'
-}
 
 function ImageNodeContent({
   id,

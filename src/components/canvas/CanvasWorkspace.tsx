@@ -76,6 +76,7 @@ import { parseAspectRatio, sizeForAspectRatio } from './mediaGeometry'
 import { placeSelectionToolbar, selectionUnionBounds } from './selectionGeometry'
 import { snapRect, snapResizeRect, unionRect, type ResizeDirection, type SnapDistance, type SnapGuide, type SnapRect, type SnapState } from './smartSnapping'
 import { stabilizeProjectedEdges, stabilizeProjectedNodes } from './flowProjection'
+import { extractVideoMetadata, persistLocalMedia } from '../../services/localMedia'
 import '@xyflow/react/dist/style.css'
 import './canvas.css'
 
@@ -2201,22 +2202,39 @@ export function CanvasWorkspace({
           const isVideo = file.type.startsWith('video/')
           if (!isImage && !isVideo) continue
 
-          const url = URL.createObjectURL(file)
+          let mediaUrl = ''
+          let assetId: string | undefined
+          try {
+            const asset = await persistLocalMedia(file)
+            mediaUrl = asset.url
+            assetId = asset.assetId
+          } catch {
+            mediaUrl = URL.createObjectURL(file)
+          }
+
           const nodeId = createCanvasId(isImage ? 'i' : 'v')
           const pos = { x: dropPos.x + offset, y: dropPos.y + offset }
           offset += 30
 
           if (isImage) {
-            const img = new Image()
-            img.src = url
-            await new Promise<void>((resolve) => {
-              img.onload = () => resolve()
-              img.onerror = () => resolve()
-            })
-            const width = img.naturalWidth ? Math.min(600, Math.max(180, img.naturalWidth)) : 360
-            const height = img.naturalHeight && img.naturalWidth
-              ? Math.round(width * (img.naturalHeight / img.naturalWidth))
-              : 240
+            let width = 360
+            let height = 240
+            try {
+              const tempUrl = URL.createObjectURL(file)
+              const img = new Image()
+              img.src = tempUrl
+              await new Promise<void>((resolve) => {
+                img.onload = () => resolve()
+                img.onerror = () => resolve()
+              })
+              URL.revokeObjectURL(tempUrl)
+              if (img.naturalWidth) {
+                width = Math.min(600, Math.max(180, img.naturalWidth))
+                height = img.naturalHeight && img.naturalWidth
+                  ? Math.round(width * (img.naturalHeight / img.naturalWidth))
+                  : 240
+              }
+            } catch {}
 
             const newNode: CanvasNode = {
               id: nodeId,
@@ -2225,7 +2243,8 @@ export function CanvasWorkspace({
               position: pos,
               size: { width, height },
               data: {
-                url,
+                url: mediaUrl,
+                assetId,
                 displayMode: 'layer',
                 generationSettings: DEFAULT_IMAGE_GENERATION_SETTINGS,
               },
@@ -2233,16 +2252,46 @@ export function CanvasWorkspace({
             store.getState().addNode(newNode)
             store.getState().selectNode(nodeId)
           } else if (isVideo) {
+            let width = 480
+            let height = 270
+            let durationSec = 5
+            let posterUrl: string | undefined
+            try {
+              const meta = await extractVideoMetadata(file)
+              if (meta.width && meta.height) {
+                width = Math.min(600, Math.max(240, meta.width))
+                height = Math.round(width * (meta.height / meta.width))
+              }
+              if (meta.durationSec) {
+                durationSec = meta.durationSec
+              }
+              if (meta.blob) {
+                try {
+                  const posterFile = new File(
+                    [meta.blob],
+                    `${file.name.replace(/\.[^.]+$/, '')}-cover.webp`,
+                    { type: 'image/webp' },
+                  )
+                  const posterAsset = await persistLocalMedia(posterFile)
+                  posterUrl = posterAsset.url
+                } catch {
+                  posterUrl = URL.createObjectURL(meta.blob)
+                }
+              }
+            } catch {}
+
             const newNode: CanvasNode = {
               id: nodeId,
               type: 'video',
               name: file.name.replace(/\.[^.]+$/, '') || '拖入视频',
               position: pos,
-              size: { width: 360, height: 240 },
+              size: { width, height },
               data: {
-                url,
+                url: mediaUrl,
+                poster: posterUrl,
+                assetId,
                 displayMode: 'layer',
-                durationSec: 5,
+                durationSec,
                 generationSettings: DEFAULT_VIDEO_GENERATION_SETTINGS,
               },
             }

@@ -967,7 +967,12 @@ async function routeApi(
   }
   if (method === 'POST' && path === '/api/assets') {
     const filenameHeader = request.headers['x-filename']
-    const filename = Array.isArray(filenameHeader) ? undefined : filenameHeader
+    let filename = Array.isArray(filenameHeader) ? undefined : filenameHeader
+    if (filename) {
+      try {
+        filename = decodeURIComponent(filename)
+      } catch {}
+    }
     const contentType = request.headers['content-type']
     if (!filename || filename.length > 255 || basename(filename) !== filename || !contentType) {
       throw new ApiError(400, 'invalid_input', 'Asset filename or Content-Type is invalid')
@@ -1179,6 +1184,9 @@ export async function startGateway(options: {
   server.on('clientError', (_error, socket) => {
     socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
   })
+
+  server.keepAliveTimeout = 65_000
+  server.headersTimeout = 66_000
 
   try {
     await new Promise<void>((resolveListen, reject) => {

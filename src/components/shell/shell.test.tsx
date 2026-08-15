@@ -105,10 +105,11 @@ describe('shell controls', () => {
     expect(html).not.toContain('aria-label="分享"')
   })
 
-  it('disables API management while collaboration capability is unavailable', () => {
+  it('hides API management while collaboration capability is unavailable', () => {
     const html = markup(<TopBar apiIntegrationDisabled collaborationStatus="connecting" />)
 
-    expect(html).toMatch(/aria-label="打开 API 接入"[^>]*disabled=""/)
+    expect(html).not.toContain('aria-label="打开 API 接入"')
+    expect(html).not.toContain('api-integration-button')
     expect(html).toContain('data-collaboration-status="connecting"')
   })
 

@@ -5,7 +5,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { NodeResizer, Position, type NodeProps } from '@xyflow/react'
+import { NodeResizer, Position, useViewport, type NodeProps } from '@xyflow/react'
 
 import { EmptyMediaPlaceholder } from './EmptyMediaPlaceholder'
 import { EditableNodeLabel } from './EditableNodeLabel'
@@ -14,6 +14,15 @@ import { MediaDownloadButton } from './MediaDownloadButton'
 import type { CanvasFlowNode } from './mapping'
 import { NodeGeneratorPanel } from './NodeGeneratorPanel'
 import { NodeHandle } from './NodeHandle'
+import {
+  getVideoPosterUrl,
+  subscribeThumbnailReady,
+} from '../../services/imageThumbnailCache'
+import {
+  calculateLoadPriority,
+  isMediaLoaded,
+  requestMediaLoad,
+} from '../../services/mediaLoadQueue'
 import './canvas.css'
 
 function formatVideoTime(seconds: number): string {
@@ -84,13 +93,63 @@ function VideoNodeContent({
     updateScrubberDom(currentTimeRef.current, duration)
   }, [duration])
 
+  let viewport = { x: 0, y: 0, zoom: 1 }
+  try {
+    const vp = useViewport()
+    viewport = { x: vp.x, y: vp.y, zoom: vp.zoom }
+  } catch {
+    viewport = { x: 0, y: 0, zoom: 1 }
+  }
+
+  const priority = calculateLoadPriority(
+    data.node?.position,
+    data.node?.size,
+    viewport,
+  )
+
+  const [generatedPoster, setGeneratedPoster] = useState<string | undefined>(
+    () => getVideoPosterUrl(data.url, data.poster),
+  )
+  const [posterAllowed, setPosterAllowed] = useState(true)
+
+  useEffect(() => {
+    const initial = getVideoPosterUrl(data.url, data.poster)
+    setGeneratedPoster(initial)
+    return subscribeThumbnailReady((url, thumb) => {
+      if (url === data.url || url === data.poster) {
+        setGeneratedPoster(thumb)
+      }
+    })
+  }, [data.url, data.poster])
+
+  const effectivePoster = data.poster || generatedPoster
   const hasVideo = Boolean(data.url) && !failed
-  const hasPoster = Boolean(data.poster)
+  const hasPoster = Boolean(effectivePoster)
   const isLayerMode = data.node?.type === 'video' && data.node.data.displayMode === 'layer'
   const showResizer = selected && data.isSoleSelection !== false
   const showDetails = showResizer && !isLayerMode
   const modelData = data.node?.type === 'video' ? data.node.data : undefined
   const shouldMountVideo = hasVideo && (playing || data.generation?.status === 'generating')
+
+  useEffect(() => {
+    if (!effectivePoster) {
+      setPosterAllowed(true)
+      return
+    }
+    if (isMediaLoaded(effectivePoster)) {
+      setPosterAllowed(true)
+      return
+    }
+    const { promise, cancel } = requestMediaLoad(effectivePoster, priority)
+    let active = true
+    promise.then(() => {
+      if (active) setPosterAllowed(true)
+    })
+    return () => {
+      active = false
+      cancel()
+    }
+  }, [effectivePoster, priority])
 
   const togglePlayback = () => {
     if (!hasVideo) return
@@ -191,13 +250,13 @@ function VideoNodeContent({
           overflow: 'hidden',
         }}
       >
-        {hasPoster ? (
+        {hasPoster && posterAllowed ? (
           <img
             alt={`${data.name} 视频封面`}
             className={`canvas-media-node__content canvas-media-node__poster ${playing && videoReady ? 'is-hidden' : ''}`}
             decoding="async"
             draggable={false}
-            src={data.poster}
+            src={effectivePoster}
           />
         ) : null}
         {shouldMountVideo ? (
@@ -238,7 +297,7 @@ function VideoNodeContent({
               }
             }}
             src={data.url}
-            poster={data.poster}
+            poster={effectivePoster}
             ref={videoRef}
             preload="auto"
             onError={() => setFailed(true)}

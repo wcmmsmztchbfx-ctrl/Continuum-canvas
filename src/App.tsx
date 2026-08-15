@@ -805,10 +805,6 @@ export default function App({
     const controller = collaborationControllerRef.current
     if (!controller) return
     void controller.refreshRoom().catch(() => undefined)
-    const timer = window.setInterval(() => {
-      void controller.refreshRoom().catch(() => undefined)
-    }, 3000)
-    return () => window.clearInterval(timer)
   }, [popup])
 
   useEffect(() => {
@@ -955,6 +951,7 @@ export default function App({
       content?: string,
       fileName?: string,
       assetId?: string,
+      posterUrl?: string,
     ) => {
     if (readOnly && kind !== 'asset-library' && kind !== 'generation-history') return
     if (kind === 'asset-library') {
@@ -969,24 +966,41 @@ export default function App({
       const input = document.createElement('input')
       input.type = 'file'
       input.accept = 'image/*,video/*,audio/*'
-      input.onchange = () => {
+      input.onchange = async () => {
         const file = input.files?.[0]
         if (!file) return
-        const targetKind: AddNodeKind = file.type.startsWith('video/')
+        const isVideo = file.type.startsWith('video/')
+        const isAudio = file.type.startsWith('audio/')
+        const targetKind: AddNodeKind = isVideo
           ? 'video'
-          : file.type.startsWith('audio/')
+          : isAudio
             ? 'audio'
             : 'image'
-        void persistLocalMedia(file)
-          .then((asset) =>
-              addNode(targetKind, asset.url, file.name, asset.assetId),
+
+        try {
+          let posterUrl: string | undefined
+          if (isVideo) {
+            try {
+              const meta = await extractVideoMetadata(file)
+              if (meta.blob) {
+                const posterFile = new File(
+                  [meta.blob],
+                  `${file.name.replace(/\.[^.]+$/, '')}-cover.webp`,
+                  { type: 'image/webp' },
+                )
+                const posterAsset = await persistLocalMedia(posterFile)
+                posterUrl = posterAsset.url
+              }
+            } catch {}
+          }
+          const asset = await persistLocalMedia(file)
+          addNode(targetKind, asset.url, file.name, asset.assetId, posterUrl)
+        } catch (error: unknown) {
+          notify(
+            error instanceof Error ? error.message : '上传本地文件失败',
+            'error',
           )
-          .catch((error: unknown) =>
-            notify(
-              error instanceof Error ? error.message : '上传本地文件失败',
-              'error',
-            ),
-          )
+        }
       }
       input.click()
       return
@@ -1050,7 +1064,7 @@ export default function App({
           name,
           position,
           size,
-          data: { url: mediaUrl, assetId },
+          data: { url: mediaUrl, poster: posterUrl, assetId },
         }
       } else if (
         kind === 'video-compose' ||

@@ -567,7 +567,7 @@ export class GatewayClient {
         method: 'POST',
         headers: {
           'content-type': body.type || 'application/octet-stream',
-          'x-filename': filename,
+          'x-filename': encodeURIComponent(filename || 'asset'),
         },
         body,
       },
