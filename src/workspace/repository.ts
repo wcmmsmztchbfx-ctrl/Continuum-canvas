@@ -1,4 +1,3 @@
-import { referenceProjectSnapshot } from '../fixtures/reference'
 import {
   CANVAS_SNAPSHOT_VERSION,
   parseCanvasSnapshot,
@@ -147,13 +146,22 @@ function clearedCopyNode(node: CanvasNode): CanvasNode {
   return cloned
 }
 
+const EMPTY_WORKSPACE_SEED_PROJECT: ProjectSnapshotV1 = {
+  version: 1,
+  projectId: 'default-project',
+  name: '画布 1',
+  viewport: { x: 0, y: 0, zoom: 1 },
+  nodes: [],
+  edges: [],
+}
+
 export function createWorkspaceRepository(
   backend: WorkspaceStorageBackend,
   options: WorkspaceRepositoryOptions = {},
 ): WorkspaceRepository {
   const now = options.now ?? (() => new Date().toISOString())
   const createId = options.createId ?? createBrowserUuid
-  const seedProject = options.seedProject ?? referenceProjectSnapshot
+  const seedProject = options.seedProject ?? EMPTY_WORKSPACE_SEED_PROJECT
 
   const initialize = () =>
     backend.initializeFromLegacy((serializedProjects) => {

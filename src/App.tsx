@@ -576,7 +576,7 @@ export default function App({
         const activeProject = activeProjectId
           ? await defaultProjectRepository.loadProject(activeProjectId)
           : undefined
-        const project = canvasDocument
+        let project = canvasDocument
           ? {
               version: 1 as const,
               projectId: canvasDocument.projectId,
@@ -586,6 +586,35 @@ export default function App({
               edges: canvasDocument.edges,
             }
           : activeProject ?? (await ensureReferenceProject())
+
+        // Purge legacy 37-node reference fixture if detected in local storage
+        if (
+          project.projectId === '9f4cca3a4e36451b900e0d5741199db8' ||
+          (project.nodes.length === 37 && project.nodes.some((n) => n.id === 'i-1wBxIhceMW'))
+        ) {
+          project = {
+            ...project,
+            viewport: { x: 0, y: 0, zoom: 1 },
+            nodes: [],
+            edges: [],
+          }
+          if (canvasId && canvasDocument) {
+            void workspaceRepository.saveCanvas({
+              ...canvasDocument,
+              viewport: { x: 0, y: 0, zoom: 1 },
+              nodes: [],
+              edges: [],
+            })
+          } else if (activeProjectId) {
+            void defaultProjectRepository.saveProject({
+              ...project,
+              viewport: { x: 0, y: 0, zoom: 1 },
+              nodes: [],
+              edges: [],
+            })
+          }
+        }
+
         if (disposed) return
         canvasStore.getState().restore(JSON.stringify(project))
         if (!canvasDocument) saveActiveProjectId(project.projectId)
@@ -1422,57 +1451,61 @@ export default function App({
         }}
       >
         {!preferences.layersOpen ? <div className="collapsed-sidebar-controls"><WorkspaceMenu canvasName={snapshot.name} onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')} workspaceName={projectName ?? '未命名工作区'} /><LayersPanel nodes={snapshot.nodes} onOpenChange={(layersOpen) => persistPreferences({ layersOpen })} onRename={() => undefined} onReorder={() => undefined} onSelect={() => undefined} onToggleHidden={() => undefined} onToggleLocked={() => undefined} open={false} selectedIds={selectedNodeIds} /></div> : null}
-      <CanvasWorkspace
-        activeTool={activeTool}
-        onToolComplete={() => setActiveTool('select')}
-        canvasId={canvasId}
-        canGenerate={capabilities.canPublish}
-        collaboration={canvasCollaboration}
-        fitViewRequest={fitViewRequest}
-        hideConnections={preferences.hideConnections}
-        readOnly={readOnly}
-        onSelectionAction={handleSelectionAction}
-        onGenerationError={(message) => notify(message, 'error')}
-        onImageEditingStateChange={(state) => { imageSelectionGuardRef.current = state.requestSelect ?? (() => true) }}
-        showMiniMap={preferences.showMiniMap}
-        onNodeContextMenu={(nodeId, position) => {
-          if (!imageSelectionGuardRef.current(nodeId)) return
-          closeFloatingUi()
-          canvasStore.getState().selectNode(nodeId)
-          setContextPosition(position)
-          setContextMenu('node')
-        }}
-        onPaneContextMenu={(position) => {
-          if (contextMenu) {
-            setContextMenu(null)
-            return
-          }
-          closeFloatingUi()
-          contextMenuDismissedAtRef.current = 0
-          lastCanvasPointerRef.current = position
-          setContextPosition(position)
-          setContextMenu('blank')
-        }}
-        onPaneClick={() => {
-          if (contextMenu) dismissContextMenu()
-        }}
-        onPaneDoubleClick={(position) => {
-          const followsMenuDismissal =
-            Date.now() - contextMenuDismissedAtRef.current <= 500
-          if (contextMenu || followsMenuDismissal) {
+      {hydrated ? (
+        <CanvasWorkspace
+          activeTool={activeTool}
+          onToolComplete={() => setActiveTool('select')}
+          canvasId={canvasId}
+          canGenerate={capabilities.canPublish}
+          collaboration={canvasCollaboration}
+          fitViewRequest={fitViewRequest}
+          hideConnections={preferences.hideConnections}
+          readOnly={readOnly}
+          onSelectionAction={handleSelectionAction}
+          onGenerationError={(message) => notify(message, 'error')}
+          onImageEditingStateChange={(state) => { imageSelectionGuardRef.current = state.requestSelect ?? (() => true) }}
+          showMiniMap={preferences.showMiniMap}
+          onNodeContextMenu={(nodeId, position) => {
+            if (!imageSelectionGuardRef.current(nodeId)) return
+            closeFloatingUi()
+            canvasStore.getState().selectNode(nodeId)
+            setContextPosition(position)
+            setContextMenu('node')
+          }}
+          onPaneContextMenu={(position) => {
+            if (contextMenu) {
+              setContextMenu(null)
+              return
+            }
+            closeFloatingUi()
             contextMenuDismissedAtRef.current = 0
-            setContextMenu(null)
-            return
-          }
-          closeFloatingUi()
-          canvasStore.getState().setMode('select')
-          setActiveTool('select')
-          setAddNodePosition(position)
-          setPopup('add')
-        }}
-        snapToGrid={preferences.snapToGrid}
-        smartSnap={preferences.smartSnap}
-      />
+            lastCanvasPointerRef.current = position
+            setContextPosition(position)
+            setContextMenu('blank')
+          }}
+          onPaneClick={() => {
+            if (contextMenu) dismissContextMenu()
+          }}
+          onPaneDoubleClick={(position) => {
+            const followsMenuDismissal =
+              Date.now() - contextMenuDismissedAtRef.current <= 500
+            if (contextMenu || followsMenuDismissal) {
+              contextMenuDismissedAtRef.current = 0
+              setContextMenu(null)
+              return
+            }
+            closeFloatingUi()
+            canvasStore.getState().setMode('select')
+            setActiveTool('select')
+            setAddNodePosition(position)
+            setPopup('add')
+          }}
+          snapToGrid={preferences.snapToGrid}
+          smartSnap={preferences.smartSnap}
+        />
+      ) : (
+        <div className="canvas-stage__loading" aria-busy="true" />
+      )}
 
       <TopBar
         apiIntegrationDisabled={!capabilities.canManageApi}

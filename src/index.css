@@ -251,6 +251,12 @@ select:focus-visible {
   overflow: hidden;
 }
 
+.canvas-stage__loading {
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg-base, #1e1e1e);
+}
+
 .collapsed-sidebar-controls {
   position: absolute;
   z-index: 50;
