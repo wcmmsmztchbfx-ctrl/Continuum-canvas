@@ -14,8 +14,10 @@ export interface CollaborationTransport {
 
 export type CollaborationWebSocketLike = Pick<
   WebSocket,
-  'binaryType' | 'readyState' | 'send' | 'close' | 'addEventListener' | 'removeEventListener'
->
+  'binaryType' | 'readyState' | 'close' | 'addEventListener' | 'removeEventListener'
+> & {
+  send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void
+}
 
 export interface CollaborationTransportOptions {
   url: string

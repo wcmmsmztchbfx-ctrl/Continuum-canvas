@@ -24,13 +24,15 @@ import {
 import type { StoreApi } from 'zustand/vanilla'
 import { useStore } from 'zustand'
 
-import type {
-  CanvasEdge as ProjectCanvasEdge,
-  CanvasNode,
-  MediaGenerationSettings,
-  NodeSize,
-  Point,
-  Viewport,
+import {
+  DEFAULT_IMAGE_GENERATION_SETTINGS,
+  DEFAULT_VIDEO_GENERATION_SETTINGS,
+  type CanvasEdge as ProjectCanvasEdge,
+  type CanvasNode,
+  type MediaGenerationSettings,
+  type NodeSize,
+  type Point,
+  type Viewport,
 } from '../../model/project'
 import type { GenerationQuoteRequest } from '../../contracts/generation'
 import type { InteractionPreview, NodeLease, NodeLeaseKind, PresenceState } from '../../contracts/collaboration'
@@ -141,6 +143,7 @@ export interface CanvasWorkspaceProps {
   snapToGrid?: boolean
   smartSnap?: boolean
   fitViewRequest?: number
+  focusNodeRequest?: { id: string; nonce: number }
   readOnly?: boolean
   canGenerate?: boolean
   onConnect?: (edge: ProjectCanvasEdge) => void
@@ -439,6 +442,7 @@ export function CanvasWorkspace({
   snapToGrid = false,
   smartSnap = true,
   fitViewRequest = 0,
+  focusNodeRequest,
   readOnly = false,
   canGenerate = true,
   onConnect,
@@ -1762,6 +1766,39 @@ export function CanvasWorkspace({
     store,
   ])
 
+  useEffect(() => {
+    if (!focusNodeRequest?.id || !flowInstance) return
+    const modelNode = store.getState().snapshot.nodes.find((n) => n.id === focusNodeRequest.id)
+    if (!modelNode) return
+
+    const internal = flowInstance.getInternalNode(focusNodeRequest.id)
+    const positionAbsolute = internal?.internals.positionAbsolute ?? modelNode.position
+    const nodeWidth = modelNode.size.width
+    const nodeHeight = modelNode.size.height
+    const hasGenerator = modelNode.type === 'image' || modelNode.type === 'video'
+    
+    const extraHeight = hasGenerator ? 240 : 40
+    const totalHeight = nodeHeight + extraHeight
+    
+    const visualCenterX = positionAbsolute.x + nodeWidth / 2
+    const visualCenterY = positionAbsolute.y + (hasGenerator ? (nodeHeight + 200) / 2 : nodeHeight / 2)
+    
+    const stageHeight = workspaceRef.current?.clientHeight ?? window.innerHeight
+    const stageWidth = workspaceRef.current?.clientWidth ?? window.innerWidth
+    
+    const availableHeight = Math.max(300, stageHeight - 140)
+    const availableWidth = Math.max(400, stageWidth - 140)
+    
+    const verticalZoom = availableHeight / totalHeight
+    const horizontalZoom = availableWidth / Math.max(nodeWidth, hasGenerator ? 680 : nodeWidth)
+    const targetZoom = Math.min(1.0, Math.max(0.35, Math.min(verticalZoom, horizontalZoom)))
+
+    void flowInstance.setCenter(visualCenterX, visualCenterY, {
+      duration: 400,
+      zoom: targetZoom,
+    })
+  }, [focusNodeRequest, flowInstance, store])
+
   const syncSelection = useCallback(
     (ids: string[]) => {
       const currentIds = store.getState().selectedNodeIds
@@ -2125,6 +2162,80 @@ export function CanvasWorkspace({
       data-reference-pick-target={referencePickTargetId ?? undefined}
       data-frame-drop-target={frameDropTargetId ?? undefined}
       ref={workspaceRef}
+      onDragOver={(event) => {
+        if (event.dataTransfer?.types.includes('Files')) {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'copy'
+        }
+      }}
+      onDrop={async (event) => {
+        if (readOnly || !flowInstance) return
+        const files = Array.from(event.dataTransfer?.files ?? [])
+        if (files.length === 0) return
+        event.preventDefault()
+        event.stopPropagation()
+
+        const dropPos = flowInstance.screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        })
+
+        let offset = 0
+        for (const file of files) {
+          const isImage = file.type.startsWith('image/')
+          const isVideo = file.type.startsWith('video/')
+          if (!isImage && !isVideo) continue
+
+          const url = URL.createObjectURL(file)
+          const nodeId = createCanvasId(isImage ? 'i' : 'v')
+          const pos = { x: dropPos.x + offset, y: dropPos.y + offset }
+          offset += 30
+
+          if (isImage) {
+            const img = new Image()
+            img.src = url
+            await new Promise<void>((resolve) => {
+              img.onload = () => resolve()
+              img.onerror = () => resolve()
+            })
+            const width = img.naturalWidth ? Math.min(600, Math.max(180, img.naturalWidth)) : 360
+            const height = img.naturalHeight && img.naturalWidth
+              ? Math.round(width * (img.naturalHeight / img.naturalWidth))
+              : 240
+
+            const newNode: CanvasNode = {
+              id: nodeId,
+              type: 'image',
+              name: file.name.replace(/\.[^.]+$/, '') || '拖入图片',
+              position: pos,
+              size: { width, height },
+              data: {
+                url,
+                displayMode: 'layer',
+                generationSettings: DEFAULT_IMAGE_GENERATION_SETTINGS,
+              },
+            }
+            store.getState().addNode(newNode)
+            store.getState().selectNode(nodeId)
+          } else if (isVideo) {
+            const newNode: CanvasNode = {
+              id: nodeId,
+              type: 'video',
+              name: file.name.replace(/\.[^.]+$/, '') || '拖入视频',
+              position: pos,
+              size: { width: 360, height: 240 },
+              data: {
+                url,
+                displayMode: 'layer',
+                durationSec: 5,
+                generationSettings: DEFAULT_VIDEO_GENERATION_SETTINGS,
+              },
+            }
+            store.getState().addNode(newNode)
+            store.getState().selectNode(nodeId)
+          }
+        }
+      }}
       onPointerDownCapture={(event) => {
         const miniMapInteraction = event.target instanceof Element &&
           event.target.closest('.canvas-minimap') !== null
@@ -2314,8 +2425,20 @@ export function CanvasWorkspace({
         onSelectionEnd={() => {
           selectionGesture.current = null
         }}
-        onNodeDragStart={(_event, node, draggedNodes) => {
-          const nodes = draggedNodes.length > 0 ? draggedNodes : [node]
+        onNodeDragStart={(event, node, draggedNodes) => {
+          let nodes = draggedNodes.length > 0 ? draggedNodes : [node]
+          const isAlt = (event as MouseEvent).altKey
+          if (isAlt && !readOnly) {
+            const originalIds = nodes.map((item) => item.id)
+            const dupIds = store.getState().duplicateNodes(originalIds)
+            if (dupIds && dupIds.length > 0) {
+              const liveFlowNodes = mapProjectSnapshotToReactFlow(store.getState().snapshot).nodes
+              const matchedDups = liveFlowNodes.filter((n) => dupIds.includes(n.id))
+              if (matchedDups.length > 0) {
+                nodes = matchedDups
+              }
+            }
+          }
           const ids = nodes.map((item) => item.id)
           const geometries = captureDragGeometry(nodes)
           blockedDrag.current = undefined

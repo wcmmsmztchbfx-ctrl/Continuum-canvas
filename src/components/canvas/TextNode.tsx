@@ -6,6 +6,11 @@ import type { CanvasFlowNode } from './mapping'
 import { EditableNodeLabel } from './EditableNodeLabel'
 import { NodeHandle } from './NodeHandle'
 
+function stripHtmlTags(str: string): string {
+  if (!str || !/<[a-z][\s\S]*>/i.test(str)) return str || ''
+  return str.replace(/<[^>]*>/g, '')
+}
+
 export function TextNode({
   id,
   data,
@@ -13,12 +18,12 @@ export function TextNode({
   isConnectable,
 }: NodeProps<CanvasFlowNode>) {
   const [editing, setEditing] = useState(false)
-  const [text, setText] = useState(data.text ?? '')
+  const [text, setText] = useState(() => stripHtmlTags(data.text ?? ''))
   const [lockMessage, setLockMessage] = useState<string>()
   const finishingRef = useRef(false)
   const handledLeaseLoss = useRef(data.interactionLeaseLost)
   const resizeGranted = useRef(false)
-  const editorRef = useRef<HTMLTextAreaElement>(null)
+  const editorRef = useRef<HTMLTextAreaElement | null>(null)
   const autoStarted = useRef(false)
   const showDetails = selected && data.isSoleSelection !== false
   const model = data.node?.type === 'text' ? data.node : undefined
@@ -26,7 +31,7 @@ export function TextNode({
   const autoWidth = model?.data.autoWidth ?? false
 
   useEffect(() => {
-    setText(data.text ?? '')
+    setText(stripHtmlTags(data.text ?? ''))
   }, [data.text])
 
   useEffect(() => {
@@ -37,7 +42,7 @@ export function TextNode({
     handledLeaseLoss.current = data.interactionLeaseLost
     if (!editing) return
     setEditing(false)
-    setText(data.text ?? '')
+    setText(stripHtmlTags(data.text ?? ''))
     setLockMessage(data.lockedBy ? `${data.lockedBy.displayName} 正在编辑` : '编辑锁已失效')
   }, [data.interactionLeaseLost, data.lockedBy, data.text, editing])
 
@@ -56,6 +61,7 @@ export function TextNode({
     if (!editing || finishingRef.current) return
     finishingRef.current = true
     setEditing(false)
+    data.onTextChange?.(id, text)
     data.onInteractionEnd?.(id, 'text')
   }
 
@@ -132,10 +138,22 @@ export function TextNode({
               fontSize: `${model?.data.fontSize ?? 14}px`,
               fontWeight: model?.data.fontWeight ?? 400,
               lineHeight: model?.data.lineHeight ?? 1.5,
+              letterSpacing: model?.data.letterSpacing !== undefined ? `${model.data.letterSpacing}px` : undefined,
               color: model?.data.color ?? '#ffffff',
               textAlign: model?.data.textAlign ?? 'left',
               fontFamily: model?.data.fontFamily ?? 'inherit',
+              padding: '6px 8px',
+              width: '100%',
+              height: '100%',
+              boxSizing: 'border-box',
+              resize: 'none',
+              border: 0,
+              outline: 0,
+              background: 'transparent',
+              wordBreak: 'break-word',
+              whiteSpace: 'pre-wrap',
             }}
+            value={text}
             onChange={(event) => {
               const nextText = event.target.value
               setText(nextText)
@@ -143,12 +161,11 @@ export function TextNode({
             }}
             onBlur={finishEditing}
             onKeyDown={(event) => {
-              if (event.key !== 'Escape') return
-              event.preventDefault()
-              finishEditing()
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                finishEditing()
+              }
             }}
-            placeholder="输入文本、脚本或镜头说明"
-            value={text}
           />
         ) : showDetails && !text.trim() && data.onCreateConnected ? (
           <div
@@ -185,18 +202,20 @@ export function TextNode({
               fontSize: `${model?.data.fontSize ?? 14}px`,
               fontWeight: model?.data.fontWeight ?? 400,
               lineHeight: model?.data.lineHeight ?? 1.5,
+              letterSpacing: model?.data.letterSpacing !== undefined ? `${model.data.letterSpacing}px` : undefined,
               color: model?.data.color ?? '#ffffff',
               textAlign: model?.data.textAlign ?? 'left',
               fontFamily: model?.data.fontFamily ?? 'inherit',
               cursor: 'text',
               width: '100%',
               height: '100%',
-              padding: '8px',
+              padding: '6px 8px',
+              boxSizing: 'border-box',
               wordBreak: 'break-word',
               whiteSpace: 'pre-wrap',
             }}
           >
-            <p style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit' }}>
+            <p style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit', lineHeight: 'inherit', letterSpacing: 'inherit' }}>
               {text || '文本节点'}
             </p>
           </div>

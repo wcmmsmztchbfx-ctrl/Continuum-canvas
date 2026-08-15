@@ -576,6 +576,51 @@ export function InspectorPanel({
               </div>
             </div>
 
+            {/* Line Height & Letter Spacing */}
+            <div className="inspector-row">
+              <div className="inspector-field">
+                <ScrubbableLabel
+                  label="行高"
+                  max={4}
+                  min={0.8}
+                  onChange={(val) => updateActiveData({ lineHeight: val })}
+                  step={0.1}
+                  value={Number(((activeNode as TextNode).data.lineHeight ?? 1.5).toFixed(1))}
+                />
+                <input
+                  aria-label="行高比例"
+                  className="inspector-field__input"
+                  disabled={readOnly || isLocked}
+                  max={4}
+                  min={0.8}
+                  onChange={(e) => updateActiveData({ lineHeight: Number(e.target.value) || 1.5 })}
+                  step={0.1}
+                  type="number"
+                  value={Number(((activeNode as TextNode).data.lineHeight ?? 1.5).toFixed(1))}
+                />
+              </div>
+              <div className="inspector-field">
+                <ScrubbableLabel
+                  label="间距"
+                  max={50}
+                  min={-10}
+                  onChange={(val) => updateActiveData({ letterSpacing: val })}
+                  value={Math.round((activeNode as TextNode).data.letterSpacing ?? 0)}
+                />
+                <input
+                  aria-label="字间距"
+                  className="inspector-field__input"
+                  disabled={readOnly || isLocked}
+                  max={50}
+                  min={-10}
+                  onChange={(e) => updateActiveData({ letterSpacing: Number(e.target.value) || 0 })}
+                  type="number"
+                  value={Math.round((activeNode as TextNode).data.letterSpacing ?? 0)}
+                />
+                <span style={{ color: '#737373', fontSize: '10px' }}>px</span>
+              </div>
+            </div>
+
             {/* Text Alignment */}
             <div className="inspector-row">
               <div className="inspector-seg-group">
