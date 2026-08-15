@@ -2,10 +2,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Clapperboard } from 'lucide-react'
 import { NodeResizer, Position, type NodeProps } from '@xyflow/react'
 
-import { sanitizeTextHtml } from '../../utils/richText'
 import type { CanvasFlowNode } from './mapping'
 import { EditableNodeLabel } from './EditableNodeLabel'
 import { NodeHandle } from './NodeHandle'
+
+function stripHtmlTags(str: string): string {
+  if (!str || !/<[a-z][\s\S]*>/i.test(str)) return str || ''
+  return str.replace(/<[^>]*>/g, '')
+}
 
 export function TextNode({
   id,
@@ -14,12 +18,12 @@ export function TextNode({
   isConnectable,
 }: NodeProps<CanvasFlowNode>) {
   const [editing, setEditing] = useState(false)
-  const [text, setText] = useState(data.text ?? '')
+  const [text, setText] = useState(() => stripHtmlTags(data.text ?? ''))
   const [lockMessage, setLockMessage] = useState<string>()
   const finishingRef = useRef(false)
   const handledLeaseLoss = useRef(data.interactionLeaseLost)
   const resizeGranted = useRef(false)
-  const editorRef = useRef<HTMLDivElement | null>(null)
+  const editorRef = useRef<HTMLTextAreaElement | null>(null)
   const autoStarted = useRef(false)
   const showDetails = selected && data.isSoleSelection !== false
   const model = data.node?.type === 'text' ? data.node : undefined
@@ -27,11 +31,8 @@ export function TextNode({
   const autoWidth = model?.data.autoWidth ?? false
 
   useEffect(() => {
-    setText(data.text ?? '')
-    if (editorRef.current && !editing) {
-      editorRef.current.innerHTML = data.text ?? ''
-    }
-  }, [data.text, editing])
+    setText(stripHtmlTags(data.text ?? ''))
+  }, [data.text])
 
   useEffect(() => {
     if (
@@ -41,7 +42,7 @@ export function TextNode({
     handledLeaseLoss.current = data.interactionLeaseLost
     if (!editing) return
     setEditing(false)
-    setText(data.text ?? '')
+    setText(stripHtmlTags(data.text ?? ''))
     setLockMessage(data.lockedBy ? `${data.lockedBy.displayName} 正在编辑` : '编辑锁已失效')
   }, [data.interactionLeaseLost, data.lockedBy, data.text, editing])
 
@@ -59,15 +60,8 @@ export function TextNode({
   const finishEditing = () => {
     if (!editing || finishingRef.current) return
     finishingRef.current = true
-    if (editorRef.current) {
-      editorRef.current.querySelectorAll('[data-active-span]').forEach((el) => {
-        el.removeAttribute('data-active-span')
-      })
-      const cleanHtml = editorRef.current.innerHTML
-      setText(cleanHtml)
-      data.onTextChange?.(id, cleanHtml)
-    }
     setEditing(false)
+    data.onTextChange?.(id, text)
     data.onInteractionEnd?.(id, 'text')
   }
 
@@ -88,7 +82,7 @@ export function TextNode({
     if (autoWidth) {
       const measure = document.createElement('span')
       measure.style.cssText = `position:fixed;visibility:hidden;white-space:pre;font:${model?.data.fontWeight ?? 500} ${model?.data.fontSize ?? 24}px ${model?.data.fontFamily ?? 'sans-serif'}`
-      measure.innerHTML = text || '输入文字'
+      measure.textContent = text || '输入文字'
       document.body.append(measure)
       const width = Math.min(640, Math.max(80, measure.getBoundingClientRect().width + 8))
       measure.remove()
@@ -135,20 +129,11 @@ export function TextNode({
       /> : null}
       <div className="canvas-media-node__frame canvas-text-node__frame">
         {editing ? (
-          <div
+          <textarea
             aria-label="文本节点内容"
             autoFocus
             className="canvas-text-node__editor nodrag nowheel"
-            contentEditable
-            role="textbox"
-            suppressContentEditableWarning
-            ref={(node) => {
-              editorRef.current = node
-              if (node && !node.dataset.initialized) {
-                node.dataset.initialized = 'true'
-                node.innerHTML = text || ''
-              }
-            }}
+            ref={editorRef}
             style={{
               fontSize: `${model?.data.fontSize ?? 14}px`,
               fontWeight: model?.data.fontWeight ?? 400,
@@ -157,16 +142,20 @@ export function TextNode({
               color: model?.data.color ?? '#ffffff',
               textAlign: model?.data.textAlign ?? 'left',
               fontFamily: model?.data.fontFamily ?? 'inherit',
-              outline: 0,
-              minHeight: '100%',
+              padding: '6px 8px',
               width: '100%',
+              height: '100%',
               boxSizing: 'border-box',
-              padding: '4px 6px',
+              resize: 'none',
+              border: 0,
+              outline: 0,
+              background: 'transparent',
               wordBreak: 'break-word',
               whiteSpace: 'pre-wrap',
             }}
-            onInput={(event) => {
-              const nextText = event.currentTarget.innerHTML
+            value={text}
+            onChange={(event) => {
+              const nextText = event.target.value
               setText(nextText)
               data.onTextChange?.(id, nextText)
             }}
@@ -220,18 +209,15 @@ export function TextNode({
               cursor: 'text',
               width: '100%',
               height: '100%',
-              padding: '4px 6px',
+              padding: '6px 8px',
+              boxSizing: 'border-box',
               wordBreak: 'break-word',
               whiteSpace: 'pre-wrap',
             }}
           >
-            {/<[a-z][\s\S]*>/i.test(text) ? (
-              <div style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit', display: 'inline' }} dangerouslySetInnerHTML={{ __html: sanitizeTextHtml(text) }} />
-            ) : (
-              <span style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit' }}>
-                {text || '文本节点'}
-              </span>
-            )}
+            <p style={{ margin: 0, width: '100%', color: 'inherit', font: 'inherit', lineHeight: 'inherit', letterSpacing: 'inherit' }}>
+              {text || '文本节点'}
+            </p>
           </div>
         )}
         {lockMessage ? <p className="canvas-node-lock-message" role="status">{lockMessage}</p> : null}

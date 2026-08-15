@@ -1,6 +1,5 @@
 import { useState, useCallback, type ChangeEvent } from 'react'
 import { useStore } from 'zustand'
-import { applyStyleToRange } from '../../utils/richText'
 import {
   Square,
   Circle,
@@ -83,29 +82,6 @@ export function InspectorPanel({
       store.getState().patchNode(activeNode.id, { data: dataChanges })
     },
     [activeNode, readOnly, store],
-  )
-
-  const updateTypography = useCallback(
-    (styleChange: Partial<{ fontSize: number; fontWeight: number; color: string; letterSpacing: number; lineHeight: number }>) => {
-      if (!activeNode || readOnly) return
-
-      const textNodeEditor = document.querySelector<HTMLElement>(
-        `[data-node-kind="text"][data-selected="true"] .canvas-text-node__editor, [data-node-kind="text"][data-selected="true"] [contenteditable="true"]`
-      )
-
-      if (textNodeEditor) {
-        const updatedHtml = applyStyleToRange(textNodeEditor, styleChange)
-        if (updatedHtml) {
-          store.getState().patchNode(activeNode.id, {
-            data: { text: updatedHtml },
-          })
-          return
-        }
-      }
-
-      updateActiveData(styleChange)
-    },
-    [activeNode, readOnly, store, updateActiveData],
   )
 
   const handleNameChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -569,7 +545,7 @@ export function InspectorPanel({
                   label="字号"
                   max={256}
                   min={8}
-                  onChange={(val) => updateTypography({ fontSize: val })}
+                  onChange={(val) => updateActiveData({ fontSize: val })}
                   value={(activeNode as TextNode).data.fontSize ?? 14}
                 />
                 <input
@@ -577,7 +553,7 @@ export function InspectorPanel({
                   className="inspector-field__input"
                   disabled={readOnly || isLocked}
                   min={8}
-                  onChange={(e) => updateTypography({ fontSize: Number(e.target.value) || 14 })}
+                  onChange={(e) => updateActiveData({ fontSize: Number(e.target.value) || 14 })}
                   type="number"
                   value={(activeNode as TextNode).data.fontSize ?? 14}
                 />
@@ -588,7 +564,7 @@ export function InspectorPanel({
                   aria-label="字重"
                   className="inspector-select"
                   disabled={readOnly || isLocked}
-                  onChange={(e) => updateTypography({ fontWeight: Number(e.target.value) })}
+                  onChange={(e) => updateActiveData({ fontWeight: Number(e.target.value) })}
                   style={{ border: 'none', background: 'transparent', height: '100%', padding: 0 }}
                   value={(activeNode as TextNode).data.fontWeight ?? 400}
                 >
@@ -607,7 +583,7 @@ export function InspectorPanel({
                   label="行高"
                   max={4}
                   min={0.8}
-                  onChange={(val) => updateTypography({ lineHeight: val })}
+                  onChange={(val) => updateActiveData({ lineHeight: val })}
                   step={0.1}
                   value={Number(((activeNode as TextNode).data.lineHeight ?? 1.5).toFixed(1))}
                 />
@@ -617,7 +593,7 @@ export function InspectorPanel({
                   disabled={readOnly || isLocked}
                   max={4}
                   min={0.8}
-                  onChange={(e) => updateTypography({ lineHeight: Number(e.target.value) || 1.5 })}
+                  onChange={(e) => updateActiveData({ lineHeight: Number(e.target.value) || 1.5 })}
                   step={0.1}
                   type="number"
                   value={Number(((activeNode as TextNode).data.lineHeight ?? 1.5).toFixed(1))}
@@ -628,7 +604,7 @@ export function InspectorPanel({
                   label="间距"
                   max={50}
                   min={-10}
-                  onChange={(val) => updateTypography({ letterSpacing: val })}
+                  onChange={(val) => updateActiveData({ letterSpacing: val })}
                   value={Math.round((activeNode as TextNode).data.letterSpacing ?? 0)}
                 />
                 <input
@@ -637,7 +613,7 @@ export function InspectorPanel({
                   disabled={readOnly || isLocked}
                   max={50}
                   min={-10}
-                  onChange={(e) => updateTypography({ letterSpacing: Number(e.target.value) || 0 })}
+                  onChange={(e) => updateActiveData({ letterSpacing: Number(e.target.value) || 0 })}
                   type="number"
                   value={Math.round((activeNode as TextNode).data.letterSpacing ?? 0)}
                 />
