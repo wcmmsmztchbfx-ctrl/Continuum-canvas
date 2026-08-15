@@ -1,6 +1,6 @@
 import { gatewayClient } from './gatewayClient'
 
-interface LocalAssetUploader {
+export interface LocalAssetUploader {
   uploadAsset(body: Blob, filename: string): Promise<{
     id: string
     url: string
@@ -28,6 +28,126 @@ export interface VideoMetadata {
   durationSec?: number
 }
 
+export interface TranscodedImageResult {
+  file: File
+  width: number
+  height: number
+  wasTranscoded: boolean
+}
+
+export interface PreparedMediaAsset {
+  kind: 'image' | 'video' | 'audio'
+  url: string
+  assetId?: string
+  posterUrl?: string
+  width: number
+  height: number
+  durationSec?: number
+  filename: string
+}
+
+/**
+ * Transcodes an input image (PNG, JPEG, BMP, etc.) into high-quality WebP format.
+ * If the image is already in WebP format or transcoding is unavailable (e.g. Node/SSR),
+ * it returns the original file alongside its measured dimensions.
+ */
+export async function transcodeImageToWebP(
+  file: File,
+  quality = 0.9,
+): Promise<TranscodedImageResult> {
+  if (typeof document === 'undefined') {
+    return { file, width: 480, height: 320, wasTranscoded: false }
+  }
+
+  return new Promise((resolve) => {
+    const objectUrl = URL.createObjectURL(file)
+    const img = new Image()
+
+    let finished = false
+    const finish = (result: TranscodedImageResult) => {
+      if (finished) return
+      finished = true
+      URL.revokeObjectURL(objectUrl)
+      resolve(result)
+    }
+
+    const timer = setTimeout(() => {
+      finish({ file, width: 480, height: 320, wasTranscoded: false })
+    }, 5000)
+
+    img.onload = () => {
+      clearTimeout(timer)
+      const naturalWidth = img.naturalWidth || 480
+      const naturalHeight = img.naturalHeight || 320
+
+      // If already WebP or GIF, skip canvas re-encoding to preserve animation/quality
+      if (file.type === 'image/webp' || file.type === 'image/gif') {
+        finish({
+          file,
+          width: naturalWidth,
+          height: naturalHeight,
+          wasTranscoded: false,
+        })
+        return
+      }
+
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = naturalWidth
+        canvas.height = naturalHeight
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, naturalWidth, naturalHeight)
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                const baseName = file.name.replace(/\.[^.]+$/, '') || 'image'
+                const webpFile = new File([blob], `${baseName}.webp`, {
+                  type: 'image/webp',
+                  lastModified: Date.now(),
+                })
+                finish({
+                  file: webpFile,
+                  width: naturalWidth,
+                  height: naturalHeight,
+                  wasTranscoded: true,
+                })
+                return
+              }
+              finish({
+                file,
+                width: naturalWidth,
+                height: naturalHeight,
+                wasTranscoded: false,
+              })
+            },
+            'image/webp',
+            quality,
+          )
+          return
+        }
+      } catch {}
+
+      finish({
+        file,
+        width: naturalWidth,
+        height: naturalHeight,
+        wasTranscoded: false,
+      })
+    }
+
+    img.onerror = () => {
+      clearTimeout(timer)
+      finish({ file, width: 480, height: 320, wasTranscoded: false })
+    }
+
+    img.src = objectUrl
+  })
+}
+
+/**
+ * Extracts metadata and a WebP snapshot poster from a local video file.
+ */
 export async function extractVideoMetadata(file: File): Promise<VideoMetadata> {
   if (typeof document === 'undefined') return {}
   return new Promise((resolve) => {
@@ -49,7 +169,7 @@ export async function extractVideoMetadata(file: File): Promise<VideoMetadata> {
 
     const timer = setTimeout(() => {
       finish({})
-    }, 4000)
+    }, 5000)
 
     video.onloadeddata = () => {
       try {
@@ -87,16 +207,10 @@ export async function extractVideoMetadata(file: File): Promise<VideoMetadata> {
     video.src = url
   })
 }
-export interface PreparedMediaAsset {
-  kind: 'image' | 'video' | 'audio'
-  url: string
-  assetId?: string
-  posterUrl?: string
-  width: number
-  height: number
-  durationSec?: number
-}
 
+/**
+ * Measures the natural dimensions of an image.
+ */
 export async function extractImageDimensions(file: File): Promise<{ width: number; height: number }> {
   if (typeof document === 'undefined') return { width: 480, height: 320 }
   return new Promise((resolve) => {
@@ -118,6 +232,14 @@ export async function extractImageDimensions(file: File): Promise<{ width: numbe
   })
 }
 
+/**
+ * Unified Media Processing Pipeline Facade:
+ * 1. Automatic format detection (Image / Video / Audio).
+ * 2. Transcodes images (PNG, JPEG, BMP) into standardized WebP format.
+ * 3. Extracts first-frame WebP snapshot poster and duration for videos.
+ * 4. Persists the assets to backend storage via gatewayClient.
+ * 5. Returns a ready-to-use PreparedMediaAsset payload.
+ */
 export async function uploadAndPrepareMediaAsset(
   file: File,
   uploader: LocalAssetUploader = gatewayClient,
@@ -126,12 +248,26 @@ export async function uploadAndPrepareMediaAsset(
   const isAudio = file.type.startsWith('audio/')
   const kind: 'image' | 'video' | 'audio' = isVideo ? 'video' : isAudio ? 'audio' : 'image'
 
+  let fileToUpload = file
   let posterUrl: string | undefined
   let width = isVideo ? 480 : 480
   let height = isVideo ? 270 : 320
   let durationSec: number | undefined
 
-  if (isVideo) {
+  if (kind === 'image') {
+    try {
+      const transcoded = await transcodeImageToWebP(file)
+      fileToUpload = transcoded.file
+      if (transcoded.width && transcoded.height) {
+        width = Math.min(600, Math.max(180, transcoded.width))
+        height = Math.round(width * (transcoded.height / transcoded.width))
+      }
+    } catch {
+      const dims = await extractImageDimensions(file)
+      width = dims.width
+      height = dims.height
+    }
+  } else if (isVideo) {
     try {
       const meta = await extractVideoMetadata(file)
       if (meta.width && meta.height) {
@@ -155,22 +291,16 @@ export async function uploadAndPrepareMediaAsset(
         }
       }
     } catch {}
-  } else if (kind === 'image') {
-    try {
-      const dims = await extractImageDimensions(file)
-      width = dims.width
-      height = dims.height
-    } catch {}
   }
 
   let mediaUrl = ''
   let assetId: string | undefined
   try {
-    const asset = await persistLocalMedia(file, uploader)
+    const asset = await persistLocalMedia(fileToUpload, uploader)
     mediaUrl = asset.url
     assetId = asset.assetId
   } catch {
-    mediaUrl = URL.createObjectURL(file)
+    mediaUrl = URL.createObjectURL(fileToUpload)
   }
 
   return {
@@ -181,5 +311,6 @@ export async function uploadAndPrepareMediaAsset(
     width,
     height,
     durationSec,
+    filename: fileToUpload.name,
   }
 }
