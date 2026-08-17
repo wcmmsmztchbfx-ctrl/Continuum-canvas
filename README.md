@@ -1,4 +1,4 @@
-# LibTV Canvas
+# Continuum Canvas
 
 LibTV Canvas 是一个基于 React、TypeScript 和 React Flow 的无限画布编辑器。浏览器端负责画布交互、项目状态与本地持久化；仓库内置的 Node gateway 负责供应商配置、素材存储、任务执行和静态文件托管。
 
