@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import {
   AudioLines,
   Box,
@@ -11,7 +12,7 @@ import type { CanvasFlowNode } from './mapping'
 import { EditableNodeLabel } from './EditableNodeLabel'
 import { NodeHandle } from './NodeHandle'
 
-export function SpecialNode({
+function SpecialNodeContent({
   id,
   data,
   type,
@@ -91,3 +92,5 @@ export function SpecialNode({
     </article>
   )
 }
+
+export const SpecialNode = memo(SpecialNodeContent)

@@ -476,6 +476,7 @@ export function CanvasWorkspace({
       data: { url: asset.url, assetId: asset.id, source: { nodeId, kind: 'video-frame', timeSec: video.currentTime, capture }, versions: [{ id: versionId, url: asset.url, assetId: asset.id, createdAt: new Date().toISOString(), label: '视频帧' }], activeVersionId: versionId },
     })
   }, [store])
+
   const project = useMemo(
     () => mapProjectSnapshotToReactFlow(snapshot),
     [snapshot],
@@ -1290,6 +1291,7 @@ export function CanvasWorkspace({
     void selectedNodeKey
     const previousSignatures = stableModelSignaturesRef.current
     const modelById = new Map(snapshot.nodes.map((node) => [node.id, node]))
+    const previousById = new Map(stableNodesRef.current.map((n) => [n.id, n]))
     const incomingEdges = new Map<string, string>()
     for (const edge of snapshot.edges) {
       if (edge.relation === 'reference') {
@@ -1300,12 +1302,12 @@ export function CanvasWorkspace({
     const signatures = new Map(
       snapshot.nodes.map((node) => [
         node.id,
-        `${JSON.stringify(node)}#${incomingEdges.get(node.id) ?? ''}`,
+        `${node.type}:${node.position.x},${node.position.y},${node.size.width},${node.size.height},${node.name},${node.parentId ?? ''},${node.locked ? 1 : 0},${node.hidden ? 1 : 0},${'url' in node.data ? node.data.url : ''},${'text' in node.data ? node.data.text : ''},${'generation' in node.data ? node.data.generation?.status : ''}#${incomingEdges.get(node.id) ?? ''}`,
       ]),
     )
     const projectIdUnchanged = stableProjectIdRef.current === snapshot.projectId
     const incoming = decorateNodes(project.nodes).map((node) => {
-      const previous = stableNodesRef.current.find((candidate) => candidate.id === node.id)
+      const previous = previousById.get(node.id)
       const previousModel = previous?.data.node
       const nextModel = modelById.get(node.id)
       if (
@@ -1392,6 +1394,36 @@ export function CanvasWorkspace({
   const setCollaborationCursor = collaboration?.setCursor
   const setCollaborationSelection = collaboration?.setSelection
   const setCollaborationViewport = collaboration?.setViewport
+
+  const cursorFrameRef = useRef<number | null>(null)
+  const pendingCursorPos = useRef<{ x: number; y: number } | null>(null)
+
+  const scheduleCollaborationCursor = useCallback((pos: { x: number; y: number }) => {
+    if (
+      typeof window === 'undefined' ||
+      typeof requestAnimationFrame !== 'function' ||
+      import.meta.env?.MODE === 'test'
+    ) {
+      setCollaborationCursor?.(pos)
+      return
+    }
+    pendingCursorPos.current = pos
+    if (cursorFrameRef.current !== null) return
+    cursorFrameRef.current = requestAnimationFrame(() => {
+      cursorFrameRef.current = null
+      if (pendingCursorPos.current && setCollaborationCursor) {
+        setCollaborationCursor(pendingCursorPos.current)
+      }
+    })
+  }, [setCollaborationCursor])
+
+  useEffect(() => {
+    return () => {
+      if (cursorFrameRef.current !== null) {
+        cancelAnimationFrame(cursorFrameRef.current)
+      }
+    }
+  }, [])
   type DragGeometry = { position: Point; positionAbsolute: Point }
   const activeDrag = useRef<{
     lease?: NodeLease
@@ -2134,7 +2166,7 @@ export function CanvasWorkspace({
           }
         }
         if (!setCollaborationCursor || !flowInstance) return
-        setCollaborationCursor(flowInstance.screenToFlowPosition({
+        scheduleCollaborationCursor(flowInstance.screenToFlowPosition({
           x: event.clientX,
           y: event.clientY,
         }))

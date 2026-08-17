@@ -325,12 +325,15 @@ export default function App({
     [notify],
   )
 
+  const appShellRef = useRef<HTMLElement | null>(null)
+
   const finishLayersResize = useCallback(() => {
     const resize = layersResizeRef.current
     if (!resize) return
     layersResizeRef.current = undefined
     resize.cleanup()
     setLayersResizing(false)
+    setLayersWidth(resize.width)
     persistPreferences({ layersWidth: resize.width })
   }, [persistPreferences])
 
@@ -345,7 +348,9 @@ export default function App({
       const width = Math.min(maximum, Math.max(MIN_LAYERS_WIDTH,
         resize.startWidth + moveEvent.clientX - resize.startX))
       resize.width = normalizeLayersWidth(width)
-      setLayersWidth(resize.width)
+      if (appShellRef.current) {
+        appShellRef.current.style.setProperty('--layers-sidebar-width', `${resize.width}px`)
+      }
     }
     const end = () => finishLayersResize()
     const cleanup = () => {
@@ -371,6 +376,7 @@ export default function App({
     inspectorResizeRef.current = undefined
     resize.cleanup()
     setInspectorResizing(false)
+    setInspectorWidth(resize.width)
     persistPreferences({ inspectorWidth: resize.width })
   }, [persistPreferences])
 
@@ -388,7 +394,9 @@ export default function App({
       if (inspectorResizeRef.current) {
         inspectorResizeRef.current.width = normalized
       }
-      setInspectorWidth(normalized)
+      if (appShellRef.current) {
+        appShellRef.current.style.setProperty('--inspector-sidebar-width', `${normalized}px`)
+      }
     }
     const end = () => finishInspectorResize()
     const cleanup = () => {
@@ -1203,6 +1211,7 @@ export default function App({
 
   return (
     <main
+      ref={appShellRef}
       aria-busy={!hydrated}
       className="app-shell"
       data-hydrated={hydrated}

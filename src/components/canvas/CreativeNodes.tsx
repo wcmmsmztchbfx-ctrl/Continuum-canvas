@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { memo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { NodeResizer, type NodeProps } from '@xyflow/react'
 
 import type { FrameNode as FrameModel, PathNode as PathModel, ShapeNode as ShapeModel } from '../../model/project'
@@ -76,7 +76,7 @@ function resizer(id: string, data: CanvasFlowNode['data'], selected: boolean) {
   return <NodeResizer color="#0d99ff" handleClassName="creative-resize-handle" isVisible={selected} keepAspectRatio={false} lineClassName="creative-resize-line" minHeight={16} minWidth={16} onResizeEnd={(_event, geometry) => { const finalGeometry = latest ?? geometry; latest = undefined; data.onCreativeChange?.(id, { size: { width: finalGeometry.width, height: finalGeometry.height }, position: { x: finalGeometry.x, y: finalGeometry.y } }) }} shouldResize={(event, geometry) => { latest = data.onCreativeResizeSnap?.(id, geometry, modifiers(event)) ?? geometry; Object.assign(geometry, latest); return true }} />
 }
 
-export function FrameNode({ id, data, selected }: NodeProps<CanvasFlowNode>) {
+function FrameNodeContent({ id, data, selected }: NodeProps<CanvasFlowNode>) {
   const node = data.node
   if (!node || node.type !== 'frame') return null
   return <article className="canvas-frame-node" style={{ background: node.data.fill, borderColor: node.data.stroke, borderWidth: node.data.strokeWidth, transform: `rotate(${node.data.rotation ?? 0}deg)` }}>
@@ -86,7 +86,9 @@ export function FrameNode({ id, data, selected }: NodeProps<CanvasFlowNode>) {
   </article>
 }
 
-export function ShapeNode({ id, data, selected }: NodeProps<CanvasFlowNode>) {
+export const FrameNode = memo(FrameNodeContent)
+
+function ShapeNodeContent({ id, data, selected }: NodeProps<CanvasFlowNode>) {
   const node = data.node as ShapeModel | undefined
   if (!node || node.type !== 'shape') return null
   const style = { fill: node.data.fill, stroke: node.data.stroke, strokeWidth: node.data.strokeWidth, opacity: node.data.opacity }
@@ -101,7 +103,9 @@ export function ShapeNode({ id, data, selected }: NodeProps<CanvasFlowNode>) {
   </div>
 }
 
-export function PathNode({ data, selected }: NodeProps<CanvasFlowNode>) {
+export const ShapeNode = memo(ShapeNodeContent)
+
+function PathNodeContent({ data, selected }: NodeProps<CanvasFlowNode>) {
   const node = data.node as PathModel | undefined
   if (!node || node.type !== 'path') return null
   return <div className="canvas-creative-node">
@@ -109,3 +113,5 @@ export function PathNode({ data, selected }: NodeProps<CanvasFlowNode>) {
     <svg aria-label={data.name} preserveAspectRatio="none" viewBox={`0 0 ${node.size.width} ${node.size.height}`}><path d={pathData(node)} fill={node.data.closed ? node.data.fill : 'none'} opacity={node.data.opacity} stroke={node.data.stroke} strokeLinecap="round" strokeLinejoin="round" strokeWidth={node.data.strokeWidth} /></svg>
   </div>
 }
+
+export const PathNode = memo(PathNodeContent)

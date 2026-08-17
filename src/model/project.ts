@@ -921,12 +921,15 @@ export function normalizeCanvasHierarchy(nodes: readonly CanvasNode[]): CanvasNo
   }
 
   const ordered: CanvasNode[] = []
+  const visitedSet = new Set<string>()
   const visit = (id: string) => {
+    if (visitedSet.has(id)) return
     const node = normalized.get(id)
-    if (!node || ordered.some((item) => item.id === id)) return
+    if (!node) return
+    visitedSet.add(id)
     ordered.push(node)
     if (node.type === 'frame' || node.type === 'group') {
-      for (const childId of node.data.childIds) visit(childId)
+      for (const childId of (node.data.childIds ?? [])) visit(childId)
     }
   }
   for (const id of childrenByParent.get(undefined) ?? []) visit(id)

@@ -102,14 +102,41 @@ function equalGapDelta(rect: SnapRect, candidates: SnapRect[], axis: 'x' | 'y', 
   return best
 }
 
+function cullDistantCandidates(
+  rect: SnapRect,
+  candidates: SnapRect[],
+  proximity = 2500,
+  keepIds?: (string | undefined)[],
+): SnapRect[] {
+  if (candidates.length <= 16) return candidates
+  const minX = rect.x - proximity
+  const maxX = rect.x + rect.width + proximity
+  const minY = rect.y - proximity
+  const maxY = rect.y + rect.height + proximity
+  const keep = new Set(keepIds?.filter((id): id is string => Boolean(id)))
+  return candidates.filter((c) => (
+    (c.id && keep.has(c.id)) ||
+    (c.x + c.width >= minX &&
+      c.x <= maxX &&
+      c.y + c.height >= minY &&
+      c.y <= maxY)
+  ))
+}
+
 export function snapRect(input: { rect: SnapRect; candidates: SnapRect[]; zoom: number; enabled: boolean; grid?: number; disable?: boolean; measure?: boolean; previous?: SnapState }): SnapResult {
   const threshold = 6 / Math.max(input.zoom, 0.01)
   const original = input.rect
-  if (input.disable) return { rect: { ...original }, guides: [], distances: input.measure ? nearestDistances(original, input.candidates) : [], state: {} }
-  const x = input.enabled ? nearestAxis(original, anchorsX(original), input.candidates, 'x', threshold, input.previous?.x) : undefined
-  const y = input.enabled ? nearestAxis(original, anchorsY(original), input.candidates, 'y', threshold, input.previous?.y) : undefined
-  const gapX = input.enabled && !x ? equalGapDelta(original, input.candidates, 'x', threshold) : undefined
-  const gapY = input.enabled && !y ? equalGapDelta(original, input.candidates, 'y', threshold) : undefined
+  const candidates = cullDistantCandidates(
+    original,
+    input.candidates,
+    2500 / Math.min(Math.max(input.zoom, 0.25), 1),
+    [input.previous?.x?.candidateId, input.previous?.y?.candidateId],
+  )
+  if (input.disable) return { rect: { ...original }, guides: [], distances: input.measure ? nearestDistances(original, candidates) : [], state: {} }
+  const x = input.enabled ? nearestAxis(original, anchorsX(original), candidates, 'x', threshold, input.previous?.x) : undefined
+  const y = input.enabled ? nearestAxis(original, anchorsY(original), candidates, 'y', threshold, input.previous?.y) : undefined
+  const gapX = input.enabled && !x ? equalGapDelta(original, candidates, 'x', threshold) : undefined
+  const gapY = input.enabled && !y ? equalGapDelta(original, candidates, 'y', threshold) : undefined
   let dx = x?.delta ?? gapX ?? 0
   let dy = y?.delta ?? gapY ?? 0
   if (input.grid) {

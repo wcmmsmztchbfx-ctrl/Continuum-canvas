@@ -5,10 +5,11 @@ interface QueueItem {
   url: string
   priority: LoadPriority
   resolve: (value: boolean) => void
+  abortController?: AbortController
   isCancelled: boolean
 }
 
-const MAX_CONCURRENT_LOADS = 2
+const MAX_CONCURRENT_LOADS = 6
 let activeLoads = 0
 const queue: QueueItem[] = []
 const loadedCache = new Set<string>()
@@ -43,7 +44,10 @@ function processQueue() {
     }
 
     activeLoads++
-    performImageLoad(item.url)
+    const controller = new AbortController()
+    item.abortController = controller
+
+    performImageLoad(item.url, controller.signal)
       .then((success) => {
         if (success) loadedCache.add(item.url)
         item.resolve(success)
@@ -63,9 +67,13 @@ function processQueue() {
   }
 }
 
-function performImageLoad(url: string): Promise<boolean> {
+function performImageLoad(url: string, signal?: AbortSignal): Promise<boolean> {
   if (typeof window === 'undefined' || typeof Image === 'undefined') {
     return Promise.resolve(true)
+  }
+
+  if (signal?.aborted) {
+    return Promise.resolve(false)
   }
 
   if (inFlightMap.has(url)) {
@@ -74,15 +82,46 @@ function performImageLoad(url: string): Promise<boolean> {
 
   const promise = new Promise<boolean>((resolve) => {
     const img = new Image()
+    let settled = false
+
+    const cleanup = () => {
+      if (settled) return
+      settled = true
+      img.onload = null
+      img.onerror = null
+      if (signal) {
+        signal.removeEventListener('abort', onAbort)
+      }
+    }
+
+    const onAbort = () => {
+      if (settled) return
+      cleanup()
+      try {
+        img.src = ''
+      } catch {}
+      resolve(false)
+    }
+
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+
     img.decoding = 'async'
     img.onload = () => {
+      if (settled) return
+      cleanup()
       if ('decode' in img && typeof img.decode === 'function') {
         img.decode().then(() => resolve(true)).catch(() => resolve(true))
       } else {
         resolve(true)
       }
     }
-    img.onerror = () => resolve(false)
+    img.onerror = () => {
+      if (settled) return
+      cleanup()
+      resolve(false)
+    }
     img.src = url
   }).finally(() => {
     inFlightMap.delete(url)
@@ -113,22 +152,14 @@ export function requestMediaLoad(
     }
   }
 
-  let cancelFn = () => {}
+  let item: QueueItem
   const promise = new Promise<boolean>((resolve) => {
-    const item: QueueItem = {
+    item = {
       id: Math.random().toString(36).slice(2),
       url,
       priority,
       resolve,
       isCancelled: false,
-    }
-
-    cancelFn = () => {
-      item.isCancelled = true
-      const index = queue.indexOf(item)
-      if (index !== -1) {
-        queue.splice(index, 1)
-      }
     }
 
     queue.push(item)
@@ -140,7 +171,18 @@ export function requestMediaLoad(
     }
   })
 
-  return { promise, cancel: cancelFn }
+  const cancel = () => {
+    if (item) {
+      item.isCancelled = true
+      item.abortController?.abort()
+      const index = queue.indexOf(item)
+      if (index !== -1) {
+        queue.splice(index, 1)
+      }
+    }
+  }
+
+  return { promise, cancel }
 }
 
 export function isMediaLoaded(url?: string): boolean {
