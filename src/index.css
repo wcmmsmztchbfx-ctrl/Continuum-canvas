@@ -254,6 +254,27 @@ select:focus-visible {
   flex-shrink: 0;
 }
 
+.workspace-menu--participant {
+  cursor: default !important;
+  opacity: 0.95;
+}
+
+.workspace-menu--participant:hover {
+  background: transparent !important;
+}
+
+.workspace-menu__participant-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 1px 5px;
+  border-radius: 6px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
 .app-layer-sidebar__title {
   font-size: 12px;
   font-weight: 600;
@@ -907,4 +928,188 @@ select:focus-visible {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* Floating Collaboration Badge */
+.floating-collab-badge {
+  position: fixed;
+  right: 24px;
+  bottom: 28px;
+  z-index: 9999;
+  width: 280px;
+  padding: 14px 16px;
+  background: rgba(18, 20, 24, 0.88);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: floatCollabSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  font-family: inherit;
+  color: #f3f4f6;
+  user-select: none;
+}
+
+.floating-collab-badge:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.floating-collab-badge-minimized {
+  width: auto;
+  padding: 10px 12px;
+  border-radius: 24px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.floating-collab-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.floating-collab-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.floating-collab-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: pulseGreen 2s infinite cubic-bezier(0.66, 0, 0, 1);
+}
+
+@keyframes pulseGreen {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+.floating-collab-status-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: #34d399;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.floating-collab-minimize-btn {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.floating-collab-minimize-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.floating-collab-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.floating-collab-canvas-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f9fafb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.floating-collab-canvas-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floating-collab-members {
+  flex-shrink: 0;
+}
+
+.floating-collab-member-badge {
+  font-size: 11px;
+  color: #9ca3af;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.floating-collab-actions {
+  margin-top: 2px;
+}
+
+.floating-collab-return-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.floating-collab-return-btn:hover {
+  background: #1d4ed8;
+}
+
+.floating-collab-return-btn:active {
+  transform: scale(0.98);
+}
+
+.floating-collab-arrow {
+  transition: transform 0.15s ease;
+}
+
+.floating-collab-return-btn:hover .floating-collab-arrow {
+  transform: translateX(3px);
+}
+
+@keyframes floatCollabSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }

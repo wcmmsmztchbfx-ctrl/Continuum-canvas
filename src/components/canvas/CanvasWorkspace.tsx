@@ -1290,20 +1290,39 @@ export function CanvasWorkspace({
     void selectedNodeKey
     const previousSignatures = stableModelSignaturesRef.current
     const modelById = new Map(snapshot.nodes.map((node) => [node.id, node]))
-    const signatures = new Map(snapshot.nodes.map((node) => [node.id, JSON.stringify(node)]))
+    const incomingEdges = new Map<string, string>()
+    for (const edge of snapshot.edges) {
+      if (edge.relation === 'reference') {
+        const prevTarget = incomingEdges.get(edge.target) ?? ''
+        incomingEdges.set(edge.target, `${prevTarget}|${edge.source}:${edge.referenceAlias}`)
+      }
+    }
+    const signatures = new Map(
+      snapshot.nodes.map((node) => [
+        node.id,
+        `${JSON.stringify(node)}#${incomingEdges.get(node.id) ?? ''}`,
+      ]),
+    )
     const projectIdUnchanged = stableProjectIdRef.current === snapshot.projectId
     const incoming = decorateNodes(project.nodes).map((node) => {
       const previous = stableNodesRef.current.find((candidate) => candidate.id === node.id)
       const previousModel = previous?.data.node
       const nextModel = modelById.get(node.id)
-      if (!previous || !previousModel || !nextModel || !projectIdUnchanged ||
-        previousSignatures.get(node.id) !== signatures.get(node.id)) return node
+      if (
+        !previous ||
+        !previousModel ||
+        !nextModel ||
+        !projectIdUnchanged ||
+        previousSignatures.get(node.id) !== signatures.get(node.id)
+      ) {
+        return node
+      }
       return {
         ...node,
         data: {
           ...node.data,
           node: previousModel,
-          references: previous.data.references,
+          references: node.data.references,
           referenceCandidates: previous.data.referenceCandidates,
         },
       }
@@ -1313,7 +1332,7 @@ export function CanvasWorkspace({
     stableModelSignaturesRef.current = signatures
     stableProjectIdRef.current = snapshot.projectId
     return next
-  }, [decorateNodes, project.nodes, remoteLockKey, selectedNodeKey, snapshot.nodes, snapshot.projectId])
+  }, [decorateNodes, project.nodes, remoteLockKey, selectedNodeKey, snapshot.edges, snapshot.nodes, snapshot.projectId])
   const persistentEdges = useMemo(() => {
     void selectedNodeKey
     const next = stabilizeProjectedEdges(stableEdgesRef.current, decorateEdges(project.edges))

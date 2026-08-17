@@ -69,9 +69,10 @@
 .workspace-canvas-card { position: relative; min-width: 0; overflow: hidden; background: #1c1c1c; border: 1px solid #303030; border-radius: 7px; transition: border-color 150ms ease, transform 150ms ease; }
 .workspace-canvas-card:hover { border-color: #555; transform: translateY(-1px); }
 .workspace-canvas-card__open { display: block; width: 100%; padding: 0; color: inherit; text-align: left; background: transparent; border: 0; cursor: pointer; }
-.workspace-canvas-card__preview { display: grid; place-items: center; width: 100%; aspect-ratio: 16 / 9; color: #566366; background: #202526; border-bottom: 1px solid #303535; }
+.workspace-canvas-card__preview { position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 16 / 9; color: #566366; background: #202526; border-bottom: 1px solid #303535; }
 .workspace-canvas-card__preview svg { width: 28px; height: 28px; }
 .workspace-canvas-card__preview img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.workspace-canvas-card__collab-tag { position: absolute; top: 8px; right: 8px; display: flex; align-items: center; gap: 6px; padding: 3px 8px; background: rgba(18, 20, 24, 0.85); backdrop-filter: blur(8px); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 12px; color: #34d399; font-size: 11px; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,.3); }
 .workspace-canvas-card__details { display: grid; gap: 5px; min-height: 82px; padding: 13px 14px; }
 .workspace-canvas-card__details strong { min-width: 0; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-canvas-card__details span,

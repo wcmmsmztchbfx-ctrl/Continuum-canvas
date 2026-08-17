@@ -1,7 +1,12 @@
 import { createStore } from 'zustand/vanilla'
 
 import type { GenerationHistoryEntry } from '../contracts/generation'
-import { getOrderedReferences, normalizeCanvasHierarchy, parseProjectSnapshot } from '../model/project'
+import {
+  compactPromptReferences,
+  getOrderedReferences,
+  normalizeCanvasHierarchy,
+  parseProjectSnapshot,
+} from '../model/project'
 import type {
   CanvasEdge,
   CanvasNode,
@@ -149,6 +154,71 @@ export interface CanvasStoreState {
 }
 
 const MAX_UNDO_STACK_SIZE = 100
+
+function applyReferenceRemovals(
+  nodes: CanvasNode[],
+  edges: CanvasEdge[],
+  removals: Array<{ targetNodeId: string; removedAlias: number }>,
+): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
+  if (removals.length === 0) return { nodes, edges }
+
+  const removalsByTarget = new Map<string, number[]>()
+  for (const { targetNodeId, removedAlias } of removals) {
+    const list = removalsByTarget.get(targetNodeId) ?? []
+    list.push(removedAlias)
+    removalsByTarget.set(targetNodeId, list)
+  }
+
+  let updatedEdges = [...edges]
+  let updatedNodes = [...nodes]
+
+  for (const [targetId, aliases] of removalsByTarget.entries()) {
+    const sortedAliases = [...new Set(aliases)].sort((a, b) => b - a)
+
+    for (const removedAlias of sortedAliases) {
+      updatedEdges = updatedEdges.map((edge) => {
+        if (
+          edge.target === targetId &&
+          edge.relation === 'reference' &&
+          edge.referenceAlias !== undefined &&
+          edge.referenceAlias > removedAlias
+        ) {
+          return {
+            ...edge,
+            referenceAlias: edge.referenceAlias - 1,
+          }
+        }
+        return edge
+      })
+
+      updatedNodes = updatedNodes.map((node) => {
+        if (node.id !== targetId) return node
+        if (node.type !== 'image' && node.type !== 'video') return node
+
+        const draft = node.data.promptDraft
+        const genPrompt = node.data.generation?.prompt
+        const currentPrompt = draft ?? genPrompt ?? ''
+        const nextPrompt = compactPromptReferences(currentPrompt, removedAlias)
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            promptDraft: nextPrompt,
+            ...(node.data.generation ? {
+              generation: {
+                ...node.data.generation,
+                prompt: compactPromptReferences(node.data.generation.prompt, removedAlias),
+              },
+            } : {}),
+          },
+        } as CanvasNode
+      })
+    }
+  }
+
+  return { nodes: updatedNodes, edges: updatedEdges }
+}
 
 export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
   const past: ProjectSnapshot[] = []
@@ -689,16 +759,22 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
     },
     detachReference: (targetNodeId, sourceNodeId) => {
       const current = get().snapshot
-      const edges = current.edges.filter(
+      const targetEdge = current.edges.find(
         (edge) =>
-          !(
-            edge.target === targetNodeId &&
-            edge.source === sourceNodeId &&
-            edge.relation === 'reference'
-          ),
+          edge.target === targetNodeId &&
+          edge.source === sourceNodeId &&
+          edge.relation === 'reference',
       )
-      if (edges.length !== current.edges.length) {
-        commitDocument({ ...current, edges })
+      if (!targetEdge) return
+      const remainingEdges = current.edges.filter((edge) => edge.id !== targetEdge.id)
+      const removedAlias = targetEdge.referenceAlias
+      if (removedAlias !== undefined) {
+        const result = applyReferenceRemovals(current.nodes, remainingEdges, [
+          { targetNodeId, removedAlias },
+        ])
+        commitDocument({ ...current, nodes: result.nodes, edges: result.edges })
+      } else {
+        commitDocument({ ...current, edges: remainingEdges })
       }
     },
     getOrderedReferences: (targetNodeId) =>
@@ -714,7 +790,7 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
           ? [[node.id, node] as const]
           : [],
       ))
-      const nodes = current.nodes.flatMap((node) => {
+      const rawRemainingNodes = current.nodes.flatMap((node) => {
         if (ids.has(node.id)) return []
         const parent = node.parentId ? deletedParents.get(node.parentId) : undefined
         if (!parent) return [node]
@@ -727,11 +803,29 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
           },
         } as CanvasNode]
       })
-      if (nodes.length === current.nodes.length) return
+      if (rawRemainingNodes.length === current.nodes.length) return
 
-      const edges = current.edges.filter(
+      const removals: Array<{ targetNodeId: string; removedAlias: number }> = []
+      for (const edge of current.edges) {
+        if (
+          ids.has(edge.source) &&
+          !ids.has(edge.target) &&
+          edge.relation === 'reference' &&
+          edge.referenceAlias !== undefined
+        ) {
+          removals.push({ targetNodeId: edge.target, removedAlias: edge.referenceAlias })
+        }
+      }
+
+      const rawRemainingEdges = current.edges.filter(
         (edge) => !ids.has(edge.source) && !ids.has(edge.target),
       )
+      const { nodes, edges } = applyReferenceRemovals(
+        rawRemainingNodes,
+        rawRemainingEdges,
+        removals,
+      )
+
       const comments = current.comments?.map((comment) =>
         comment.nodeId && ids.has(comment.nodeId)
           ? { ...comment, nodeDeleted: true, nodeId: undefined }
@@ -746,9 +840,25 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
       const ids = new Set(edgeIds)
       if (ids.size === 0) return
       const current = get().snapshot
-      const edges = current.edges.filter((edge) => !ids.has(edge.id))
-      if (edges.length === current.edges.length) return
-      commitDocument({ ...current, edges })
+      const removals: Array<{ targetNodeId: string; removedAlias: number }> = []
+      for (const edge of current.edges) {
+        if (
+          ids.has(edge.id) &&
+          edge.relation === 'reference' &&
+          edge.referenceAlias !== undefined
+        ) {
+          removals.push({ targetNodeId: edge.target, removedAlias: edge.referenceAlias })
+        }
+      }
+      const remainingEdges = current.edges.filter((edge) => !ids.has(edge.id))
+      if (remainingEdges.length === current.edges.length) return
+
+      const { nodes, edges } = applyReferenceRemovals(
+        current.nodes,
+        remainingEdges,
+        removals,
+      )
+      commitDocument({ ...current, nodes, edges })
     },
     pasteImportedGraph: ({ nodes: sourceNodes, edges: sourceEdges, anchor }) => {
       if (sourceNodes.length === 0) return []

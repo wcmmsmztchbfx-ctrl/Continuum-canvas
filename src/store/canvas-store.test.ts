@@ -1175,8 +1175,11 @@ describe('canvas store reference relations', () => {
     ],
   }
 
-  it('assigns the lowest unused alias and keeps remaining aliases stable', () => {
+  it('compacts remaining aliases and heals prompts when a reference is detached', () => {
     const store = createCanvasStore(referenceSnapshot)
+
+    // Set initial prompt draft with mentions @1 and @2
+    store.getState().updateGenerationPrompt('target', '@1 style with @2 subject')
 
     const first = store.getState().attachReference('target', 'source-a')
     const second = store.getState().attachReference('target', 'source-b')
@@ -1189,13 +1192,47 @@ describe('canvas store reference relations', () => {
         edge.referenceAlias,
         node.id,
       ]),
-    ).toEqual([[2, 'source-b']])
+    ).toEqual([[1, 'source-b']])
 
-    const reused = store.getState().attachReference('target', 'source-c')
-    expect(reused?.referenceAlias).toBe(1)
+    // Prompt @1 was stripped, and @2 was compacted to @1
+    expect(
+      store.getState().snapshot.nodes.find((n) => n.id === 'target')?.data.promptDraft,
+    ).toBe('style with @1 subject')
+
+    const third = store.getState().attachReference('target', 'source-c')
+    expect(third?.referenceAlias).toBe(2)
     expect(
       store.getState().snapshot.edges.find((edge) => edge.id === 'output-edge'),
     ).toMatchObject({ relation: 'output' })
+  })
+
+  it('automatically cleans up prompts and compacts remaining references when a source node is deleted', () => {
+    const store = createCanvasStore(referenceSnapshot)
+
+    store.getState().updateGenerationPrompt('target', '@1 and @2 and @3 in palace')
+
+    store.getState().attachReference('target', 'source-a') // @1
+    store.getState().attachReference('target', 'source-b') // @2
+    store.getState().attachReference('target', 'source-c') // @3
+
+    // Delete source-a (alias 1)
+    store.getState().deleteNodes(['source-a'])
+
+    // Remaining references should be source-b (@1) and source-c (@2)
+    expect(
+      store.getState().getOrderedReferences('target').map(({ edge, node }) => [
+        edge.referenceAlias,
+        node.id,
+      ]),
+    ).toEqual([
+      [1, 'source-b'],
+      [2, 'source-c'],
+    ])
+
+    // Prompt should have @1 removed, @2 -> @1, @3 -> @2
+    expect(
+      store.getState().snapshot.nodes.find((n) => n.id === 'target')?.data.promptDraft,
+    ).toBe('and @1 and @2 in palace')
   })
 
   it('does not duplicate references and never treats output edges as inputs', () => {

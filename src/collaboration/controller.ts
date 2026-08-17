@@ -26,6 +26,11 @@ import {
   getCollaborationDisplayName,
 } from './client'
 import {
+  clearActiveCollaboration,
+  getActiveCollaboration,
+  setActiveCollaboration,
+} from './activeCollaborationStore'
+import {
   CanvasCollaborationSession,
   type CanvasCollaborationStatus,
 } from './session'
@@ -619,6 +624,7 @@ export class CanvasCollaborationController {
     await this.client.closeRoom(room.roomId)
     await this.detach()
     this.clearRoomFromUrl()
+    clearActiveCollaboration()
   }
 
   async destroy(): Promise<void> {
@@ -650,6 +656,18 @@ export class CanvasCollaborationController {
       status: session.status.state,
       error: session.status.error,
     })
+    if (serverSession.role === 'owner') {
+      setActiveCollaboration({
+        roomId: room.roomId,
+        projectId: room.projectId ?? this.options.projectId,
+        canvasId: room.canvasId ?? this.options.canvasId,
+        canvasName: baseline?.name ?? this.currentSnapshot().name ?? '协作画布',
+        role: 'owner',
+        status: 'active',
+        createdAt: room.createdAt ?? new Date().toISOString(),
+        memberCount: session.getRemotePresence().length + 1,
+      })
+    }
     let reconciled = false
     const reconcile = () => {
       if (reconciled || this.canvasSession !== session || session.status.state !== 'synced') return
@@ -686,6 +704,15 @@ export class CanvasCollaborationController {
       if (this.canvasSession !== session) return
       this.presence = structuredClone([...presence])
       this.publishPresence()
+      if (serverSession.role === 'owner') {
+        const active = getActiveCollaboration()
+        if (active && active.roomId === room.roomId) {
+          setActiveCollaboration({
+            ...active,
+            memberCount: presence.length + 1,
+          })
+        }
+      }
     })
     this.unsubscribeLeaseLost = session.subscribeLeaseLost((lease) => {
       for (const listener of this.leaseLostListeners) {

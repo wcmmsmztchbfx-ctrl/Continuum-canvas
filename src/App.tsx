@@ -1311,6 +1311,7 @@ export default function App({
           <div className="app-layer-sidebar__header">
             <WorkspaceMenu
               canvasName={snapshot.name}
+              collaborationRestricted={collaborationRestricted}
               onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
               testId="workspace-control-sidebar"
               workspaceName={projectName ?? '未命名工作区'}
@@ -1414,6 +1415,7 @@ export default function App({
             <div className="canvas-top-left-pill" data-testid="canvas-top-left-pill">
               <WorkspaceMenu
                 canvasName={snapshot.name}
+                collaborationRestricted={collaborationRestricted}
                 onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
                 testId="workspace-control-floating"
                 workspaceName={projectName ?? '未命名工作区'}
@@ -1663,6 +1665,7 @@ export default function App({
         publishVisibility={publishVisibility}
         setPublishVisibility={setPublishVisibility}
         workspaceRepository={workspaceRepository}
+        onNavigateCanvas={onNavigateCanvas}
         onNavigateWorkspace={onNavigateWorkspace}
         notify={notify}
         runMockAction={runMockAction}

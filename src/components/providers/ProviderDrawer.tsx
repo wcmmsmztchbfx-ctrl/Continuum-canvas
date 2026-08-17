@@ -165,12 +165,14 @@ export function ProviderDrawer({
     if (secret.trim()) {
       await state.setProviderSecret(id, secret.trim())
       setSecret('')
+      onNotify?.('供应商配置及 API Key 已保存', 'success')
+    } else {
+      onNotify?.(saved.secretConfigured ? '供应商配置已保存（已保留原有 API Key）' : '供应商配置已保存', 'success')
     }
     setAdding(false)
     setSelectedId(saved.id)
     setDraft(providerDraft(saved))
     await state.selectProvider(saved.id)
-    onNotify?.('供应商配置已保存', 'success')
   }
 
   const saveAndVerify = async () => {
@@ -512,7 +514,7 @@ export function ProviderDrawer({
                         adding
                           ? '输入供应商 API Key'
                           : selected?.secretConfigured
-                            ? (selected.maskedSecret ?? '已配置密钥（输入以替换）')
+                            ? `${selected.maskedSecret ?? '••••••••'}（已保存，输入以替换）`
                             : '输入供应商 API Key'
                       }
                       spellCheck={false}
@@ -530,6 +532,11 @@ export function ProviderDrawer({
                       {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
                     </button>
                   </div>
+                  {!adding && selected?.secretConfigured && !secret ? (
+                    <small style={{ fontSize: '11px', color: '#10b981', marginTop: '4px', display: 'block' }}>
+                      ✓ API Key 已保存到系统，留空保持原 Key，修改时直接输入新 Key 即可
+                    </small>
+                  ) : null}
                   {createStage ? <p aria-live="polite" className="provider-form-grid__stage">{createStage}</p> : null}
                 </label>
               ) : null}
