@@ -19,6 +19,7 @@ import type {
   WorkspaceManifestV1,
   WorkspaceProject,
 } from '../../workspace/model'
+import { useActiveCollaboration } from '../../collaboration/activeCollaborationStore'
 import './workspace-home.css'
 
 type WorkspaceFilter = 'all' | 'recent' | 'favorites' | 'trash'
@@ -140,6 +141,14 @@ function CanvasCard({
   trashMode: boolean
   props: WorkspaceHomeViewProps
 }) {
+  const activeCollab = useActiveCollaboration()
+  const isCollaborating = Boolean(
+    activeCollab &&
+    activeCollab.status === 'active' &&
+    activeCollab.canvasId === canvas.canvasId &&
+    activeCollab.projectId === canvas.projectId,
+  )
+
   const cardContent = (
     <>
       <span className="workspace-canvas-card__preview">
@@ -153,6 +162,12 @@ function CanvasCard({
         ) : (
           <PanelTop aria-hidden="true" />
         )}
+        {isCollaborating ? (
+          <span className="workspace-canvas-card__collab-tag" title="当前正在协作中">
+            <span className="floating-collab-pulse" />
+            协作中
+          </span>
+        ) : null}
       </span>
       <span className="workspace-canvas-card__details">
         {editing ? (

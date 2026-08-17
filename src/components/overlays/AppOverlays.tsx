@@ -93,6 +93,7 @@ export interface AppOverlaysProps {
   publishVisibility: PublishVisibility
   setPublishVisibility: (vis: PublishVisibility) => void
   workspaceRepository: WorkspaceRepository
+  onNavigateCanvas?: (canvasId: string, projectId: string) => void
   onNavigateWorkspace?: (create?: 'canvas' | 'project') => void
   notify: (message: string, tone?: 'info' | 'success' | 'error' | 'warning') => void
   runMockAction: (task: Promise<unknown>, successMessage: string) => void
@@ -142,6 +143,7 @@ export function AppOverlays({
   publishVisibility,
   setPublishVisibility,
   workspaceRepository,
+  onNavigateCanvas,
   onNavigateWorkspace,
   notify,
   runMockAction,
@@ -178,6 +180,7 @@ export function AppOverlays({
         </Suspense>
       ) : null}
       <CollaborationPopover
+        currentCanvasId={canvasId}
         followingMemberId={followingMemberId}
         onClose={() => closeProductPopup('collaboration')}
         onCloseRoom={() => collaborationAction((controller) => controller.closeRoom())}
@@ -191,6 +194,10 @@ export function AppOverlays({
         onEnable={(displayName) => collaborationAction((controller) => controller.enable(displayName))}
         onLeave={() => collaborationAction((controller) => controller.leave())}
         onFollowMember={setFollowingMemberId}
+        onNavigateToActiveCollaboration={(collab) => {
+          setPopup(null)
+          onNavigateCanvas?.(collab.canvasId, collab.projectId)
+        }}
         onRemoveMember={(memberId) => collaborationAction((controller) => controller.removeMember(memberId))}
         onRetryResume={() => collaborationAction((controller) => controller.retryAuthenticatedResume())}
         onRevokeInvite={(inviteId) => collaborationAction((controller) => controller.revokeInvite(inviteId))}

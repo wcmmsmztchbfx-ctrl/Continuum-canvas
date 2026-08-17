@@ -45,6 +45,30 @@ function toDataUrl(bytes: Uint8Array): string {
   return `data:${imageMimeFromBytes(bytes)};base64,${Buffer.from(bytes).toString('base64')}`
 }
 
+function applyImageDimensions(body: Record<string, unknown>, request: GenerationRequest) {
+  const isFlux = /flux/i.test(request.model)
+  const aspectRatio = request.aspectRatio && request.aspectRatio !== 'Auto' ? request.aspectRatio : undefined
+
+  if (isFlux) {
+    if (aspectRatio) {
+      body.aspect_ratio = aspectRatio
+    }
+    const resMatch = request.model.match(/-(1k|2k|4k|8k)\b/i) || (request.quality?.match(/^(1k|2k|4k|8k)$/i))
+    if (resMatch) {
+      body.resolution = resMatch[1].toLowerCase()
+    } else {
+      body.resolution = '2k'
+    }
+  } else {
+    const size = IMAGE_SIZE_MAP[request.aspectRatio ?? '']
+    if (size) {
+      body.size = size
+    } else if (aspectRatio) {
+      body.aspect_ratio = aspectRatio
+    }
+  }
+}
+
 type RequestMode = 'openai' | 'openai-json' | 'openai-responses'
 
 type CreateResult =
@@ -206,13 +230,9 @@ export class OpenAICompatibleAdapter {
       prompt: request.prompt,
     }
     if (request.n !== undefined && request.n > 1) body.n = request.n
-    const size = IMAGE_SIZE_MAP[request.aspectRatio ?? '']
-    if (size) body.size = size
-    const payload = await this.request('/images/generations', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }, signal)
-    return this.classifyPayload(payload)
+    applyImageDimensions(body, request)
+
+    return this.postImagePayload('/images/generations', body, request, signal)
   }
 
   private async createEdits(
@@ -224,6 +244,10 @@ export class OpenAICompatibleAdapter {
       return this.createResponses(request, references, signal)
     }
     if (this.mode === 'openai-json') {
+      return this.createJsonEdits(request, references, signal)
+    }
+    const isFlux = /flux/i.test(request.model)
+    if (isFlux) {
       return this.createJsonEdits(request, references, signal)
     }
     try {
@@ -247,7 +271,7 @@ export class OpenAICompatibleAdapter {
     } catch (error) {
       if (
         error instanceof ProviderRequestRejectedError &&
-        (error.providerCode === '404' || /not found|unsupported|route/i.test(error.message))
+        (error.providerCode === '404' || /not found|unsupported|route|size.*not supported|resolution/i.test(error.message))
       ) {
         return this.createJsonEdits(request, references, signal)
       }
@@ -266,14 +290,32 @@ export class OpenAICompatibleAdapter {
     const body: Record<string, unknown> = {
       model: request.model,
       prompt: request.prompt,
-      ...(image ? { image, image_url: image } : {}),
+      ...(image ? { image, image_url: image, input_image: image } : {}),
     }
     if (request.n !== undefined && request.n > 1) body.n = request.n
-    const size = IMAGE_SIZE_MAP[request.aspectRatio ?? '']
-    if (size) body.size = size
+    applyImageDimensions(body, request)
 
     try {
-      const payload = await this.request('/images/edits', {
+      return await this.postImagePayload('/images/edits', body, request, signal)
+    } catch (error) {
+      if (
+        error instanceof ProviderRequestRejectedError &&
+        (error.providerCode === '404' || /not found|unsupported|route/i.test(error.message))
+      ) {
+        return await this.postImagePayload('/images/generations', body, request, signal)
+      }
+      throw error
+    }
+  }
+
+  private async postImagePayload(
+    path: string,
+    body: Record<string, unknown>,
+    request: GenerationRequest,
+    signal?: AbortSignal,
+  ): Promise<CreateResult> {
+    try {
+      const payload = await this.request(path, {
         method: 'POST',
         body: JSON.stringify(body),
       }, signal)
@@ -281,13 +323,19 @@ export class OpenAICompatibleAdapter {
     } catch (error) {
       if (
         error instanceof ProviderRequestRejectedError &&
-        (error.providerCode === '404' || /not found/i.test(error.message))
+        /size.*not supported|resolution.*aspect_ratio|aspect_ratio.*required/i.test(error.message)
       ) {
-        const genPayload = await this.request('/images/generations', {
+        const fallbackBody = { ...body }
+        delete fallbackBody.size
+        const aspectRatio = request.aspectRatio && request.aspectRatio !== 'Auto' ? request.aspectRatio : '1:1'
+        fallbackBody.aspect_ratio = aspectRatio
+        const resMatch = request.model.match(/-(1k|2k|4k|8k)\b/i) || (request.quality?.match(/^(1k|2k|4k|8k)$/i))
+        fallbackBody.resolution = resMatch ? resMatch[1].toLowerCase() : '2k'
+        const payload = await this.request(path, {
           method: 'POST',
-          body: JSON.stringify(body),
+          body: JSON.stringify(fallbackBody),
         }, signal)
-        return this.classifyPayload(genPayload)
+        return this.classifyPayload(payload)
       }
       throw error
     }
@@ -446,16 +494,15 @@ export class OpenAICompatibleAdapter {
       throw new Error('Provider request failed')
     }
     if (!response.ok) {
-      if (response.status >= 400 && response.status < 500) {
-        let payload: unknown
-        try {
-          payload = await response.json()
-        } catch {
-          await response.body?.cancel().catch(() => {})
-        }
+      let payload: unknown
+      try {
+        payload = await response.json()
+      } catch {
+        await response.body?.cancel().catch(() => {})
+      }
+      if (payload) {
         throw rejectedRequest(payload, String(response.status))
       }
-      await response.body?.cancel().catch(() => {})
       throw new Error(`Provider request failed (${response.status})`)
     }
     const payload: unknown = await response.json()

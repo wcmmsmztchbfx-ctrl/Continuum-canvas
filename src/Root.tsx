@@ -15,6 +15,12 @@ import {
 import type { WorkspaceManifestV1 } from './workspace/model'
 import type { CanvasThumbnailService } from './thumbnails/canvasThumbnail'
 
+import {
+  getActiveCollaboration,
+  useActiveCollaboration,
+} from './collaboration/activeCollaborationStore'
+import { FloatingCollaborationBadge } from './components/collaboration/FloatingCollaborationBadge'
+
 interface BrowserLocationSnapshot {
   pathname: string
   search: string
@@ -38,11 +44,26 @@ function canonicalCanvasUrl(
   canonicalUrl: string,
   location: BrowserLocationSnapshot,
 ): string {
-  const roomId = new URLSearchParams(location.search).get('collabRoom')
-  if (!roomId) return canonicalUrl
-  const url = new URL(canonicalUrl, window.location.origin)
-  url.searchParams.set('collabRoom', roomId)
-  return `${url.pathname}${url.search}`
+  const searchRoom = new URLSearchParams(location.search).get('collabRoom')
+  if (searchRoom) {
+    const url = new URL(canonicalUrl, window.location.origin)
+    url.searchParams.set('collabRoom', searchRoom)
+    return `${url.pathname}${url.search}`
+  }
+  const active = getActiveCollaboration()
+  const requested = parseAppRoute(location)
+  if (
+    active &&
+    active.status === 'active' &&
+    requested.kind === 'canvas' &&
+    requested.projectId === active.projectId &&
+    requested.canvasId === active.canvasId
+  ) {
+    const url = new URL(canonicalUrl, window.location.origin)
+    url.searchParams.set('collabRoom', active.roomId)
+    return `${url.pathname}${url.search}`
+  }
+  return canonicalUrl
 }
 
 function CanvasRoute({
@@ -154,29 +175,41 @@ export default function ApplicationRoot({
   useEffect(() => {
     if (route.kind === 'invalid') navigate('/', true)
   }, [navigate, route])
-  if (route.kind === 'workspace') {
-    const create = new URLSearchParams(location.search).get('create')
-    return (
-      <WorkspaceHome
-        initialCreate={
-          create === 'project' || create === 'canvas' ? create : undefined
-        }
-        onNavigateCanvas={(canvas) =>
-          navigate(buildCanvasRoute(canvas.projectId, canvas.canvasId))
-        }
-        repository={repository}
+  const activeCollab = useActiveCollaboration()
+  const currentCanvasId = route.kind === 'canvas' ? route.canvasId : undefined
+  const currentProjectId = route.kind === 'canvas' ? route.projectId : undefined
+  const create = new URLSearchParams(location.search).get('create')
+
+  return (
+    <>
+      {route.kind === 'workspace' && (
+        <WorkspaceHome
+          initialCreate={
+            create === 'project' || create === 'canvas' ? create : undefined
+          }
+          onNavigateCanvas={(canvas) =>
+            navigate(buildCanvasRoute(canvas.projectId, canvas.canvasId))
+          }
+          repository={repository}
+        />
+      )}
+      {route.kind === 'canvas' && (
+        <CanvasRoute
+          location={location}
+          navigate={navigate}
+          repository={repository}
+          thumbnailService={thumbnailService}
+        />
+      )}
+      {route.kind !== 'workspace' && route.kind !== 'canvas' && (
+        <main aria-busy="true" className="workspace-home-loading">正在返回工作区</main>
+      )}
+      <FloatingCollaborationBadge
+        activeCollab={activeCollab}
+        currentCanvasId={currentCanvasId}
+        currentProjectId={currentProjectId}
+        onNavigate={navigate}
       />
-    )
-  }
-  if (route.kind === 'canvas') {
-    return (
-      <CanvasRoute
-        location={location}
-        navigate={navigate}
-        repository={repository}
-        thumbnailService={thumbnailService}
-      />
-    )
-  }
-  return <main aria-busy="true" className="workspace-home-loading">正在返回工作区</main>
+    </>
+  )
 }

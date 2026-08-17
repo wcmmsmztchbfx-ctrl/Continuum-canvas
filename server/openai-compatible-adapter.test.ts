@@ -575,5 +575,61 @@ describe('OpenAICompatibleAdapter', () => {
       const [status] = await adapter.getGenerationStatus([taskId])
       expect(status).toEqual({ taskId: 'vid_task_123', status: 3, outputs: ['https://cdn.example/out.mp4'] })
     })
+
+    it('formats Flux model requests with aspect_ratio and resolution without size', async () => {
+      const dir = await tempDirectory()
+      const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+        const body = JSON.parse(String(init?.body))
+        expect(body.size).toBeUndefined()
+        expect(body.aspect_ratio).toBe('16:9')
+        expect(body.resolution).toBe('2k')
+        return jsonResponse({ data: [{ url: 'https://cdn.example/flux-out.png' }] })
+      })
+      const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'unit-secret',
+        baseUrl: 'https://api.topapis.cn/v1',
+        fetcher,
+        stagingDir: dir,
+      })
+      const taskId = await adapter.createGeneration(makeRequest({
+        model: 'flux-2-max-2k',
+        aspectRatio: '16:9',
+      }), [])
+      expect(taskId).toMatch(/^sync-/)
+      const [status] = await adapter.getGenerationStatus([taskId])
+      expect(status?.outputs?.[0]).toBe('https://cdn.example/flux-out.png')
+    })
+
+    it('auto-recovers when upstream rejects size with aspect_ratio instruction', async () => {
+      const dir = await tempDirectory()
+      let callCount = 0
+      const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+        callCount++
+        const body = JSON.parse(String(init?.body))
+        if (callCount === 1) {
+          expect(body.size).toBeDefined()
+          return jsonResponse({
+            error: { message: 'size is not supported for Custom Max; use resolution and aspect_ratio', code: '400' },
+          }, 400)
+        }
+        expect(body.size).toBeUndefined()
+        expect(body.aspect_ratio).toBe('16:9')
+        expect(body.resolution).toBe('2k')
+        return jsonResponse({ data: [{ url: 'https://cdn.example/recovered.png' }] })
+      })
+      const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'unit-secret',
+        baseUrl: 'https://api.topapis.cn/v1',
+        fetcher,
+        stagingDir: dir,
+      })
+      const taskId = await adapter.createGeneration(makeRequest({
+        model: 'custom-diffusion-model',
+        aspectRatio: '16:9',
+      }), [])
+      expect(taskId).toMatch(/^sync-/)
+      const [status] = await adapter.getGenerationStatus([taskId])
+      expect(status?.outputs?.[0]).toBe('https://cdn.example/recovered.png')
+    })
   })
 })

@@ -39,4 +39,29 @@ describe('flow projection stability', () => {
     expect(next[0]).not.toBe(previous[0])
     expect(next[1]).toBe(previous[1])
   })
+
+  it('updates a node immediately when its references change without recreating unaffected nodes', () => {
+    const nodeA = node('a')
+    const nodeBWithoutRefs = node('b')
+    const previous = [nodeA, nodeBWithoutRefs]
+
+    const nodeBWithRefs: CanvasFlowNode = {
+      ...node('b'),
+      data: {
+        ...nodeBWithoutRefs.data,
+        references: [
+          { id: 'a', referenceAlias: 1, name: 'a.png', kind: 'image', url: 'blob:img-a' },
+        ],
+      },
+    }
+    const incoming = [node('a'), nodeBWithRefs]
+
+    const next = stabilizeProjectedNodes(previous, incoming)
+
+    expect(next[0]).toBe(previous[0])
+    expect(next[1]).not.toBe(previous[1])
+    expect(next[1]!.data.references).toEqual([
+      { id: 'a', referenceAlias: 1, name: 'a.png', kind: 'image', url: 'blob:img-a' },
+    ])
+  })
 })

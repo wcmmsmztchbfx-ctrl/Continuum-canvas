@@ -1233,6 +1233,27 @@ export function validatePromptReferences(
   }
 }
 
+export function compactPromptReferences(
+  prompt: string,
+  removedAlias: number,
+): string {
+  if (!prompt || typeof prompt !== 'string') return ''
+  const transformed = prompt.replace(/(^|[^\w])@(\d+)\b/g, (match, prefix, numStr) => {
+    const num = Number(numStr)
+    if (num === removedAlias) {
+      return prefix === ' ' ? '' : prefix
+    }
+    if (num > removedAlias) {
+      return `${prefix}@${num - 1}`
+    }
+    return match
+  })
+  return transformed
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/^ +| +$/g, '')
+    .trim()
+}
+
 export function parseProjectSnapshot(serialized: string): ProjectSnapshot {
   let value: unknown
   try {
