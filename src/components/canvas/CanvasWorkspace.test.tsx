@@ -950,7 +950,7 @@ describe('CanvasWorkspace', () => {
     const unaffectedData = unaffected.data
     act(() => flowProps().onNodeDragStart?.({} as never, dragged, [dragged]))
     const draggedPreview = { ...dragged, position: { x: 777, y: 555 } }
-    act(() => flowProps().onNodeDrag?.({} as never, draggedPreview, [draggedPreview]))
+    act(() => flowProps().onNodeDrag?.({ ctrlKey: true } as never, draggedPreview, [draggedPreview]))
 
     view.rerender(<CanvasWorkspace collaboration={{
       ...callbacks, localMemberId: 'local-a', status: 'synced', presence: [{

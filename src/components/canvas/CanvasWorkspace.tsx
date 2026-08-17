@@ -1487,12 +1487,14 @@ export function CanvasWorkspace({
       const parentAbsolute = node.parentId
         ? flowInstance?.getInternalNode?.(node.parentId)?.internals.positionAbsolute
         : undefined
-      const positionAbsolute = internal?.internals.positionAbsolute ?? eventAbsolute ?? (
-        parentAbsolute
-          ? { x: parentAbsolute.x + node.position.x, y: parentAbsolute.y + node.position.y }
-          : { ...node.position }
-      )
-      return [node.id, { position: { ...node.position }, positionAbsolute: { ...positionAbsolute } }]
+      const positionAbsolute = node.parentId
+        ? (internal?.internals.positionAbsolute ?? eventAbsolute ?? (
+            parentAbsolute
+              ? { x: parentAbsolute.x + node.position.x, y: parentAbsolute.y + node.position.y }
+              : { ...node.position }
+          ))
+        : { ...node.position }
+      return [node.id, { position: { ...node.position }, positionAbsolute }]
     }),
   ), [flowInstance])
 
@@ -2350,28 +2352,54 @@ export function CanvasWorkspace({
         onNodeDrag={(event, node, draggedNodes) => {
           if (blockedDrag.current || !activeDrag.current) return
           const nodes = draggedNodes.length > 0 ? draggedNodes : [node]
-          const geometries = captureDragGeometry(nodes)
+          const initialGeometries = activeDrag.current.geometries
+          const initialPrimary = initialGeometries.get(node.id)
+          const rawDx = initialPrimary ? node.position.x - initialPrimary.position.x : 0
+          const rawDy = initialPrimary ? node.position.y - initialPrimary.position.y : 0
+
           const rects = nodes.map((item) => {
-            const position = geometries.get(item.id)?.positionAbsolute ?? item.position
-            return { id: item.id, x: position.x, y: position.y, width: item.width ?? (Number(item.style?.width) || 0), height: item.height ?? (Number(item.style?.height) || 0) }
+            const init = initialGeometries.get(item.id)
+            const baseX = init?.positionAbsolute.x ?? item.position.x
+            const baseY = init?.positionAbsolute.y ?? item.position.y
+            return {
+              id: item.id,
+              x: baseX + rawDx,
+              y: baseY + rawDy,
+              width: item.width ?? (Number(item.style?.width) || 0),
+              height: item.height ?? (Number(item.style?.height) || 0),
+            }
           })
           const selection = unionRect(rects)
           const keyboard = event as MouseEvent
-          const snapped = snapRect({ rect: selection, candidates: activeDrag.current.candidates, zoom: viewportRef.current.zoom, enabled: smartSnap, grid: snapToGrid ? 12 : undefined, disable: keyboard.ctrlKey, measure: keyboard.altKey, previous: activeDrag.current.snapState })
+          const snapped = snapRect({
+            rect: selection,
+            candidates: activeDrag.current.candidates,
+            zoom: viewportRef.current.zoom,
+            enabled: smartSnap,
+            grid: snapToGrid ? 12 : undefined,
+            disable: keyboard.ctrlKey,
+            measure: keyboard.altKey,
+            previous: activeDrag.current.snapState,
+          })
           activeDrag.current.snapState = snapped.state
-          const dx = snapped.rect.x - selection.x
-          const dy = snapped.rect.y - selection.y
+          const snapDx = snapped.rect.x - selection.x
+          const snapDy = snapped.rect.y - selection.y
+
           setTransientGeometry((current) => {
             const next = new Map(current)
             for (const item of nodes) {
+              const init = initialGeometries.get(item.id)
+              const initPos = init?.position ?? item.position
               next.set(item.id, {
                 ...next.get(item.id),
-                position: { x: item.position.x + dx, y: item.position.y + dy },
+                position: {
+                  x: initPos.x + rawDx + snapDx,
+                  y: initPos.y + rawDy + snapDy,
+                },
               })
             }
             return next
           })
-          const finalGeometries = captureDragGeometry(nodes)
           const center = { x: snapped.rect.x + snapped.rect.width / 2, y: snapped.rect.y + snapped.rect.height / 2 }
           const targetFrameId = deepestFrameAt(center, nodes.map((item) => item.id))
           activeDrag.current.targetFrameId = targetFrameId
@@ -2380,10 +2408,17 @@ export function CanvasWorkspace({
           collaboration?.setInteractionPreview?.({
             kind: 'drag',
             coordinateSpace: 'canvas-absolute',
-            nodes: nodes.map((item) => ({
-              nodeId: item.id,
-              position: finalGeometries.get(item.id)?.positionAbsolute ?? { ...item.position },
-            })),
+            nodes: nodes.map((item) => {
+              const init = initialGeometries.get(item.id)
+              const initAbs = init?.positionAbsolute ?? item.position
+              return {
+                nodeId: item.id,
+                position: {
+                  x: initAbs.x + rawDx + snapDx,
+                  y: initAbs.y + rawDy + snapDy,
+                },
+              }
+            }),
           })
         }}
         onNodeDragStop={(_event, node, draggedNodes) => {
@@ -2404,9 +2439,45 @@ export function CanvasWorkspace({
             return
           }
           const initial = drag.geometries
+          const initialPrimary = initial.get(node.id)
+          const rawDx = initialPrimary ? node.position.x - initialPrimary.position.x : 0
+          const rawDy = initialPrimary ? node.position.y - initialPrimary.position.y : 0
+
+          const rects = nodes.map((item) => {
+            const init = initial.get(item.id)
+            const baseX = init?.positionAbsolute.x ?? item.position.x
+            const baseY = init?.positionAbsolute.y ?? item.position.y
+            return {
+              id: item.id,
+              x: baseX + rawDx,
+              y: baseY + rawDy,
+              width: item.width ?? (Number(item.style?.width) || 0),
+              height: item.height ?? (Number(item.style?.height) || 0),
+            }
+          })
+          const selection = unionRect(rects)
+          const snapped = snapRect({
+            rect: selection,
+            candidates: drag.candidates,
+            zoom: viewportRef.current.zoom,
+            enabled: smartSnap,
+            grid: snapToGrid ? 12 : undefined,
+            previous: drag.snapState,
+          })
+          const snapDx = snapped.rect.x - selection.x
+          const snapDy = snapped.rect.y - selection.y
+
           store.getState().moveNodesInHierarchy(nodes.map((item) => {
             const before = initial.get(item.id)
-            return { id: item.id, positionAbsolute: before ? { x: before.positionAbsolute.x + item.position.x - before.position.x, y: before.positionAbsolute.y + item.position.y - before.position.y } : item.position }
+            return {
+              id: item.id,
+              positionAbsolute: before
+                ? {
+                    x: before.positionAbsolute.x + rawDx + snapDx,
+                    y: before.positionAbsolute.y + rawDy + snapDy,
+                  }
+                : item.position,
+            }
           }), drag.targetFrameId)
           collaboration?.clearPreview?.()
           collaboration?.clearInteraction?.()
