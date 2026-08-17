@@ -1,4 +1,4 @@
-import { useState, useCallback, type ChangeEvent } from 'react'
+import { useState, useCallback, useRef, type ChangeEvent } from 'react'
 import { useStore } from 'zustand'
 import {
   Square,
@@ -45,6 +45,7 @@ interface InspectorPanelProps {
     id: string
     displayName: string
     color?: string
+    online?: boolean
   }>
   onOpenCollaboration?: () => void
   onOpenApiManagement?: () => void
@@ -52,25 +53,7 @@ interface InspectorPanelProps {
   onStartResize?: (event: React.MouseEvent<HTMLDivElement>) => void
 }
 
-const AVATAR_COLORS = [
-  '#0d99ff', // blue
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#ec4899', // pink
-  '#8b5cf6', // violet
-  '#06b6d4', // cyan
-  '#f97316', // orange
-  '#a855f7', // purple
-]
-
-function getAvatarColor(name: string, index: number): string {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  }
-  const colorIndex = Math.abs(hash + index) % AVATAR_COLORS.length
-  return AVATAR_COLORS[colorIndex]
-}
+import { getCollaboratorColor } from '../../collaboration/colors'
 
 const FRAME_PRESETS = [
   { label: '自定义尺寸', width: 0, height: 0 },
@@ -96,6 +79,7 @@ export function InspectorPanel({
   const snapshot = useStore(store, (state: CanvasStoreState) => state.snapshot)
   const selectedNodeIds = useStore(store, (state: CanvasStoreState) => state.selectedNodeIds)
   const [aspectRatioLocked, setAspectRatioLocked] = useState(false)
+  const pendingColorFrame = useRef<number | null>(null)
 
   const selectedNodes = snapshot.nodes.filter((node: CanvasNode) =>
     selectedNodeIds.includes(node.id),
@@ -115,6 +99,20 @@ export function InspectorPanel({
     (dataChanges: Record<string, unknown>) => {
       if (!activeNode || readOnly) return
       store.getState().patchNode(activeNode.id, { data: dataChanges })
+    },
+    [activeNode, readOnly, store],
+  )
+
+  const updateActiveDataThrottled = useCallback(
+    (dataChanges: Record<string, unknown>) => {
+      if (!activeNode || readOnly) return
+      if (pendingColorFrame.current !== null) {
+        cancelAnimationFrame(pendingColorFrame.current)
+      }
+      pendingColorFrame.current = requestAnimationFrame(() => {
+        pendingColorFrame.current = null
+        store.getState().patchNode(activeNode.id, { data: dataChanges })
+      })
     },
     [activeNode, readOnly, store],
   )
@@ -169,13 +167,14 @@ export function InspectorPanel({
         >
           {collaborationMembers!.map((member, idx) => {
             const char = (member.displayName || '名').trim().slice(0, 1).toUpperCase()
-            const bg = member.color || getAvatarColor(member.displayName || '名', idx)
+            const bg = member.color || getCollaboratorColor(member.id || member.displayName || '名')
+            const isOnline = member.online !== false
             return (
               <div
                 key={member.id || idx}
-                className="inspector-top-bar__avatar-bubble"
+                className={`inspector-top-bar__avatar-bubble ${!isOnline ? 'inspector-top-bar__avatar-bubble--offline' : ''}`}
                 style={{ background: bg, zIndex: 10 - idx }}
-                title={member.displayName}
+                title={`${member.displayName}${isOnline ? ' (在线)' : ' (离线)'}`}
               >
                 {char}
               </div>
@@ -194,7 +193,7 @@ export function InspectorPanel({
         >
           <div
             className="inspector-top-bar__avatar-bubble"
-            style={{ background: getAvatarColor(currentNickname!, 0) }}
+            style={{ background: getCollaboratorColor(currentNickname!) }}
           >
             {currentNickname!.trim().slice(0, 1).toUpperCase()}
           </div>
@@ -794,7 +793,7 @@ export function InspectorPanel({
                   <input
                     className="inspector-color-input-native"
                     disabled={readOnly || isLocked}
-                    onChange={(e) => updateActiveData({ color: e.target.value })}
+                    onChange={(e) => updateActiveDataThrottled({ color: e.target.value })}
                     type="color"
                     value={(activeNode as TextNode).data.color || '#e0e0e0'}
                   />
@@ -804,7 +803,7 @@ export function InspectorPanel({
                   aria-label="文本颜色十六进制值"
                   className="inspector-color-hex"
                   disabled={readOnly || isLocked}
-                  onChange={(e) => updateActiveData({ color: e.target.value })}
+                  onChange={(e) => updateActiveDataThrottled({ color: e.target.value })}
                   value={(activeNode as TextNode).data.color || '#e0e0e0'}
                 />
               </div>
@@ -826,7 +825,7 @@ export function InspectorPanel({
                 <input
                   className="inspector-color-input-native"
                   disabled={readOnly || isLocked}
-                  onChange={(e) => updateActiveData({ fill: e.target.value })}
+                  onChange={(e) => updateActiveDataThrottled({ fill: e.target.value })}
                   type="color"
                   value={
                     (activeNode.data as { fill: string }).fill.startsWith('#')
@@ -839,7 +838,7 @@ export function InspectorPanel({
                 aria-label="填充颜色十六进制"
                 className="inspector-color-hex"
                 disabled={readOnly || isLocked}
-                onChange={(e) => updateActiveData({ fill: e.target.value })}
+                onChange={(e) => updateActiveDataThrottled({ fill: e.target.value })}
                 value={(activeNode.data as { fill: string }).fill}
               />
             </div>
@@ -860,7 +859,7 @@ export function InspectorPanel({
                 <input
                   className="inspector-color-input-native"
                   disabled={readOnly || isLocked}
-                  onChange={(e) => updateActiveData({ stroke: e.target.value })}
+                  onChange={(e) => updateActiveDataThrottled({ stroke: e.target.value })}
                   type="color"
                   value={
                     (activeNode.data as { stroke: string }).stroke?.startsWith('#')
@@ -873,7 +872,7 @@ export function InspectorPanel({
                 aria-label="描边颜色十六进制"
                 className="inspector-color-hex"
                 disabled={readOnly || isLocked}
-                onChange={(e) => updateActiveData({ stroke: e.target.value })}
+                onChange={(e) => updateActiveDataThrottled({ stroke: e.target.value })}
                 value={(activeNode.data as { stroke: string }).stroke ?? '#777777'}
               />
             </div>

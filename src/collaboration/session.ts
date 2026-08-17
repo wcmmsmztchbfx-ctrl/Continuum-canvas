@@ -198,11 +198,10 @@ function awarenessMessage(awareness: awarenessProtocol.Awareness): Uint8Array {
   return encoding.toUint8Array(encoder)
 }
 
+import { getCollaboratorColor } from './colors.ts'
+
 function memberColor(memberId: string): string {
-  const palette = ['#d97757', '#58a6d6', '#68ad7a', '#c17bd7', '#d5a541', '#6f8ee8']
-  let hash = 0
-  for (const character of memberId) hash = ((hash * 31) + character.charCodeAt(0)) >>> 0
-  return palette[hash % palette.length]!
+  return getCollaboratorColor(memberId)
 }
 
 function validPoint(value: unknown): value is { x: number; y: number } {

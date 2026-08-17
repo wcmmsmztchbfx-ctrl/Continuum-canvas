@@ -499,7 +499,7 @@ export function CanvasWorkspace({
     [store],
   )
   const activeResize = useRef<{
-    lease: NodeLease
+    lease?: NodeLease
     nodeId: string
     size: { width: number; height: number }
   } | undefined>(undefined)
@@ -573,15 +573,15 @@ export function CanvasWorkspace({
       controller.getLease?.(nodeId)?.leaseId === current.lease.leaseId
   }, [])
   const handleNodeResize = useCallback(
-    (nodeId: string, size: { width: number; height: number }) => {
+    (nodeId: string, size: { width: number; height: number }, position?: { x: number; y: number }) => {
       if (readOnly) return
       const collaborationHandle = collaborationRef.current
       if (collaborationHandle?.acquireLease) {
         const resize = activeResize.current
         if (!resize || resize.nodeId !== nodeId ||
-          collaborationHandle.getLease?.(nodeId)?.leaseId !== resize.lease.leaseId) return
+          (resize.lease && collaborationHandle.getLease?.(nodeId)?.leaseId !== resize.lease.leaseId)) return
       }
-      store.getState().resizeNode(nodeId, size)
+      store.getState().resizeNode(nodeId, size, position)
       setTransientGeometry((current) => {
         if (!current.has(nodeId)) return current
         const next = new Map(current)
@@ -589,11 +589,11 @@ export function CanvasWorkspace({
         return next
       })
       onNodeResize?.(nodeId, size)
+      activeResize.current = undefined
       if (collaborationHandle?.acquireLease) {
         collaborationHandle.clearPreview?.()
         collaborationHandle.clearInteraction?.()
         collaborationHandle.releaseLease?.()
-        activeResize.current = undefined
       }
     },
     [onNodeResize, readOnly, store],
@@ -993,29 +993,44 @@ export function CanvasWorkspace({
 
   const handleResizeStart = useCallback((nodeId: string) => {
     const collaborationHandle = collaborationRef.current
-    if (!collaborationHandle?.acquireLease) return true
     const node = store.getState().snapshot.nodes.find((candidate) => candidate.id === nodeId)
     if (!node) return false
-    const lease = collaborationHandle.acquireLease([nodeId], 'resize')
-    if (!lease) {
-      setCollaborationLockNotice('节点正在由其他成员调整')
-      return false
+    if (collaborationHandle?.acquireLease) {
+      const lease = collaborationHandle.acquireLease([nodeId], 'resize')
+      if (!lease) {
+        setCollaborationLockNotice('节点正在由其他成员调整')
+        return false
+      }
+      activeResize.current = { lease, nodeId, size: { ...node.size } }
+      collaborationHandle.setInteraction?.({ kind: 'resizing', nodeIds: [nodeId] })
+    } else {
+      activeResize.current = {
+        nodeId,
+        size: { ...node.size },
+      }
     }
-    activeResize.current = { lease, nodeId, size: { ...node.size } }
-    collaborationHandle.setInteraction?.({ kind: 'resizing', nodeIds: [nodeId] })
     return true
   }, [store])
 
-  const handleResizePreview = useCallback((nodeId: string, size: { width: number; height: number }) => {
-    if (activeResize.current?.nodeId !== nodeId) return
+  const handleResizePreview = useCallback((nodeId: string, size: { width: number; height: number }, position?: { x: number; y: number }) => {
+    if (!activeResize.current) {
+      activeResize.current = { nodeId, size }
+    }
     setTransientGeometry((current) => {
       const next = new Map(current)
-      next.set(nodeId, { ...next.get(nodeId), width: size.width, height: size.height })
+      const prev = next.get(nodeId)
+      next.set(nodeId, {
+        ...prev,
+        width: size.width,
+        height: size.height,
+        position: position ? { x: position.x, y: position.y } : prev?.position,
+        resizing: true,
+      })
       return next
     })
     collaborationRef.current?.setInteractionPreview?.({
       kind: 'resize', coordinateSpace: 'canvas-absolute',
-      nodes: [{ nodeId, width: size.width, height: size.height }],
+      nodes: [{ nodeId, width: size.width, height: size.height, ...(position ? { position } : {}) }],
     })
   }, [])
 
@@ -1610,7 +1625,7 @@ export function CanvasWorkspace({
 
   useEffect(() => collaboration?.subscribeLeaseLost?.((lease) => {
     if (lease.leaseId === activeDrag.current?.lease?.leaseId) restoreActiveDrag()
-    else if (lease.leaseId === activeResize.current?.lease.leaseId) restoreActiveResize()
+    else if (lease.leaseId === activeResize.current?.lease?.leaseId) restoreActiveResize()
     else if (lease.leaseId === activeNodeInteraction.current?.lease.leaseId) {
       const interaction = activeNodeInteraction.current
       activeNodeInteraction.current = undefined
@@ -1778,32 +1793,42 @@ export function CanvasWorkspace({
         (change) => change.type === 'position' || change.type === 'dimensions',
       )
       if (geometryChanges.length > 0) {
-        const changedIds = new Set(geometryChanges.map((change) => change.id))
-        const changedById = new Map(geometryChanges.map((change) => [change.id, change]))
         const projected = applyNodeChanges(geometryChanges, flowNodesRef.current)
+        const projectedById = new Map(projected.map((node) => [node.id, node]))
         setTransientGeometry((current) => {
           const next = new Map(current)
-          for (const node of projected) {
-            if (!changedIds.has(node.id)) continue
-            const change = changedById.get(node.id)
-            const previous = next.get(node.id)
-            next.set(node.id, {
-              ...previous,
-              ...(change?.type === 'position' ? {
-                position: { ...node.position },
-                dragging: node.dragging,
-              } : {}),
-              ...(change?.type === 'dimensions' ? {
+          for (const change of geometryChanges) {
+            const node = projectedById.get(change.id)
+            if (!node) continue
+            const previous = next.get(change.id)
+            if (change.type === 'position') {
+              next.set(change.id, {
+                ...previous,
+                position: change.position ? { ...change.position } : (node.position ? { ...node.position } : previous?.position),
+                dragging: change.dragging ?? node.dragging,
+                resizing: ('resizing' in change ? (change as { resizing?: boolean }).resizing : undefined) ?? node.resizing ?? previous?.resizing,
+              })
+            } else if (change.type === 'dimensions') {
+              const isExplicitResize = Boolean(
+                change.setAttributes ||
+                change.resizing ||
+                node.resizing ||
+                previous?.resizing,
+              )
+              const width = isExplicitResize
+                ? (change.dimensions?.width ?? node.width)
+                : previous?.width
+              const height = isExplicitResize
+                ? (change.dimensions?.height ?? node.height)
+                : previous?.height
+              next.set(change.id, {
+                ...previous,
+                ...(width !== undefined ? { width } : {}),
+                ...(height !== undefined ? { height } : {}),
                 measured: node.measured ? { ...node.measured } : previous?.measured,
-                ...(change.setAttributes && node.width !== undefined
-                  ? { width: node.width }
-                  : {}),
-                ...(change.setAttributes && node.height !== undefined
-                  ? { height: node.height }
-                  : {}),
-                resizing: node.resizing,
-              } : {}),
-            })
+                resizing: change.resizing ?? node.resizing ?? previous?.resizing,
+              })
+            }
           }
           return next
         })

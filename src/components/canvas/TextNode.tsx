@@ -1,6 +1,6 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Clapperboard } from 'lucide-react'
-import { NodeResizer, Position, type NodeProps } from '@xyflow/react'
+import { NodeResizer, Position, useStore as useReactFlowStore, type NodeProps } from '@xyflow/react'
 
 import type { CanvasFlowNode } from './mapping'
 import { EditableNodeLabel } from './EditableNodeLabel'
@@ -27,6 +27,79 @@ function measureTextWidth(text: string, font: string): number {
   return 120
 }
 
+function useCaretPosition(
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>,
+  text: string,
+  editing: boolean,
+) {
+  const [caret, setCaret] = useState<{ x: number; y: number; height: number; visible: boolean }>({
+    x: 0,
+    y: 0,
+    height: 20,
+    visible: false,
+  })
+
+  const updateCaret = useCallback(() => {
+    const el = textareaRef.current
+    if (!el || !editing || typeof document === 'undefined') {
+      setCaret((prev) => (prev.visible ? { ...prev, visible: false } : prev))
+      return
+    }
+    const { selectionStart, selectionEnd } = el
+    if (selectionStart !== selectionEnd) {
+      setCaret((prev) => (prev.visible ? { ...prev, visible: false } : prev))
+      return
+    }
+
+    try {
+      const computed = window.getComputedStyle(el)
+      const mirror = document.createElement('div')
+      const properties = [
+        'boxSizing', 'width', 'fontFamily', 'fontSize', 'fontWeight',
+        'lineHeight', 'letterSpacing', 'textAlign', 'whiteSpace', 'wordBreak',
+        'paddingLeft', 'paddingRight', 'paddingTop', 'paddingBottom',
+        'borderLeftWidth', 'borderRightWidth', 'borderTopWidth', 'borderBottomWidth',
+      ] as const
+      properties.forEach((prop) => {
+        mirror.style[prop as any] = computed[prop as any]
+      })
+
+      mirror.style.position = 'absolute'
+      mirror.style.top = '-9999px'
+      mirror.style.left = '-9999px'
+      mirror.style.visibility = 'hidden'
+      mirror.style.overflow = 'hidden'
+      mirror.style.height = 'auto'
+
+      const textBefore = el.value.slice(0, selectionStart)
+      mirror.textContent = textBefore
+
+      const span = document.createElement('span')
+      span.textContent = '\u200b'
+      mirror.appendChild(span)
+
+      document.body.appendChild(mirror)
+      const spanRect = span.getBoundingClientRect()
+      const mirrorRect = mirror.getBoundingClientRect()
+      const x = spanRect.left - mirrorRect.left - el.scrollLeft
+      const y = spanRect.top - mirrorRect.top - el.scrollTop
+      const height = spanRect.height || parseFloat(computed.fontSize || '14') * 1.5
+      document.body.removeChild(mirror)
+
+      setCaret({ x, y, height, visible: true })
+    } catch {
+      setCaret((prev) => (prev.visible ? { ...prev, visible: false } : prev))
+    }
+  }, [editing, textareaRef])
+
+  useEffect(() => {
+    if (!editing) return
+    updateCaret()
+  }, [editing, text, updateCaret])
+
+  return { caret, updateCaret }
+}
+
 function TextNodeContent({
   id,
   data,
@@ -45,6 +118,7 @@ function TextNodeContent({
   const model = data.node?.type === 'text' ? data.node : undefined
   const plain = model?.data.presentation === 'plain'
   const autoWidth = model?.data.autoWidth ?? false
+  const { caret, updateCaret } = useCaretPosition(editorRef, text, editing)
 
   useEffect(() => {
     setText(stripHtmlTags(data.text ?? ''))
@@ -103,6 +177,13 @@ function TextNodeContent({
     }
   }, [autoWidth, data, id, model?.data.fontFamily, model?.data.fontSize, model?.data.fontWeight, plain, text])
 
+  let zoom = 1
+  try {
+    zoom = useReactFlowStore((s) => s.transform[2])
+  } catch {
+    zoom = 1
+  }
+
   return (
     <article
       aria-label={data.name}
@@ -111,6 +192,7 @@ function TextNodeContent({
       data-editing={editing || undefined}
       data-locked={Boolean(data.lockedBy) || undefined}
       data-selected={selected || undefined}
+      style={{ '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))) } as React.CSSProperties}
     >
       <NodeResizer
         isVisible={showDetails}
@@ -122,11 +204,11 @@ function TextNodeContent({
           resizeGranted.current = data.onResizeStart?.(id) ?? true
         }}
         shouldResize={() => resizeGranted.current}
-        onResize={(_event, { width, height }) => {
-          if (resizeGranted.current) data.onResizePreview?.(id, { width, height })
+        onResize={(_event, { width, height, x, y }) => {
+          if (resizeGranted.current) data.onResizePreview?.(id, { width, height }, { x, y })
         }}
-        onResizeEnd={(_event, { width, height }) =>
-          resizeGranted.current ? data.onResize?.(id, { width, height }) : undefined
+        onResizeEnd={(_event, { width, height, x, y }) =>
+          resizeGranted.current ? data.onResize?.(id, { width, height }, { x, y }) : undefined
         }
       />
       {!plain ? <EditableNodeLabel
@@ -142,6 +224,7 @@ function TextNodeContent({
       /> : null}
       <div className="canvas-media-node__frame canvas-text-node__frame">
         {editing ? (
+          <>
           <textarea
             aria-label="文本节点内容"
             autoFocus
@@ -155,6 +238,7 @@ function TextNodeContent({
               color: model?.data.color ?? '#ffffff',
               textAlign: model?.data.textAlign ?? 'left',
               fontFamily: model?.data.fontFamily ?? 'inherit',
+              caretColor: '#0d99ff',
               padding: '6px 8px',
               width: '100%',
               height: '100%',
@@ -167,6 +251,10 @@ function TextNodeContent({
               whiteSpace: 'pre-wrap',
             }}
             value={text}
+            onClick={updateCaret}
+            onKeyUp={updateCaret}
+            onSelect={updateCaret}
+            onScroll={updateCaret}
             onChange={(event) => {
               const nextText = event.target.value
               setText(nextText)
@@ -180,6 +268,18 @@ function TextNodeContent({
               }
             }}
           />
+          {editing && caret.visible ? (
+            <div
+              aria-hidden="true"
+              className="canvas-text-node__thick-caret"
+              style={{
+                left: `${caret.x}px`,
+                top: `${caret.y}px`,
+                height: `${caret.height}px`,
+              }}
+            />
+          ) : null}
+        </>
         ) : showDetails && !text.trim() && data.onCreateConnected ? (
           <div
             className="canvas-text-node__empty canvas-text-node__preview"

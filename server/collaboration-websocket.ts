@@ -7,6 +7,7 @@ import * as syncProtocol from 'y-protocols/sync'
 import * as awarenessProtocol from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 import { COLLABORATION_MAX_CLIENT_MESSAGE_BYTES } from '../src/contracts/collaboration.ts'
+import { getCollaboratorColor } from '../src/collaboration/colors.ts'
 import { collaborationTokenFromCookieHeader } from './collaboration-cookie.ts'
 import {
   CollaborationAuthorizationError,
@@ -121,7 +122,7 @@ function authenticatedAwarenessUpdate(
       memberId: session.memberId,
       displayName: session.displayName,
       role: session.role,
-      color: memberColor(session.memberId),
+      color: getCollaboratorColor(session.memberId),
     }
     const sharedFields = ['cursor', 'selection', 'viewport', 'interaction'] as const
     for (const field of sharedFields) {
@@ -144,13 +145,6 @@ function authenticatedAwarenessUpdate(
     throw new CollaborationAuthorizationError('Awareness state is too large')
   }
   return { clientId, update: authenticated }
-}
-
-function memberColor(memberId: string): string {
-  const palette = ['#d97757', '#58a6d6', '#68ad7a', '#c17bd7', '#d5a541', '#6f8ee8']
-  let hash = 0
-  for (const character of memberId) hash = ((hash * 31) + character.charCodeAt(0)) >>> 0
-  return palette[hash % palette.length]
 }
 
 export interface CollaborationWebSocketHandle {

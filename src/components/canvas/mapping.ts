@@ -72,9 +72,9 @@ export type CanvasFlowNodeData = {
   generationError?: { code: string; message: string }
   generationSettings?: MediaGenerationSettings
   promptDraft?: string
-  onResize?: (nodeId: string, size: { width: number; height: number }) => void
+  onResize?: (nodeId: string, size: { width: number; height: number }, position?: { x: number; y: number }) => void
   onResizeStart?: (nodeId: string) => boolean
-  onResizePreview?: (nodeId: string, size: { width: number; height: number }) => void
+  onResizePreview?: (nodeId: string, size: { width: number; height: number }, position?: { x: number; y: number }) => void
   onImageNaturalSize?: (
     nodeId: string,
     naturalWidth: number,

@@ -1,5 +1,5 @@
 import { memo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { NodeResizer, type NodeProps } from '@xyflow/react'
+import { NodeResizer, useStore as useReactFlowStore, type NodeProps } from '@xyflow/react'
 
 import type { FrameNode as FrameModel, PathNode as PathModel, ShapeNode as ShapeModel } from '../../model/project'
 import type { CanvasFlowNode } from './mapping'
@@ -35,6 +35,13 @@ function SelectionChrome({ id, data, node, selected }: { id: string; data: Canva
   const [previewRotation, setPreviewRotation] = useState(node.data.rotation ?? 0)
   const previewRotationRef = useRef(previewRotation)
   const rotating = useRef(false)
+  let zoom = 1
+  try {
+    zoom = useReactFlowStore((s) => s.transform[2])
+  } catch {
+    zoom = 1
+  }
+  const scale = Math.min(3.5, Math.max(0.5, 1 / (zoom || 1)))
   const startRotation = (event: ReactPointerEvent<HTMLButtonElement>) => {
     event.stopPropagation()
     const root = event.currentTarget.closest('.react-flow__node')
@@ -62,8 +69,27 @@ function SelectionChrome({ id, data, node, selected }: { id: string; data: Canva
   }
   if (!selected) return null
   return <>
-    <button aria-label="旋转" className="creative-rotation-handle nodrag nopan" onPointerDown={startRotation} type="button" />
-    <span className="creative-size-label">{Math.round(node.size.width)} × {Math.round(node.size.height)}{previewRotation ? ` · ${previewRotation}°` : ''}</span>
+    <button
+      aria-label="旋转"
+      className="creative-rotation-handle nodrag nopan"
+      onPointerDown={startRotation}
+      style={{
+        transform: `translateX(-50%) scale(${scale})`,
+        top: `calc(-16px - 18px * ${scale})`,
+        transformOrigin: 'bottom center',
+      }}
+      type="button"
+    />
+    <span
+      className="creative-size-label"
+      style={{
+        transform: `translateX(-50%) scale(${scale})`,
+        top: `calc(100% + 8px * ${scale})`,
+        transformOrigin: 'top center',
+      }}
+    >
+      {Math.round(node.size.width)} × {Math.round(node.size.height)}{previewRotation ? ` · ${previewRotation}°` : ''}
+    </span>
   </>
 }
 
@@ -78,8 +104,14 @@ function resizer(id: string, data: CanvasFlowNode['data'], selected: boolean) {
 
 function FrameNodeContent({ id, data, selected }: NodeProps<CanvasFlowNode>) {
   const node = data.node
+  let zoom = 1
+  try {
+    zoom = useReactFlowStore((s) => s.transform[2])
+  } catch {
+    zoom = 1
+  }
   if (!node || node.type !== 'frame') return null
-  return <article className="canvas-frame-node" style={{ background: node.data.fill, borderColor: node.data.stroke, borderWidth: node.data.strokeWidth, transform: `rotate(${node.data.rotation ?? 0}deg)` }}>
+  return <article className="canvas-frame-node" style={{ background: node.data.fill, borderColor: node.data.stroke, borderWidth: node.data.strokeWidth, transform: `rotate(${node.data.rotation ?? 0}deg)`, '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))) } as React.CSSProperties}>
     {resizer(id, data, selected)}
     <EditableNodeLabel name={data.name} nodeId={id} onRename={data.onRename} />
     <SelectionChrome data={data} id={id} node={node} selected={selected} />
@@ -90,10 +122,16 @@ export const FrameNode = memo(FrameNodeContent)
 
 function ShapeNodeContent({ id, data, selected }: NodeProps<CanvasFlowNode>) {
   const node = data.node as ShapeModel | undefined
+  let zoom = 1
+  try {
+    zoom = useReactFlowStore((s) => s.transform[2])
+  } catch {
+    zoom = 1
+  }
   if (!node || node.type !== 'shape') return null
   const style = { fill: node.data.fill, stroke: node.data.stroke, strokeWidth: node.data.strokeWidth, opacity: node.data.opacity }
   const line = node.data.kind === 'line' || node.data.kind === 'arrow'
-  return <div className="canvas-creative-node canvas-shape-node" style={{ transform: `rotate(${node.data.rotation ?? 0}deg)` }}>
+  return <div className="canvas-creative-node canvas-shape-node" style={{ transform: `rotate(${node.data.rotation ?? 0}deg)`, '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))) } as React.CSSProperties}>
     {resizer(id, data, selected)}
     <svg aria-label={data.name} preserveAspectRatio="none" viewBox="0 0 100 100">
       {node.data.kind === 'ellipse' ? <ellipse cx="50" cy="50" rx="49" ry="49" style={style} /> : line ? <line markerEnd={node.data.kind === 'arrow' ? 'url(#canvas-arrow)' : undefined} style={style} x1="1" x2="99" y1="99" y2="1" /> : <rect height="98" rx={node.data.kind === 'rounded-rectangle' || node.data.radius ? node.data.radius ?? 0 : 0} style={style} width="98" x="1" y="1" />}

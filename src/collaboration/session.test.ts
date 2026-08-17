@@ -11,6 +11,7 @@ import {
   createCollaborativeCanvasDocument,
   exportCollaborativeCanvasSnapshot,
 } from './document.ts'
+import { getCollaboratorColor } from './colors.ts'
 import {
   CanvasCollaborationSession,
   type CollaborationPersistenceHandle,
@@ -362,7 +363,7 @@ class HighFidelityRoom {
       memberId: connection.session.memberId,
       displayName: connection.session.displayName,
       role: connection.session.role,
-      color: '#58a6d6',
+      color: getCollaboratorColor(connection.session.memberId),
     }
     const authenticated = encoding.createEncoder()
     encoding.writeVarUint(authenticated, 1)
@@ -656,7 +657,7 @@ describe('CanvasCollaborationSession', () => {
     const remoteDoc = new Y.Doc()
     const remoteAwareness = new awarenessProtocol.Awareness(remoteDoc)
     remoteAwareness.setLocalState({
-      memberId: 'member-remote', displayName: 'Remote', role: 'editor', color: '#58a6d6',
+      memberId: 'member-remote', displayName: 'Remote', role: 'editor', color: getCollaboratorColor('member-remote'),
       cursor: { x: 9, y: 4 }, selection: { nodeIds: ['node-c'] },
       viewport: { x: 5, y: 6, zoom: 2 },
       interaction: { kind: 'dragging', nodeIds: ['node-c'] },
@@ -667,7 +668,7 @@ describe('CanvasCollaborationSession', () => {
     expect(session.getRemotePresence()).toEqual([
       expect.objectContaining({
         member: {
-          memberId: 'member-remote', displayName: 'Remote', role: 'editor', color: '#58a6d6',
+          memberId: 'member-remote', displayName: 'Remote', role: 'editor', color: getCollaboratorColor('member-remote'),
         },
         cursor: { x: 9, y: 4 },
         selection: { nodeIds: ['node-c'] },
@@ -727,7 +728,7 @@ describe('CanvasCollaborationSession', () => {
     sockets[0]!.open()
     const remote = new awarenessProtocol.Awareness(new Y.Doc())
     remote.setLocalState({
-      memberId: 'viewer-member', displayName: 'Viewer', role: 'viewer', color: '#58a6d6',
+      memberId: 'viewer-member', displayName: 'Viewer', role: 'viewer', color: getCollaboratorColor('viewer-member'),
       cursor: { x: 1, y: 2 }, selection: { nodeIds: ['node-a'] },
       viewport: { x: 3, y: 4, zoom: 1 },
       interaction: { kind: 'idle', nodeIds: [] },

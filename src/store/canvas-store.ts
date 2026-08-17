@@ -98,7 +98,7 @@ export interface CanvasStoreState {
   pasteImportedGraph: (graph: ImportedCanvasGraph) => string[]
   groupNodes: (nodeIds: string[], groupId: string, name: string) => void
   ungroupNodes: (groupIds: string[]) => void
-  resizeNode: (nodeId: string, size: NodeSize) => void
+  resizeNode: (nodeId: string, size: NodeSize, position?: Point) => void
   updateCreativeNode: (
     nodeId: string,
     changes: { size?: NodeSize; position?: Point; rotation?: number; fill?: string; stroke?: string; strokeWidth?: number; opacity?: number; radius?: number },
@@ -1128,20 +1128,24 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
       commitDocument({ ...current, nodes, edges })
       set({ selectedNodeIds: releasedIds })
     },
-    resizeNode: (nodeId, size) => {
+    resizeNode: (nodeId, size, position) => {
       const current = get().snapshot
       const node = current.nodes.find((candidate) => candidate.id === nodeId)
-      if (
-        !node ||
-        (node.size.width === size.width && node.size.height === size.height)
-      ) {
-        return
-      }
+      if (!node) return
+      const sameSize = node.size.width === size.width && node.size.height === size.height
+      const samePos = !position || (node.position.x === position.x && node.position.y === position.y)
+      if (sameSize && samePos) return
 
       commitDocument({
         ...current,
         nodes: current.nodes.map((candidate) =>
-          candidate.id === nodeId ? { ...candidate, size } : candidate,
+          candidate.id === nodeId
+            ? {
+                ...candidate,
+                size,
+                ...(position ? { position } : {}),
+              }
+            : candidate,
         ),
       })
     },

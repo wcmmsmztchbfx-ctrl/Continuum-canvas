@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Copy, Eye, Link2, LogOut, ShieldCheck, UserMinus, UsersRound, X } from 'lucide-react'
 
 import type { CollaborationRole, PresenceState } from '../../contracts/collaboration'
+import { getCollaboratorColor } from '../../collaboration/colors'
 import type { CollaborationControllerState } from '../../collaboration/controller'
 import { activeCollaborationInvites, collaborationRoleLabel } from '../../collaboration/controller'
 import { getActiveCollaboration, type ActiveCollaboration } from '../../collaboration/activeCollaborationStore'
@@ -194,7 +195,7 @@ export function CollaborationPopover({
                 <span
                   data-online="true"
                   key={member.id}
-                  style={{ backgroundColor: onlinePresence.get(member.id)?.member.color }}
+                  style={{ backgroundColor: onlinePresence.get(member.id)?.member.color || getCollaboratorColor(member.id) }}
                   title={member.displayName}
                 >{initials(member.displayName)}</span>
               ))}
@@ -236,7 +237,7 @@ export function CollaborationPopover({
                 <span
                   className="collaboration-member-avatar"
                   data-online={onlineMemberIds.has(member.id) || undefined}
-                  style={{ backgroundColor: onlinePresence.get(member.id)?.member.color }}
+                  style={{ backgroundColor: onlinePresence.get(member.id)?.member.color || getCollaboratorColor(member.id) }}
                 >{initials(member.displayName)}</span>
                 <div><strong>{member.displayName}{member.id === state.session?.memberId ? '（你）' : ''}</strong><small>{onlineMemberIds.has(member.id) ? '在线' : '离线'}</small></div>
                 <div className="collaboration-member-actions">

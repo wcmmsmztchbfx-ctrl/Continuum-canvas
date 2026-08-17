@@ -175,6 +175,6 @@ export async function loadGatewayEnvironment(options: {
   return {
     rootDir,
     envFile,
-    env: { ...legacyEnv, ...fileEnv, ...processEnv, ...options.env },
+    env: { ...legacyEnv, ...processEnv, ...fileEnv, ...options.env },
   }
 }

@@ -35,6 +35,7 @@ import {
   type ToolDockTool,
 } from './components/shell'
 import { InspectorPanel } from './components/inspector/InspectorPanel'
+import { getCollaboratorColor } from './collaboration/colors'
 import {
   defaultProjectPersistenceQueue,
   defaultProjectRepository,
@@ -659,24 +660,57 @@ export default function App({
   ])
 
   const topbarCollaborationMembers = useMemo(() => {
-    const members = [...new Map(collaborationPresence.map((presence) => [
-      presence.member.memberId,
-      {
-        id: presence.member.memberId,
-        displayName: presence.member.displayName,
-        color: presence.member.color,
-      },
-    ] as const)).values()]
-    const current = collaborationState.session
-    if (current && !members.some((member) => member.id === current.memberId)) {
-      members.unshift({
-        id: current.memberId,
-        displayName: current.displayName,
-        color: '#668da0',
+    const roomMembers = (collaborationState.room?.members ?? []).filter((member) => !member.removed)
+    const onlinePresenceMap = new Map(
+      collaborationPresence.map((presence) => [presence.member.memberId, presence]),
+    )
+
+    const memberMap = new Map<string, { id: string; displayName: string; color: string; online: boolean }>()
+
+    // 1. Add all registered room members
+    for (const member of roomMembers) {
+      const isOnline = onlinePresenceMap.has(member.id) || member.id === collaborationState.session?.memberId
+      memberMap.set(member.id, {
+        id: member.id,
+        displayName: member.displayName,
+        color: getCollaboratorColor(member.id),
+        online: isOnline,
       })
     }
-    return members
-  }, [collaborationPresence, collaborationState.session])
+
+    // 2. Add current session if not in room.members yet
+    const current = collaborationState.session
+    if (current && !memberMap.has(current.memberId)) {
+      memberMap.set(current.memberId, {
+        id: current.memberId,
+        displayName: current.displayName,
+        color: getCollaboratorColor(current.memberId),
+        online: true,
+      })
+    }
+
+    // 3. Add any online presences
+    for (const presence of collaborationPresence) {
+      if (!memberMap.has(presence.member.memberId)) {
+        memberMap.set(presence.member.memberId, {
+          id: presence.member.memberId,
+          displayName: presence.member.displayName,
+          color: presence.member.color || getCollaboratorColor(presence.member.memberId),
+          online: true,
+        })
+      }
+    }
+
+    const list = [...memberMap.values()]
+    if (current) {
+      const selfIndex = list.findIndex((m) => m.id === current.memberId)
+      if (selfIndex > 0) {
+        const [self] = list.splice(selfIndex, 1)
+        if (self) list.unshift(self)
+      }
+    }
+    return list
+  }, [collaborationPresence, collaborationState.room?.members, collaborationState.session])
 
   useEffect(() => {
     if (popup !== 'collaboration') return
@@ -1453,15 +1487,19 @@ export default function App({
                 title={topbarCollaborationMembers && topbarCollaborationMembers.length > 0 ? `协作成员 (${topbarCollaborationMembers.length}人)` : (collaborationState.session?.displayName ? `当前用户：${collaborationState.session.displayName}` : '暂无协作者')}
               >
                 {topbarCollaborationMembers && topbarCollaborationMembers.length > 0 ? (
-                  topbarCollaborationMembers.map((member, idx) => (
-                    <div
-                      key={member.id || idx}
-                      className="inspector-top-bar__avatar-bubble"
-                      style={{ background: member.color || '#0d99ff', zIndex: 10 - idx }}
-                    >
-                      {(member.displayName || '名').trim().slice(0, 1).toUpperCase()}
-                    </div>
-                  ))
+                  topbarCollaborationMembers.map((member, idx) => {
+                    const isOnline = member.online !== false
+                    return (
+                      <div
+                        key={member.id || idx}
+                        className={`inspector-top-bar__avatar-bubble ${!isOnline ? 'inspector-top-bar__avatar-bubble--offline' : ''}`}
+                        style={{ background: member.color || '#0d99ff', zIndex: 10 - idx }}
+                        title={`${member.displayName}${isOnline ? ' (在线)' : ' (离线)'}`}
+                      >
+                        {(member.displayName || '名').trim().slice(0, 1).toUpperCase()}
+                      </div>
+                    )
+                  })
                 ) : (
                   <div
                     className="inspector-top-bar__avatar-bubble inspector-top-bar__avatar-bubble--none"

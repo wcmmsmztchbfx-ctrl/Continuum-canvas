@@ -144,10 +144,12 @@ function ImageNodeContent({
       style={{
         opacity: modelData?.opacity !== undefined ? modelData.opacity : undefined,
         transform: modelData?.rotation ? `rotate(${modelData.rotation}deg)` : undefined,
-      }}
+        '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))),
+      } as React.CSSProperties}
     >
       <NodeResizer
         isVisible={showResizer}
+        keepAspectRatio={true}
         minWidth={40}
         minHeight={40}
         lineClassName="canvas-node-resizer__line"
@@ -156,11 +158,11 @@ function ImageNodeContent({
           resizeGranted.current = data.onResizeStart?.(id) ?? true
         }}
         shouldResize={() => resizeGranted.current}
-        onResize={(_event, { width, height }) => {
-          if (resizeGranted.current) data.onResizePreview?.(id, { width, height })
+        onResize={(_event, { width, height, x, y }) => {
+          if (resizeGranted.current) data.onResizePreview?.(id, { width, height }, { x, y })
         }}
-        onResizeEnd={(_event, { width, height }) =>
-          resizeGranted.current ? data.onResize?.(id, { width, height }) : undefined
+        onResizeEnd={(_event, { width, height, x, y }) =>
+          resizeGranted.current ? data.onResize?.(id, { width, height }, { x, y }) : undefined
         }
       />
       <EditableNodeLabel

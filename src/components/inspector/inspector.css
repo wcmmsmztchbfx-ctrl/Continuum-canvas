@@ -104,6 +104,11 @@
   font-weight: 600;
 }
 
+.inspector-top-bar__avatar-bubble--offline {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
 .inspector-top-bar__spacer {
   flex: 1;
 }
