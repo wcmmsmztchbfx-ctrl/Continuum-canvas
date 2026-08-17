@@ -416,4 +416,90 @@ describe('canvas application integration', () => {
     expect(canvasStore.getState().snapshot.nodes.find((n) => n.id === 'move-node-1')?.position.x).toBe(600)
     expect(canvasStore.getState().snapshot.nodes.find((n) => n.id === 'move-node-2')?.position.x).toBe(400)
   })
+
+  it('preserves saved canvas nodes across unmount and re-entry without wiping them', async () => {
+    let savedDocument: CanvasSnapshotV2 = {
+      version: 2,
+      canvasId: 'c-persist-1',
+      projectId: '9f4cca3a4e36451b900e0d5741199db8',
+      name: '持久化画布',
+      viewport: { x: 0, y: 0, zoom: 1 },
+      nodes: [
+        {
+          id: 'text-node-keep',
+          type: 'text',
+          name: '保持文本',
+          position: { x: 200, y: 150 },
+          size: { width: 180, height: 80 },
+          data: { text: '保留内容' },
+        },
+      ],
+      edges: [],
+      comments: [],
+    }
+
+    const repository = {
+      loadCanvas: vi.fn(async () => ({ ...savedDocument })),
+      saveCanvas: vi.fn(async (doc: CanvasSnapshotV2) => {
+        savedDocument = { ...doc }
+      }),
+    } as unknown as WorkspaceRepository
+
+    const thumbnailService = {
+      schedule: vi.fn(),
+      flush: vi.fn(async () => undefined),
+    }
+
+    // First mount: should load the node and NOT purge it
+    const { unmount } = render(
+      <App
+        canvasId={savedDocument.canvasId}
+        projectId={savedDocument.projectId}
+        workspaceRepository={repository}
+        thumbnailService={thumbnailService}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'true'),
+    )
+
+    expect(canvasStore.getState().snapshot.nodes).toHaveLength(1)
+    expect(canvasStore.getState().snapshot.nodes[0].id).toBe('text-node-keep')
+
+    // Add another node
+    canvasStore.getState().addNode({
+      id: 'image-node-new',
+      type: 'image',
+      name: '新图片',
+      position: { x: 500, y: 200 },
+      size: { width: 300, height: 200 },
+      data: { url: 'https://example.com/test.png' },
+    })
+
+    // Unmount (simulating exit canvas back to workspace)
+    unmount()
+
+    // Verify saveCanvas was called with both nodes
+    expect(savedDocument.nodes).toHaveLength(2)
+
+    // Second mount: re-entering canvas
+    render(
+      <App
+        canvasId={savedDocument.canvasId}
+        projectId={savedDocument.projectId}
+        workspaceRepository={repository}
+        thumbnailService={thumbnailService}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'true'),
+    )
+
+    // Verify both nodes are restored and NOT wiped
+    expect(canvasStore.getState().snapshot.nodes).toHaveLength(2)
+    expect(canvasStore.getState().snapshot.nodes.some((n) => n.id === 'text-node-keep')).toBe(true)
+    expect(canvasStore.getState().snapshot.nodes.some((n) => n.id === 'image-node-new')).toBe(true)
+  })
 })
