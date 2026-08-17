@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Clapperboard } from 'lucide-react'
 import { NodeResizer, Position, type NodeProps } from '@xyflow/react'
 
@@ -11,7 +11,7 @@ function stripHtmlTags(str: string): string {
   return str.replace(/<[^>]*>/g, '')
 }
 
-export function TextNode({
+function TextNodeContent({
   id,
   data,
   selected,
@@ -231,3 +231,5 @@ export function TextNode({
     </article>
   )
 }
+
+export const TextNode = memo(TextNodeContent)

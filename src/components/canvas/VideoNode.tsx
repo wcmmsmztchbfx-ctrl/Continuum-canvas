@@ -5,7 +5,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { NodeResizer, Position, useViewport, type NodeProps } from '@xyflow/react'
+import { NodeResizer, Position, useStore as useReactFlowStore, type NodeProps } from '@xyflow/react'
 
 import { EmptyMediaPlaceholder } from './EmptyMediaPlaceholder'
 import { EditableNodeLabel } from './EditableNodeLabel'
@@ -15,13 +15,14 @@ import type { CanvasFlowNode } from './mapping'
 import { NodeGeneratorPanel } from './NodeGeneratorPanel'
 import { NodeHandle } from './NodeHandle'
 import {
+  cacheThumbnailFromElement,
   getVideoPosterUrl,
   subscribeThumbnailReady,
 } from '../../services/imageThumbnailCache'
 import {
-  calculateLoadPriority,
   isMediaLoaded,
   requestMediaLoad,
+  type LoadPriority,
 } from '../../services/mediaLoadQueue'
 import './canvas.css'
 
@@ -93,20 +94,17 @@ function VideoNodeContent({
     updateScrubberDom(currentTimeRef.current, duration)
   }, [duration])
 
-  let viewport = { x: 0, y: 0, zoom: 1 }
+  let zoomTier: 'low' | 'normal' | 'high' = 'normal'
   try {
-    const vp = useViewport()
-    viewport = { x: vp.x, y: vp.y, zoom: vp.zoom }
+    zoomTier = useReactFlowStore((s) =>
+      s.transform[2] > 1.5 ? 'high' : s.transform[2] <= 0.35 ? 'low' : 'normal',
+    )
   } catch {
-    viewport = { x: 0, y: 0, zoom: 1 }
+    zoomTier = 'normal'
   }
 
-  const zoom = viewport.zoom
-  const priority = calculateLoadPriority(
-    data.node?.position,
-    data.node?.size,
-    viewport,
-  )
+  const zoom = zoomTier === 'high' ? 2 : zoomTier === 'low' ? 0.3 : 1
+  const priority: LoadPriority = zoomTier
 
   const [generatedPoster, setGeneratedPoster] = useState<string | undefined>(
     () => getVideoPosterUrl(data.url, data.poster, zoom),
@@ -282,9 +280,12 @@ function VideoNodeContent({
                 updateScrubberDom(video.duration, video.duration)
               }
             }}
-            onLoadedData={() => {
+            onLoadedData={(event) => {
               setVideoReady(true)
               syncDuration()
+              if (data.url) {
+                cacheThumbnailFromElement(data.url, event.currentTarget)
+              }
             }}
             onLoadedMetadata={syncDuration}
             onPause={() => setPlaying(false)}

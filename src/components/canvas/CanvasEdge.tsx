@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import {
   getBezierPath,
   type ConnectionLineComponentProps,
@@ -36,7 +37,7 @@ function FlowPaths({
   )
 }
 
-export function CanvasEdge({
+function CanvasEdgeContent({
   sourceX,
   sourceY,
   sourcePosition,
@@ -106,6 +107,12 @@ export function CanvasEdge({
       <FlowPaths className="canvas-edge__flow" path={path} />
     </g>
   )
+}
+
+const StableCanvasEdge = memo(CanvasEdgeContent)
+
+export function CanvasEdge(props: EdgeProps<CanvasFlowEdge>) {
+  return <StableCanvasEdge {...props} />
 }
 
 export function CanvasConnectionLine({

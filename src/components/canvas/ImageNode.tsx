@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { NodeResizer, Position, useViewport, type NodeProps } from '@xyflow/react'
+import { NodeResizer, Position, useStore as useReactFlowStore, type NodeProps } from '@xyflow/react'
 
 import { EmptyMediaPlaceholder } from './EmptyMediaPlaceholder'
 import { EditableNodeLabel } from './EditableNodeLabel'
@@ -9,14 +9,15 @@ import type { CanvasFlowNode } from './mapping'
 import { NodeGeneratorPanel } from './NodeGeneratorPanel'
 import { NodeHandle } from './NodeHandle'
 import {
+  cacheThumbnailFromElement,
   getFastThumbnailUrl,
   getResponsiveImageUrl,
   subscribeThumbnailReady,
 } from '../../services/imageThumbnailCache'
 import {
-  calculateLoadPriority,
   isMediaLoaded,
   requestMediaLoad,
+  type LoadPriority,
 } from '../../services/mediaLoadQueue'
 import './canvas.css'
 
@@ -35,20 +36,17 @@ function ImageNodeContent({
   const [generatedThumbnail, setGeneratedThumbnail] = useState<string | undefined>(undefined)
   const resizeGranted = useRef(false)
 
-  let viewport = { x: 0, y: 0, zoom: 1 }
+  let zoomTier: 'low' | 'normal' | 'high' = 'normal'
   try {
-    const vp = useViewport()
-    viewport = { x: vp.x, y: vp.y, zoom: vp.zoom }
+    zoomTier = useReactFlowStore((s) =>
+      s.transform[2] > 1.5 ? 'high' : s.transform[2] <= 0.35 ? 'low' : 'normal',
+    )
   } catch {
-    viewport = { x: 0, y: 0, zoom: 1 }
+    zoomTier = 'normal'
   }
 
-  const zoom = viewport.zoom
-  const priority = calculateLoadPriority(
-    data.node?.position,
-    data.node?.size,
-    viewport,
-  )
+  const zoom = zoomTier === 'high' ? 2 : zoomTier === 'low' ? 0.3 : 1
+  const priority: LoadPriority = zoomTier
 
   useEffect(() => {
     setFailed(false)
@@ -220,6 +218,9 @@ function ImageNodeContent({
                 event.currentTarget.naturalWidth,
                 event.currentTarget.naturalHeight,
               )
+              if (data.url) {
+                cacheThumbnailFromElement(data.url, event.currentTarget)
+              }
             }}
             onError={() => {
               if (!hasThumbnail) {

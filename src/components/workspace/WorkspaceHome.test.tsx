@@ -175,7 +175,7 @@ describe('workspace home view', () => {
     expect(screen.getByRole('button', { name: '恢复 人物设定' })).toBeVisible()
   })
 
-  it('opens a canvas on double click or Enter', () => {
+  it('opens a canvas on click or Enter', () => {
     const onOpenCanvas = vi.fn()
     render(
       <WorkspaceHomeView
@@ -187,7 +187,7 @@ describe('workspace home view', () => {
     const canvas = screen.getByRole('button', {
       name: '人物设定，12 个节点',
     })
-    fireEvent.doubleClick(canvas)
+    fireEvent.click(canvas)
     expect(onOpenCanvas).toHaveBeenLastCalledWith(
       expect.objectContaining({ canvasId: 'canvas-a', projectId: 'project-a' }),
     )

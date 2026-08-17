@@ -1752,7 +1752,7 @@ export function CanvasWorkspace({
     (connection: Connection) => {
       setConnectionGestureActive(false)
       if (readOnly) return
-      if (!connection.source || !connection.target) return
+      if (!connection.source || !connection.target || connection.source === connection.target) return
       const current = store.getState().snapshot
       const sourceNode = current.nodes.find((node) => node.id === connection.source)
       const targetNode = current.nodes.find((node) => node.id === connection.target)
@@ -2473,6 +2473,7 @@ export function CanvasWorkspace({
         deleteKeyCode={isSelectMode && !readOnly ? deleteKeys : null}
         snapToGrid={false}
         snapGrid={canvasSnapGrid}
+        isValidConnection={(connection) => Boolean(connection.source && connection.target && connection.source !== connection.target)}
         onlyRenderVisibleElements={false}
         proOptions={{ hideAttribution: true }}
       >

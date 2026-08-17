@@ -465,7 +465,8 @@ export default function App({
 
   useEffect(() => {
     let disposed = false
-    let unsubscribe: () => void = () => {}
+    let unsubscribe = () => {}
+    let isHydrated = false
     setHydrated(false)
     setLoadedCanvasId(undefined)
 
@@ -496,36 +497,9 @@ export default function App({
               viewport: canvasDocument.viewport,
               nodes: canvasDocument.nodes,
               edges: canvasDocument.edges,
+              comments: canvasDocument.comments ?? [],
             }
           : activeProject ?? (await ensureReferenceProject())
-
-        // Purge legacy 37-node reference fixture if detected in local storage
-        if (
-          project.projectId === '9f4cca3a4e36451b900e0d5741199db8' ||
-          (project.nodes.length === 37 && project.nodes.some((n) => n.id === 'i-1wBxIhceMW'))
-        ) {
-          project = {
-            ...project,
-            viewport: { x: 0, y: 0, zoom: 1 },
-            nodes: [],
-            edges: [],
-          }
-          if (canvasId && canvasDocument) {
-            void workspaceRepository.saveCanvas({
-              ...canvasDocument,
-              viewport: { x: 0, y: 0, zoom: 1 },
-              nodes: [],
-              edges: [],
-            })
-          } else if (activeProjectId) {
-            void defaultProjectRepository.saveProject({
-              ...project,
-              viewport: { x: 0, y: 0, zoom: 1 },
-              nodes: [],
-              edges: [],
-            })
-          }
-        }
 
         if (disposed) return
         canvasStore.getState().restore(JSON.stringify(project))
@@ -539,6 +513,7 @@ export default function App({
       }
 
       if (disposed) return
+      isHydrated = true
       setHydrated(true)
       unsubscribe = canvasStore.subscribe((state, previous) => {
         if (state.snapshot === previous.snapshot) return
@@ -547,6 +522,7 @@ export default function App({
         if (canvasId) {
           const document = {
               ...project,
+              projectId: projectId ?? project.projectId,
               version: CANVAS_SNAPSHOT_VERSION,
               canvasId,
               comments: project.comments ?? [],
@@ -558,7 +534,7 @@ export default function App({
               if (disposed) void thumbnailService.flush(canvasId)
               return gatewayClient.syncCanvasAssetReferences({
                 canvasId,
-                projectId: project.projectId,
+                projectId: document.projectId,
                 assetIds: [
                   ...new Set(
                     project.nodes.flatMap((node) => {
@@ -596,7 +572,18 @@ export default function App({
     return () => {
       disposed = true
       unsubscribe()
-      if (canvasId) void thumbnailService.flush(canvasId)
+      if (canvasId && isHydrated) {
+        const currentSnapshot = canvasStore.getState().snapshot
+        const document = {
+          ...currentSnapshot,
+          projectId: projectId ?? currentSnapshot.projectId,
+          version: CANVAS_SNAPSHOT_VERSION,
+          canvasId,
+          comments: currentSnapshot.comments ?? [],
+        } as const
+        void workspaceRepository.saveCanvas(document).catch(() => undefined)
+        void thumbnailService.flush(canvasId)
+      }
     }
   }, [canvasId, notify, projectId, thumbnailService, workspaceRepository])
 
