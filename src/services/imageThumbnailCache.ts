@@ -1,5 +1,4 @@
 const memoryThumbnailCache = new Map<string, string>()
-const pendingGenerations = new Map<string, Promise<string | undefined>>()
 const listeners = new Set<(url: string, thumbnailUrl: string) => void>()
 
 export function subscribeThumbnailReady(
@@ -69,8 +68,9 @@ export function calculateImageLod(
 }
 
 /**
- * Returns a fast thumbnail URL for a given image URL if immediately available,
- * or triggers lightweight background thumbnail derivation.
+ * Returns a fast thumbnail URL for a given image URL if immediately available.
+ * For CDN images, returns a tiny w_360 WebP query URL.
+ * For local/blob images, returns an in-memory WebP blob URL if already cached.
  */
 export function getFastThumbnailUrl(
   url?: string,
@@ -94,83 +94,54 @@ export function getFastThumbnailUrl(
     return memoryThumbnailCache.get(url)
   }
 
-  // Trigger non-blocking generation in browser environment if not already pending
-  if (typeof window !== 'undefined' && typeof document !== 'undefined' && !pendingGenerations.has(url)) {
-    const trigger = () => {
-      const promise = generateClientThumbnail(url)
-        .then((thumb) => {
-          if (thumb) {
-            memoryThumbnailCache.set(url, thumb)
-            notifyThumbnailReady(url, thumb)
-          }
-          return thumb
-        })
-        .catch(() => undefined)
-        .finally(() => {
-          pendingGenerations.delete(url)
-        })
-      pendingGenerations.set(url, promise)
-    }
-
-    if ('requestIdleCallback' in window) {
-      window.requestIdleCallback(trigger, { timeout: 2000 })
-    } else {
-      setTimeout(trigger, 120)
-    }
-  }
-
   return undefined
 }
 
-async function generateClientThumbnail(
-  sourceUrl: string,
+/**
+ * Extracts a lightweight WebP thumbnail from an already loaded DOM image or video element
+ * without initiating any secondary network requests.
+ */
+export function cacheThumbnailFromElement(
+  url: string,
+  element: HTMLImageElement | HTMLVideoElement,
   maxDimension = 320,
-): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      try {
-        const width = img.naturalWidth || img.width
-        const height = img.naturalHeight || img.height
-        if (!width || !height) {
-          resolve(undefined)
-          return
+): void {
+  if (!url || memoryThumbnailCache.has(url)) return
+  if (typeof document === 'undefined') return
+  try {
+    const width =
+      ('naturalWidth' in element ? element.naturalWidth : (element as HTMLVideoElement).videoWidth) ||
+      element.width
+    const height =
+      ('naturalHeight' in element ? element.naturalHeight : (element as HTMLVideoElement).videoHeight) ||
+      element.height
+    if (!width || !height) return
+
+    const scale = Math.min(1, maxDimension / Math.max(width, height))
+    const targetWidth = Math.max(16, Math.round(width * scale))
+    const targetHeight = Math.max(16, Math.round(height * scale))
+
+    const canvas = document.createElement('canvas')
+    canvas.width = targetWidth
+    canvas.height = targetHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.drawImage(element, 0, 0, targetWidth, targetHeight)
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          const objectUrl = URL.createObjectURL(blob)
+          memoryThumbnailCache.set(url, objectUrl)
+          notifyThumbnailReady(url, objectUrl)
         }
-
-        const scale = Math.min(1, maxDimension / Math.max(width, height))
-        const targetWidth = Math.max(16, Math.round(width * scale))
-        const targetHeight = Math.max(16, Math.round(height * scale))
-
-        const canvas = document.createElement('canvas')
-        canvas.width = targetWidth
-        canvas.height = targetHeight
-        const ctx = canvas.getContext('2d')
-        if (!ctx) {
-          resolve(undefined)
-          return
-        }
-
-        ctx.drawImage(img, 0, 0, targetWidth, targetHeight)
-        canvas.toBlob(
-          (blob) => {
-            if (blob) {
-              const objectUrl = URL.createObjectURL(blob)
-              resolve(objectUrl)
-            } else {
-              resolve(undefined)
-            }
-          },
-          'image/webp',
-          0.6,
-        )
-      } catch {
-        resolve(undefined)
-      }
-    }
-    img.onerror = () => resolve(undefined)
-    img.src = sourceUrl
-  })
+      },
+      'image/webp',
+      0.6,
+    )
+  } catch {
+    // Canvas security or context error fallback
+  }
 }
 
 const pendingVideoThumbnails = new Set<string>()

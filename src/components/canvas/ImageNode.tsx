@@ -9,6 +9,7 @@ import type { CanvasFlowNode } from './mapping'
 import { NodeGeneratorPanel } from './NodeGeneratorPanel'
 import { NodeHandle } from './NodeHandle'
 import {
+  cacheThumbnailFromElement,
   getFastThumbnailUrl,
   getResponsiveImageUrl,
   subscribeThumbnailReady,
@@ -220,6 +221,9 @@ function ImageNodeContent({
                 event.currentTarget.naturalWidth,
                 event.currentTarget.naturalHeight,
               )
+              if (data.url) {
+                cacheThumbnailFromElement(data.url, event.currentTarget)
+              }
             }}
             onError={() => {
               if (!hasThumbnail) {

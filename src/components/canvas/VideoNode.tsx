@@ -15,6 +15,7 @@ import type { CanvasFlowNode } from './mapping'
 import { NodeGeneratorPanel } from './NodeGeneratorPanel'
 import { NodeHandle } from './NodeHandle'
 import {
+  cacheThumbnailFromElement,
   getVideoPosterUrl,
   subscribeThumbnailReady,
 } from '../../services/imageThumbnailCache'
@@ -282,9 +283,12 @@ function VideoNodeContent({
                 updateScrubberDom(video.duration, video.duration)
               }
             }}
-            onLoadedData={() => {
+            onLoadedData={(event) => {
               setVideoReady(true)
               syncDuration()
+              if (data.url) {
+                cacheThumbnailFromElement(data.url, event.currentTarget)
+              }
             }}
             onLoadedMetadata={syncDuration}
             onPause={() => setPlaying(false)}
