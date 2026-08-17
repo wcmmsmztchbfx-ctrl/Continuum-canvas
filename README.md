@@ -1,6 +1,6 @@
 # Continuum Canvas
 
-LibTV Canvas 是一个基于 React、TypeScript 和 React Flow 的无限画布编辑器。浏览器端负责画布交互、项目状态与本地持久化；仓库内置的 Node gateway 负责供应商配置、素材存储、任务执行和静态文件托管。
+Continuum Canvas 是一个基于 React、TypeScript 和 React Flow 的无限画布编辑器。浏览器端负责画布交互、项目状态与本地持久化；仓库内置的 Node gateway 负责供应商配置、素材存储、任务执行和静态文件托管。
 
 gateway 使用 provider registry + adapter 架构。当前随仓库提供的可用 adapter 是 AIStartLab OpenAPI；其他供应商可以通过实现 `server/providers/provider-adapter.ts` 接入，但没有安装 adapter 的供应商会保持不可用，不会接收或发送密钥。
 
