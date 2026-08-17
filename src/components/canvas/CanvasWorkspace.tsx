@@ -41,7 +41,6 @@ import {
   canvasStore,
   type CanvasStoreState,
 } from '../../store/canvas-store'
-import { SpatialHashGrid } from '../../utils/spatialHashGrid'
 import { createBrowserUuid, createCanvasId } from '../../utils/id'
 import type { SelectionAction } from '../overlays/SelectionToolbar'
 import { useOptionalProviderCatalog } from '../providers/ProviderCatalogContext'
@@ -1526,18 +1525,33 @@ export function CanvasWorkspace({
   }, [flowInstance, store])
 
   const deepestFrameAt = useCallback((center: Point, excludedIds: readonly string[]) => {
-    const excluded = new Set(excludedIds)
     const snapshotNow = store.getState().snapshot
     const byId = new Map(snapshotNow.nodes.map((node) => [node.id, node]))
     const indexById = new Map(snapshotNow.nodes.map((node, idx) => [node.id, idx]))
+
+    // Exclude all excluded nodes and their descendant subtrees
+    const excluded = new Set(excludedIds)
+    let added = true
+    while (added) {
+      added = false
+      for (const node of snapshotNow.nodes) {
+        if (node.parentId && excluded.has(node.parentId) && !excluded.has(node.id)) {
+          excluded.add(node.id)
+          added = true
+        }
+      }
+    }
+
     const depthCache = new Map<string, number>()
     const getDepth = (node: CanvasNode | undefined): number => {
       if (!node) return 0
       const cached = depthCache.get(node.id)
       if (cached !== undefined) return cached
       let value = 0
+      const visited = new Set<string>([node.id])
       let cursor = node.parentId ? byId.get(node.parentId) : undefined
-      while (cursor) {
+      while (cursor && !visited.has(cursor.id)) {
+        visited.add(cursor.id)
         value += 1
         cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined
       }
@@ -1545,29 +1559,22 @@ export function CanvasWorkspace({
       return value
     }
 
-    const candidates = snapCandidates(excludedIds)
-    const frameGrid = new SpatialHashGrid<SnapRect>(512)
-    for (const rect of candidates) {
-      if (rect.kind === 'frame' && rect.id && !excluded.has(rect.id)) {
-        frameGrid.insert(rect)
-      }
-    }
-    const matchingFrames = frameGrid.queryPoint(center)
-
+    const candidates = snapCandidates(Array.from(excluded))
     let bestFrameId: string | undefined
     let bestDepth = -1
     let bestIndex = -1
 
-    for (const rect of matchingFrames) {
+    for (const rect of candidates) {
+      if (rect.kind !== 'frame' || !rect.id || rect.width <= 0 || rect.height <= 0 || excluded.has(rect.id)) continue
       if (
         center.x >= rect.x &&
         center.x <= rect.x + rect.width &&
         center.y >= rect.y &&
         center.y <= rect.y + rect.height
       ) {
-        const frameNode = byId.get(rect.id!)
+        const frameNode = byId.get(rect.id)
         const frameDepth = getDepth(frameNode)
-        const frameIndex = indexById.get(rect.id!) ?? -1
+        const frameIndex = indexById.get(rect.id) ?? -1
         if (
           frameDepth > bestDepth ||
           (frameDepth === bestDepth && frameIndex > bestIndex)

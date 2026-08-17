@@ -1,5 +1,4 @@
 import type { Point } from '../../model/project'
-import { SpatialHashGrid } from '../../utils/spatialHashGrid'
 
 export interface SnapRect { id?: string; x: number; y: number; width: number; height: number; kind?: 'node' | 'frame' }
 export interface SnapGuide { axis: 'x' | 'y'; value: number; from: number; to: number; label?: string }
@@ -36,24 +35,34 @@ function nearestAxis(
     }
   }
   let best: { delta: number; target: number; source: number; candidate: SnapRect; orthogonalDist: number } | undefined
+  const rectOrthogonalCenter = axis === 'x' ? (rect.y + rect.height * 0.5) : (rect.x + rect.width * 0.5)
+
   for (let sourceIndex = 0; sourceIndex < source.length; sourceIndex += 1) {
     const srcVal = source[sourceIndex]!
-    for (const candidate of candidates) {
-      const orthogonalDist = axis === 'x'
-        ? Math.abs((candidate.y + candidate.height / 2) - (rect.y + rect.height / 2))
-        : Math.abs((candidate.x + candidate.width / 2) - (rect.x + rect.width / 2))
+    for (let cIdx = 0; cIdx < candidates.length; cIdx += 1) {
+      const candidate = candidates[cIdx]!
+      const candOrthogonalCenter = axis === 'x'
+        ? (candidate.y + candidate.height * 0.5)
+        : (candidate.x + candidate.width * 0.5)
+      const orthogonalDist = Math.abs(candOrthogonalCenter - rectOrthogonalCenter)
 
       // Skip candidates that are extremely far away orthogonally (> 2000px) to prevent distant jitter
       if (orthogonalDist > 2000) continue
 
-      const targets = axis === 'x' ? anchorsX(candidate) : anchorsY(candidate)
-      for (const target of targets) {
+      const start = axis === 'x' ? candidate.x : candidate.y
+      const size = axis === 'x' ? candidate.width : candidate.height
+      const mid = start + size * 0.5
+      const end = start + size
+
+      for (let a = 0; a < 3; a += 1) {
+        const target = a === 0 ? start : a === 1 ? mid : end
         const delta = target - srcVal
-        if (Math.abs(delta) <= threshold) {
+        const absDelta = Math.abs(delta)
+        if (absDelta <= threshold) {
           if (
             !best ||
-            Math.abs(delta) < Math.abs(best.delta) - 0.5 ||
-            (Math.abs(Math.abs(delta) - Math.abs(best.delta)) <= 0.5 && orthogonalDist < best.orthogonalDist)
+            absDelta < Math.abs(best.delta) - 0.5 ||
+            (Math.abs(absDelta - Math.abs(best.delta)) <= 0.5 && orthogonalDist < best.orthogonalDist)
           ) {
             best = { delta, target, source: sourceIndex, candidate, orthogonalDist }
           }
@@ -86,19 +95,33 @@ function equalGapDelta(rect: SnapRect, candidates: SnapRect[], axis: 'x' | 'y', 
       : Math.abs((item.x + item.width / 2) - (rect.x + rect.width / 2))
     return dist <= 1200
   })
-  const sorted = [...nearby].sort((a, b) => axis === 'x' ? a.x - b.x : a.y - b.y)
+  const sorted = [...nearby].sort((a, b) => (axis === 'x' ? a.x - b.x : a.y - b.y))
   let best: number | undefined
   for (let index = 0; index < sorted.length - 1; index += 1) {
     const first = sorted[index]!
     const second = sorted[index + 1]!
     const firstEnd = axis === 'x' ? first.x + first.width : first.y + first.height
     const secondStart = axis === 'x' ? second.x : second.y
+    const secondEnd = axis === 'x' ? second.x + second.width : second.y + second.height
     const gap = secondStart - firstEnd
     if (gap < 0) continue
-    const expected = secondStart + gap
+
     const current = axis === 'x' ? rect.x : rect.y
-    const delta = expected - current
-    if (Math.abs(delta) <= threshold && (best === undefined || Math.abs(delta) < Math.abs(best))) best = delta
+
+    // Case 1: Trailing snap (first -> second -> [rect])
+    const expectedTrailing = secondEnd + gap
+    const deltaTrailing = expectedTrailing - current
+    if (Math.abs(deltaTrailing) <= threshold && (best === undefined || Math.abs(deltaTrailing) < Math.abs(best))) {
+      best = deltaTrailing
+    }
+
+    // Case 2: In-between snap (first -> [rect] -> second)
+    const rectSize = axis === 'x' ? rect.width : rect.height
+    const expectedBetween = (firstEnd + secondStart - rectSize) / 2
+    const deltaBetween = expectedBetween - current
+    if (Math.abs(deltaBetween) <= threshold && (best === undefined || Math.abs(deltaBetween) < Math.abs(best))) {
+      best = deltaBetween
+    }
   }
   return best
 }
@@ -110,19 +133,19 @@ function cullDistantCandidates(
   keepIds?: (string | undefined)[],
 ): SnapRect[] {
   if (candidates.length <= 16) return candidates
-  const grid = new SpatialHashGrid<SnapRect>(1024)
-  grid.insertAll(candidates)
-  const culled = grid.queryRect(rect, proximity)
-  if (keepIds && keepIds.length > 0) {
-    const keep = new Set(keepIds.filter((id): id is string => Boolean(id)))
-    const present = new Set(culled.map((c) => c.id))
-    for (const c of candidates) {
-      if (c.id && keep.has(c.id) && !present.has(c.id)) {
-        culled.push(c)
-      }
-    }
-  }
-  return culled
+  const minX = rect.x - proximity
+  const maxX = rect.x + rect.width + proximity
+  const minY = rect.y - proximity
+  const maxY = rect.y + rect.height + proximity
+  const keep = keepIds && keepIds.some(Boolean) ? new Set(keepIds.filter(Boolean)) : undefined
+
+  return candidates.filter((c) => (
+    (keep && c.id && keep.has(c.id)) ||
+    (c.x + c.width >= minX &&
+      c.x <= maxX &&
+      c.y + c.height >= minY &&
+      c.y <= maxY)
+  ))
 }
 
 export function snapRect(input: { rect: SnapRect; candidates: SnapRect[]; zoom: number; enabled: boolean; grid?: number; disable?: boolean; measure?: boolean; previous?: SnapState }): SnapResult {

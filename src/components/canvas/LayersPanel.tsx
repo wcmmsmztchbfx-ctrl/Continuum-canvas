@@ -1,11 +1,14 @@
 import { useMemo, useState, type ComponentType, type DragEvent, type ReactNode } from 'react'
+import { useStore } from 'zustand'
 import { ChevronDown, ChevronRight, Circle, Eye, EyeOff, Frame, Image, Lock, MousePointerSquareDashed, PenTool, Search, Type, Unlock, Video } from 'lucide-react'
 import type { CanvasNode } from '../../model/project'
+import { canvasStore, type CanvasStoreState } from '../../store/canvas-store'
 import { getFastThumbnailUrl } from '../../services/imageThumbnailCache'
 
 export interface LayersPanelProps {
-  nodes: CanvasNode[]
-  selectedIds: string[]
+  nodes?: CanvasNode[]
+  selectedIds?: string[]
+  store?: typeof canvasStore
   open: boolean
   onOpenChange(open: boolean): void
   onSelect(id: string): void
@@ -56,6 +59,13 @@ function getPathSvg(node: CanvasNode): string {
 }
 
 export function LayersPanel(props: LayersPanelProps) {
+  const store = props.store ?? canvasStore
+  const storeNodes = useStore(store, (state: CanvasStoreState) => state.snapshot.nodes)
+  const storeSelectedIds = useStore(store, (state: CanvasStoreState) => state.selectedNodeIds)
+
+  const nodes = props.nodes ?? storeNodes
+  const selectedIds = props.selectedIds ?? storeSelectedIds
+
   const [editingId, setEditingId] = useState<string>()
   const [draft, setDraft] = useState('')
   const [query, setQuery] = useState('')
@@ -64,12 +74,12 @@ export function LayersPanel(props: LayersPanelProps) {
 
   const children = useMemo(() => {
     const result = new Map<string | undefined, CanvasNode[]>()
-    for (const node of props.nodes) {
+    for (const node of nodes) {
       result.set(node.parentId, [...(result.get(node.parentId) ?? []), node])
     }
     for (const list of result.values()) list.reverse()
     return result
-  }, [props.nodes])
+  }, [nodes])
 
   const visible = useMemo(() => {
     const result: Array<{ node: CanvasNode; depth: number }> = []
@@ -136,7 +146,7 @@ export function LayersPanel(props: LayersPanelProps) {
             <div
               className="layers-panel__row"
               data-drop={dropTarget?.id === node.id ? dropTarget.placement : undefined}
-              data-selected={props.selectedIds.includes(node.id) || undefined}
+              data-selected={selectedIds.includes(node.id) || undefined}
               draggable
               key={node.id}
               onClick={() => props.onSelect(node.id)}
@@ -147,7 +157,7 @@ export function LayersPanel(props: LayersPanelProps) {
                 setDropTarget({ id: node.id, placement: placementAt(event, node) })
               }}
               onDragStart={(event) => {
-                const ids = props.selectedIds.includes(node.id) ? props.selectedIds : [node.id]
+                const ids = selectedIds.includes(node.id) ? selectedIds : [node.id]
                 event.dataTransfer.setData('application/x-canvas-nodes', JSON.stringify(ids))
                 event.dataTransfer.effectAllowed = 'move'
               }}

@@ -85,7 +85,7 @@ export interface AppOverlaysProps {
   readOnly: boolean
   canvasId?: string
   snapshot?: ProjectSnapshot
-  selectedNodeIds: readonly string[]
+  selectedNodeIds?: readonly string[]
   renameProjectName: string
   setRenameProjectName: (name: string) => void
   publishDescription: string
@@ -135,7 +135,7 @@ export function AppOverlays({
   readOnly,
   canvasId,
   snapshot: snapshotProp,
-  selectedNodeIds,
+  selectedNodeIds: selectedNodeIdsProp,
   renameProjectName,
   setRenameProjectName,
   publishDescription,
@@ -150,6 +150,7 @@ export function AppOverlays({
   restoreProjectFrom,
 }: AppOverlaysProps) {
   const snapshot = snapshotProp ?? canvasStore.getState().snapshot
+  const selectedNodeIds = selectedNodeIdsProp ?? canvasStore.getState().selectedNodeIds
   return (
     <>
       <WorkspaceDropdown

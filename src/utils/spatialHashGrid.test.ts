@@ -15,6 +15,15 @@ describe('SpatialHashGrid', () => {
     expect(resultWithBuffer.map((i) => i.id).sort()).toEqual(['a', 'b'])
   })
 
+  it('handles negative width and height inverted rects', () => {
+    const grid = new SpatialHashGrid(100)
+    grid.insert({ id: 'inv', x: 150, y: 150, width: -100, height: -100 })
+
+    expect(grid.queryPoint({ x: 100, y: 100 }).map((i) => i.id)).toEqual(['inv'])
+    const query = grid.queryRect({ x: 200, y: 200, width: -150, height: -150 })
+    expect(query.map((i) => i.id)).toEqual(['inv'])
+  })
+
   it('correctly indexes elements spanning multiple grid cells', () => {
     const grid = new SpatialHashGrid(100)
     grid.insert({ id: 'large', x: 50, y: 50, width: 250, height: 250 })
@@ -34,7 +43,7 @@ describe('SpatialHashGrid', () => {
     expect(grid.queryPoint({ x: 0, y: 0 })).toEqual([])
   })
 
-  it('supports removal and update by id', () => {
+  it('supports removal by id or by new object with matching id', () => {
     const grid = new SpatialHashGrid(100)
     grid.insert({ id: 'node1', x: 10, y: 10, width: 20, height: 20 })
     expect(grid.size).toBe(1)
@@ -44,9 +53,20 @@ describe('SpatialHashGrid', () => {
     expect(grid.queryPoint({ x: 10, y: 10 })).toEqual([])
     expect(grid.queryPoint({ x: 505, y: 505 }).map((i) => i.id)).toEqual(['node1'])
 
-    grid.remove('node1')
+    // Remove by new object with matching id
+    grid.remove({ id: 'node1', x: 0, y: 0, width: 0, height: 0 })
     expect(grid.size).toBe(0)
     expect(grid.queryPoint({ x: 505, y: 505 })).toEqual([])
+  })
+
+  it('reuses output array buffer without allocating new arrays', () => {
+    const grid = new SpatialHashGrid<{ id: string; x: number; y: number; width: number; height: number }>(100)
+    grid.insert({ id: 'a', x: 10, y: 10, width: 20, height: 20 })
+
+    const scratch: { id: string; x: number; y: number; width: number; height: number }[] = []
+    const out = grid.queryRect({ x: 0, y: 0, width: 100, height: 100 }, 0, scratch)
+    expect(out).toBe(scratch)
+    expect(scratch.map((i) => i.id)).toEqual(['a'])
   })
 
   it('clears all cells properly', () => {

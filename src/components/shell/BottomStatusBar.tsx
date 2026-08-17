@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useStore } from 'zustand'
 import {
   ChevronDown,
   LayoutGrid,
@@ -9,6 +10,7 @@ import {
   Waypoints,
 } from 'lucide-react'
 
+import { canvasStore, type CanvasStoreState } from '../../store/canvas-store'
 import { IconButton } from './IconButton'
 
 export interface BottomStatusBarProps {
@@ -28,6 +30,7 @@ export interface BottomStatusBarProps {
   snapToGrid?: boolean
   smartSnap?: boolean
   zoom?: number
+  store?: typeof canvasStore
 }
 
 export function BottomStatusBar({
@@ -46,8 +49,11 @@ export function BottomStatusBar({
   showMiniMap = false,
   snapToGrid = false,
   smartSnap = true,
-  zoom = 20,
+  zoom: zoomProp,
+  store = canvasStore,
 }: BottomStatusBarProps) {
+  const storeZoom = useStore(store, (state: CanvasStoreState) => state.snapshot.viewport.zoom * 100)
+  const zoom = zoomProp ?? storeZoom
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false)
   const [zoomInput, setZoomInput] = useState(() => String(Math.round(zoom)))
   const zoomMenuRef = useRef<HTMLDivElement>(null)

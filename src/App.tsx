@@ -272,10 +272,17 @@ export default function App({
   const contextMenuDismissedAtRef = useRef(0)
   const canvasName = useStore(canvasStore, (state) => state.snapshot.name)
   const canvasProjectId = useStore(canvasStore, (state) => state.snapshot.projectId)
-  const canvasZoom = useStore(canvasStore, (state) => state.snapshot.viewport.zoom)
-  const canvasNodes = useStore(canvasStore, (state) => state.snapshot.nodes)
-  const selectedNodeIds = useStore(canvasStore, (state) => state.selectedNodeIds)
   const imageSelectionGuardRef = useRef<(nodeId: string | null) => boolean>(() => true)
+
+  const handleZoomIn = useCallback(() => {
+    const currentZoom = canvasStore.getState().snapshot.viewport.zoom
+    setCanvasZoom(currentZoom * 1.2)
+  }, [])
+
+  const handleZoomOut = useCallback(() => {
+    const currentZoom = canvasStore.getState().snapshot.viewport.zoom
+    setCanvasZoom(currentZoom / 1.2)
+  }, [])
 
   const copySelectedNodes = useCallback(async (selectedIds: string[]) => {
     const envelope = createCanvasClipboardEnvelope(
@@ -1340,7 +1347,6 @@ export default function App({
           </div>
           {activeLeftTab === 'layers' && (
             <LayersPanel
-              nodes={canvasNodes}
               onFocusNode={(id) => {
                 if (imageSelectionGuardRef.current(id)) {
                   canvasStore.getState().selectNode(id)
@@ -1354,7 +1360,6 @@ export default function App({
               onToggleHidden={(id) => canvasStore.getState().setNodeVisibility(id, Boolean(canvasStore.getState().snapshot.nodes.find((node) => node.id === id)?.hidden))}
               onToggleLocked={(id) => canvasStore.getState().setNodeLocked(id, !canvasStore.getState().snapshot.nodes.find((node) => node.id === id)?.locked)}
               open
-              selectedIds={selectedNodeIds}
             />
           )}
           {activeLeftTab === 'assets' && (
@@ -1592,13 +1597,12 @@ export default function App({
         }
         onToggleSnap={() => persistPreferences({ smartSnap: !preferences.smartSnap })}
         onToggleGridSnap={() => persistPreferences({ snapToGrid: !preferences.snapToGrid })}
-        onZoomIn={() => setCanvasZoom(canvasZoom * 1.2)}
-        onZoomOut={() => setCanvasZoom(canvasZoom / 1.2)}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
         onZoomTo={setCanvasZoom}
         showMiniMap={preferences.showMiniMap}
         snapToGrid={preferences.snapToGrid}
         smartSnap={preferences.smartSnap}
-        zoom={canvasZoom * 100}
       />
       <ToolDock activeTool={activeTool} onToolSelect={handleToolSelect} />
       <LayoutDecisionBar
@@ -1668,7 +1672,6 @@ export default function App({
         capabilities={capabilities}
         readOnly={readOnly}
         canvasId={canvasId}
-        selectedNodeIds={selectedNodeIds}
         renameProjectName={renameProjectName}
         setRenameProjectName={setRenameProjectName}
         publishDescription={publishDescription}

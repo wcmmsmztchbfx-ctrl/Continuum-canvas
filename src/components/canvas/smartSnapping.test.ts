@@ -33,4 +33,33 @@ describe('smart snapping geometry', () => {
     expect(result.rect).toMatchObject({ x: 10, width: 190, height: 100 })
     expect(result.guides).toHaveLength(1)
   })
+  it('snaps trailing equal gap accounting for second item width', () => {
+    // Card A: [0, 100], Card B: [200, 300] (gap = 100). Card C: w=100. Expected start = 300 + 100 = 400
+    const result = snapRect({
+      rect: { x: 396, y: 0, width: 100, height: 50 },
+      candidates: [
+        { x: 0, y: 0, width: 100, height: 50 },
+        { x: 200, y: 0, width: 100, height: 50 },
+      ],
+      zoom: 1,
+      enabled: true,
+    })
+    expect(result.rect.x).toBe(400)
+    expect(result.guides.some((g) => g.label === '等间距')).toBe(true)
+  })
+  it('snaps centered equal gap between two items', () => {
+    // Card A: [0, 100], Card B: [300, 400]. Card C: w=100. Expected center between [100, 300] is (100 + 300 - 100) / 2 = 150
+    const result = snapRect({
+      rect: { x: 147, y: 0, width: 100, height: 50 },
+      candidates: [
+        { x: 0, y: 0, width: 100, height: 50 },
+        { x: 300, y: 0, width: 100, height: 50 },
+      ],
+      zoom: 1,
+      enabled: true,
+    })
+    expect(result.rect.x).toBe(150)
+    expect(result.guides.some((g) => g.label === '等间距')).toBe(true)
+  })
 })
+

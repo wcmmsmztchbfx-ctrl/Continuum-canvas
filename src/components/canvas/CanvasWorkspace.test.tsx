@@ -1892,4 +1892,26 @@ describe('CanvasWorkspace', () => {
     const brushNodes = store.getState().snapshot.nodes.filter((n) => n.type === 'path' && n.data.kind === 'brush')
     expect(brushNodes).toHaveLength(1)
   })
+
+  it('deepestFrameAt excludes all descendant frames when parent frame is dragged', () => {
+    const store = createCanvasStore({
+      ...referenceProjectSnapshot,
+      nodes: [
+        { id: 'parent-frame', type: 'frame', name: 'Parent Frame', position: { x: 0, y: 0 }, size: { width: 500, height: 500 }, data: { label: 'Parent' } },
+        { id: 'child-frame', type: 'frame', name: 'Child Frame', parentId: 'parent-frame', position: { x: 50, y: 50 }, size: { width: 200, height: 200 }, data: { label: 'Child' } },
+      ],
+    })
+    render(<CanvasWorkspace store={store} />)
+    const parentNode = flowNodes().find((n) => n.id === 'parent-frame')!
+
+    // Start dragging the parent frame
+    act(() => flowProps().onNodeDragStart?.({} as never, parentNode, [parentNode]))
+    const draggedParent = { ...parentNode, position: { x: 10, y: 10 } }
+
+    // Dragging over child frame's center should NOT highlight child-frame as drop target
+    act(() => flowProps().onNodeDrag?.({ clientX: 150, clientY: 150 } as never, draggedParent, [draggedParent]))
+    const dropTarget = document.querySelector('[data-frame-drop-target="child-frame"]')
+    expect(dropTarget).toBeNull()
+  })
 })
+
