@@ -177,7 +177,7 @@ function CanvasCard({
         <button
           aria-label={`${canvas.name}，${canvas.nodeCount} 个节点`}
           className="workspace-canvas-card__open"
-          onDoubleClick={() => props.onOpenCanvas?.(canvas)}
+          onClick={() => props.onOpenCanvas?.(canvas)}
           onKeyDown={(event) => {
             if (event.key !== 'Enter') return
             event.preventDefault()

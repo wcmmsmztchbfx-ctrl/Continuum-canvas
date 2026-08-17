@@ -203,12 +203,19 @@ function parseRange(header: string | undefined, size: number): { start: number; 
 }
 
 export class AssetStore {
-  private readonly filesRoot: string
-  private readonly indexPath: string
+  private filesRoot: string
+  private indexPath: string
   private assets: StoredAsset[]
-  private readonly pinnedFetcher?: PinnedRemoteFetcher
-  private readonly lookup: AddressLookup
-  private readonly assetImportTimeoutMs: number
+  private pinnedFetcher: PinnedRemoteFetcher | undefined
+  private lookup: AddressLookup
+  private assetImportTimeoutMs: number
+  private mutationTail: Promise<unknown> = Promise.resolve()
+
+  private mutate<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.mutationTail.catch(() => undefined).then(operation)
+    this.mutationTail = next.catch(() => undefined)
+    return next
+  }
 
   private constructor(
     filesRoot: string,
@@ -358,14 +365,16 @@ export class AssetStore {
       createdAt: new Date().toISOString(),
       storageName,
     }
-    this.assets.push(stored)
-    try {
-      await this.persist()
-    } catch (error) {
-      this.assets = this.assets.filter((asset) => asset.id !== id)
-      await rm(finalPath, { force: true }).catch(() => {})
-      throw error
-    }
+    await this.mutate(async () => {
+      this.assets.push(stored)
+      try {
+        await this.persist()
+      } catch (error) {
+        this.assets = this.assets.filter((asset) => asset.id !== id)
+        await rm(finalPath, { force: true }).catch(() => {})
+        throw error
+      }
+    })
     return this.publicRecord(stored)
   }
 
@@ -373,17 +382,19 @@ export class AssetStore {
     candidateIds: Iterable<string>,
     referencedIds: ReadonlySet<string>,
   ): Promise<string[]> {
-    const candidates = new Set(candidateIds)
-    const removable = this.assets.filter(
-      (asset) => candidates.has(asset.id) && !referencedIds.has(asset.id),
-    )
-    if (removable.length === 0) return []
-    const removableIds = new Set(removable.map((asset) => asset.id))
-    const retained = this.assets.filter((asset) => !removableIds.has(asset.id))
-    await atomicWriteJson(this.indexPath, retained)
-    this.assets = retained
-    await Promise.all(removable.map((asset) => rm(this.assetPath(asset), { force: true })))
-    return removable.map((asset) => asset.id)
+    return this.mutate(async () => {
+      const candidates = new Set(candidateIds)
+      const removable = this.assets.filter(
+        (asset) => candidates.has(asset.id) && !referencedIds.has(asset.id),
+      )
+      if (removable.length === 0) return []
+      const removableIds = new Set(removable.map((asset) => asset.id))
+      const retained = this.assets.filter((asset) => !removableIds.has(asset.id))
+      this.assets = retained
+      await atomicWriteJson(this.indexPath, retained)
+      await Promise.all(removable.map((asset) => rm(this.assetPath(asset), { force: true })))
+      return removable.map((asset) => asset.id)
+    })
   }
 
   async readBytes(id: string): Promise<Uint8Array> {

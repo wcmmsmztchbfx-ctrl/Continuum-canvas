@@ -73,6 +73,7 @@ export interface CanvasStoreState {
   reorderNodes: (nodeIds: string[], targetId: string, placement: 'before' | 'after' | 'inside') => boolean
   reconcileFrameMembership: (nodeIds: string[]) => void
   renameNode: (nodeId: string, name: string) => void
+  renameCanvas: (name: string) => void
   addNode: (node: CanvasNode) => void
   createNodeFromHistory: (
     entry: GenerationHistoryEntry,
@@ -464,6 +465,13 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
         ),
       })
     },
+    renameCanvas: (name) => {
+      const normalizedName = name.trim().slice(0, 60)
+      if (!normalizedName) return
+      const current = get().snapshot
+      if (current.name === normalizedName) return
+      commitDocument({ ...current, name: normalizedName })
+    },
     addNode: (node) => {
       const current = get().snapshot
       if (current.nodes.some((candidate) => candidate.id === node.id)) return
@@ -583,6 +591,7 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
       return nodeId
     },
     addEdge: (edge) => {
+      if (edge.source === edge.target) return
       const current = get().snapshot
       const hasSource = current.nodes.some((node) => node.id === edge.source)
       const hasTarget = current.nodes.some((node) => node.id === edge.target)

@@ -1,4 +1,58 @@
-const memoryThumbnailCache = new Map<string, string>()
+const MAX_CACHE_ENTRIES = 120
+
+class LruBlobCache {
+  private cache = new Map<string, string>()
+
+  get(key: string): string | undefined {
+    const value = this.cache.get(key)
+    if (value !== undefined) {
+      this.cache.delete(key)
+      this.cache.set(key, value)
+    }
+    return value
+  }
+
+  has(key: string): boolean {
+    return this.cache.has(key)
+  }
+
+  set(key: string, objectUrl: string): void {
+    if (this.cache.has(key)) {
+      const old = this.cache.get(key)!
+      if (old.startsWith('blob:') && old !== objectUrl) {
+        try {
+          URL.revokeObjectURL(old)
+        } catch {}
+      }
+      this.cache.delete(key)
+    } else if (this.cache.size >= MAX_CACHE_ENTRIES) {
+      const oldestKey = this.cache.keys().next().value
+      if (oldestKey) {
+        const oldestUrl = this.cache.get(oldestKey)
+        if (oldestUrl?.startsWith('blob:')) {
+          try {
+            URL.revokeObjectURL(oldestUrl)
+          } catch {}
+        }
+        this.cache.delete(oldestKey)
+      }
+    }
+    this.cache.set(key, objectUrl)
+  }
+
+  clear(): void {
+    for (const url of this.cache.values()) {
+      if (url.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(url)
+        } catch {}
+      }
+    }
+    this.cache.clear()
+  }
+}
+
+export const memoryThumbnailCache = new LruBlobCache()
 const listeners = new Set<(url: string, thumbnailUrl: string) => void>()
 
 export function subscribeThumbnailReady(
@@ -145,64 +199,103 @@ export function cacheThumbnailFromElement(
 }
 
 const pendingVideoThumbnails = new Set<string>()
+const MAX_CONCURRENT_VIDEO_EXTRACTIONS = 2
+let activeVideoExtractions = 0
+const videoExtractionQueue: Array<() => void> = []
+
+function runNextVideoExtraction() {
+  if (activeVideoExtractions >= MAX_CONCURRENT_VIDEO_EXTRACTIONS) return
+  const next = videoExtractionQueue.shift()
+  if (next) {
+    activeVideoExtractions++
+    next()
+  }
+}
 
 function generateVideoThumbnail(videoUrl: string): void {
   if (pendingVideoThumbnails.has(videoUrl) || memoryThumbnailCache.has(videoUrl)) return
   if (typeof document === 'undefined') return
   pendingVideoThumbnails.add(videoUrl)
 
-  const video = document.createElement('video')
-  video.crossOrigin = 'anonymous'
-  video.preload = 'metadata'
-  video.muted = true
-  video.playsInline = true
+  videoExtractionQueue.push(() => {
+    const video = document.createElement('video')
+    video.crossOrigin = 'anonymous'
+    video.preload = 'metadata'
+    video.muted = true
+    video.playsInline = true
 
-  let finished = false
-  const cleanup = () => {
-    if (finished) return
-    finished = true
-    pendingVideoThumbnails.delete(videoUrl)
-    video.removeAttribute('src')
-    video.load()
-  }
+    let finished = false
+    const cleanup = () => {
+      if (finished) return
+      finished = true
+      activeVideoExtractions--
+      pendingVideoThumbnails.delete(videoUrl)
+      video.removeAttribute('src')
+      video.load()
+      runNextVideoExtraction()
+    }
 
-  const timer = setTimeout(() => {
-    cleanup()
-  }, 6000)
+    const timer = setTimeout(() => {
+      cleanup()
+    }, 8000)
 
-  video.onloadeddata = () => {
-    try {
-      const width = video.videoWidth || 480
-      const height = video.videoHeight || 270
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.min(480, width)
-      canvas.height = Math.round(canvas.width * (height / width))
-      const ctx = canvas.getContext('2d')
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-        canvas.toBlob((blob) => {
-          clearTimeout(timer)
-          cleanup()
-          if (blob) {
-            const objectUrl = URL.createObjectURL(blob)
-            memoryThumbnailCache.set(videoUrl, objectUrl)
-            notifyThumbnailReady(videoUrl, objectUrl)
-          }
-        }, 'image/webp', 0.8)
-        return
+    video.onloadedmetadata = () => {
+      try {
+        const targetTime = Math.min(0.1, (video.duration || 1) / 2)
+        video.currentTime = targetTime
+      } catch {
+        // Fallback if seeking not supported
       }
-    } catch {}
-    clearTimeout(timer)
-    cleanup()
-  }
+    }
 
-  video.onerror = () => {
-    clearTimeout(timer)
-    cleanup()
-  }
+    const captureFrame = () => {
+      try {
+        const width = video.videoWidth || 480
+        const height = video.videoHeight || 270
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.min(480, width)
+        canvas.height = Math.round(canvas.width * (height / width))
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+          canvas.toBlob(
+            (blob) => {
+              clearTimeout(timer)
+              cleanup()
+              canvas.width = 0
+              canvas.height = 0
+              if (blob) {
+                const objectUrl = URL.createObjectURL(blob)
+                memoryThumbnailCache.set(videoUrl, objectUrl)
+                notifyThumbnailReady(videoUrl, objectUrl)
+              }
+            },
+            'image/webp',
+            0.8,
+          )
+          return
+        }
+      } catch {}
+      clearTimeout(timer)
+      cleanup()
+    }
 
-  video.currentTime = 0.1
-  video.src = videoUrl
+    video.onseeked = captureFrame
+    video.onloadeddata = () => {
+      if (video.readyState >= 2 && !video.seeking) {
+        captureFrame()
+      }
+    }
+
+    video.onerror = () => {
+      clearTimeout(timer)
+      cleanup()
+    }
+
+    video.src = videoUrl
+  })
+
+  runNextVideoExtraction()
 }
 
 /**

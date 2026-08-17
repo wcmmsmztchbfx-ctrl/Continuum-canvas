@@ -348,10 +348,7 @@ export function AppOverlays({
             void workspaceRepository
               .renameCanvas(canvasId, renameProjectName)
               .then(() => {
-                const current = canvasStore.getState().snapshot
-                canvasStore.getState().restore(
-                  JSON.stringify({ ...current, name: renameProjectName.trim() }),
-                )
+                canvasStore.getState().renameCanvas(renameProjectName)
                 notify('画布已重命名')
               })
               .catch((error: unknown) =>

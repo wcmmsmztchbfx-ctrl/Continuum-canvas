@@ -62,6 +62,12 @@ export function useAppHotkeys({
         : false
 
       if (!modified) {
+        if (key === 'escape') {
+          if (state.selectedNodeIds.length > 0) {
+            state.selectNode(null)
+          }
+          return
+        }
         if (key === 'v') {
           setActiveTool('select')
           return
@@ -74,7 +80,11 @@ export function useAppHotkeys({
         if (key === 'delete' || key === 'backspace') {
           event.preventDefault()
           if (collaborationReadOnly) return
-          state.deleteNodes(state.selectedNodeIds)
+          if (state.selectedNodeIds.length > 0) {
+            withBulkLease(state.selectedNodeIds, () =>
+              state.deleteNodes(state.selectedNodeIds),
+            )
+          }
           return
         }
         return
@@ -119,10 +129,6 @@ export function useAppHotkeys({
             ),
           )
         }
-      } else if (!modified && (key === 'delete' || key === 'backspace')) {
-        event.preventDefault()
-        if (collaborationReadOnly) return
-        state.deleteNodes(state.selectedNodeIds)
       }
     }
 

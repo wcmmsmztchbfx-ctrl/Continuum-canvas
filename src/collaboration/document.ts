@@ -721,22 +721,28 @@ export function exportCollaborativeCanvasSnapshot(
       `Unsupported collaborative canvas document version: ${String(documentVersion)}`,
     )
   }
+  const liveNodes = orderedRecords<CanvasNode>(
+    doc.getMap<YRecord>(NODES_KEY),
+    doc.getArray<string>(NODE_ORDER_KEY),
+    budget,
+  ).filter((node) => !doc.getMap<boolean>(NODE_TOMBSTONES_KEY).has(node.id))
+
+  const liveNodeIds = new Set(liveNodes.map((node) => node.id))
+
   const candidate = {
     version: 3,
     canvasId: decodedMeta.canvasId,
     projectId: decodedMeta.projectId,
     name: decodedMeta.name,
     viewport: decodeValue(viewport, budget, 0),
-    nodes: orderedRecords<CanvasNode>(
-      doc.getMap<YRecord>(NODES_KEY),
-      doc.getArray<string>(NODE_ORDER_KEY),
-      budget,
-    ).filter((node) => !doc.getMap<boolean>(NODE_TOMBSTONES_KEY).has(node.id)),
+    nodes: liveNodes,
     edges: orderedRecords<CanvasEdge>(
       doc.getMap<YRecord>(EDGES_KEY),
       doc.getArray<string>(EDGE_ORDER_KEY),
       budget,
-    ).filter((edge) => !doc.getMap<boolean>(EDGE_TOMBSTONES_KEY).has(edge.id)),
+    )
+      .filter((edge) => !doc.getMap<boolean>(EDGE_TOMBSTONES_KEY).has(edge.id))
+      .filter((edge) => liveNodeIds.has(edge.source) && liveNodeIds.has(edge.target)),
     comments: orderedRecords<CanvasComment>(
       doc.getMap<YRecord>(COMMENTS_KEY),
       doc.getArray<string>(COMMENT_ORDER_KEY),
