@@ -41,6 +41,7 @@ import {
   canvasStore,
   type CanvasStoreState,
 } from '../../store/canvas-store'
+import { SpatialHashGrid } from '../../utils/spatialHashGrid'
 import { createBrowserUuid, createCanvasId } from '../../utils/id'
 import type { SelectionAction } from '../overlays/SelectionToolbar'
 import { useOptionalProviderCatalog } from '../providers/ProviderCatalogContext'
@@ -1545,21 +1546,28 @@ export function CanvasWorkspace({
     }
 
     const candidates = snapCandidates(excludedIds)
+    const frameGrid = new SpatialHashGrid<SnapRect>(512)
+    for (const rect of candidates) {
+      if (rect.kind === 'frame' && rect.id && !excluded.has(rect.id)) {
+        frameGrid.insert(rect)
+      }
+    }
+    const matchingFrames = frameGrid.queryPoint(center)
+
     let bestFrameId: string | undefined
     let bestDepth = -1
     let bestIndex = -1
 
-    for (const rect of candidates) {
-      if (rect.kind !== 'frame' || !rect.id || excluded.has(rect.id)) continue
+    for (const rect of matchingFrames) {
       if (
         center.x >= rect.x &&
         center.x <= rect.x + rect.width &&
         center.y >= rect.y &&
         center.y <= rect.y + rect.height
       ) {
-        const frameNode = byId.get(rect.id)
+        const frameNode = byId.get(rect.id!)
         const frameDepth = getDepth(frameNode)
-        const frameIndex = indexById.get(rect.id) ?? -1
+        const frameIndex = indexById.get(rect.id!) ?? -1
         if (
           frameDepth > bestDepth ||
           (frameDepth === bestDepth && frameIndex > bestIndex)

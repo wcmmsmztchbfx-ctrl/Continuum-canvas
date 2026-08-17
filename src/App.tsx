@@ -270,7 +270,10 @@ export default function App({
   const lastCanvasPointerRef = useRef<OverlayPosition | undefined>(undefined)
   const pasteCascadeRef = useRef<{ key: string; count: number } | undefined>(undefined)
   const contextMenuDismissedAtRef = useRef(0)
-  const snapshot = useStore(canvasStore, (state) => state.snapshot)
+  const canvasName = useStore(canvasStore, (state) => state.snapshot.name)
+  const canvasProjectId = useStore(canvasStore, (state) => state.snapshot.projectId)
+  const canvasZoom = useStore(canvasStore, (state) => state.snapshot.viewport.zoom)
+  const canvasNodes = useStore(canvasStore, (state) => state.snapshot.nodes)
   const selectedNodeIds = useStore(canvasStore, (state) => state.selectedNodeIds)
   const imageSelectionGuardRef = useRef<(nodeId: string | null) => boolean>(() => true)
 
@@ -1319,7 +1322,7 @@ export default function App({
         >
           <div className="app-layer-sidebar__header">
             <WorkspaceMenu
-              canvasName={snapshot.name}
+              canvasName={canvasName}
               collaborationRestricted={collaborationRestricted}
               onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
               testId="workspace-control-sidebar"
@@ -1337,7 +1340,7 @@ export default function App({
           </div>
           {activeLeftTab === 'layers' && (
             <LayersPanel
-              nodes={snapshot.nodes}
+              nodes={canvasNodes}
               onFocusNode={(id) => {
                 if (imageSelectionGuardRef.current(id)) {
                   canvasStore.getState().selectNode(id)
@@ -1348,8 +1351,8 @@ export default function App({
               onRename={(id, name) => canvasStore.getState().renameNode(id, name)}
               onReorder={(ids, targetId, placement) => canvasStore.getState().reorderNodes(ids, targetId, placement)}
               onSelect={(id) => { if (imageSelectionGuardRef.current(id)) canvasStore.getState().selectNode(id) }}
-              onToggleHidden={(id) => canvasStore.getState().setNodeVisibility(id, Boolean(snapshot.nodes.find((node) => node.id === id)?.hidden))}
-              onToggleLocked={(id) => canvasStore.getState().setNodeLocked(id, !snapshot.nodes.find((node) => node.id === id)?.locked)}
+              onToggleHidden={(id) => canvasStore.getState().setNodeVisibility(id, Boolean(canvasStore.getState().snapshot.nodes.find((node) => node.id === id)?.hidden))}
+              onToggleLocked={(id) => canvasStore.getState().setNodeLocked(id, !canvasStore.getState().snapshot.nodes.find((node) => node.id === id)?.locked)}
               open
               selectedIds={selectedNodeIds}
             />
@@ -1392,7 +1395,7 @@ export default function App({
                 }
               }}
               onNotify={notify}
-              projectId={snapshot.projectId}
+              projectId={canvasProjectId}
             />
           )}
           {activeLeftTab === 'agent' && (
@@ -1423,7 +1426,7 @@ export default function App({
           <>
             <div className="canvas-top-left-pill" data-testid="canvas-top-left-pill">
               <WorkspaceMenu
-                canvasName={snapshot.name}
+                canvasName={canvasName}
                 collaborationRestricted={collaborationRestricted}
                 onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
                 testId="workspace-control-floating"
@@ -1589,13 +1592,13 @@ export default function App({
         }
         onToggleSnap={() => persistPreferences({ smartSnap: !preferences.smartSnap })}
         onToggleGridSnap={() => persistPreferences({ snapToGrid: !preferences.snapToGrid })}
-        onZoomIn={() => setCanvasZoom(snapshot.viewport.zoom * 1.2)}
-        onZoomOut={() => setCanvasZoom(snapshot.viewport.zoom / 1.2)}
+        onZoomIn={() => setCanvasZoom(canvasZoom * 1.2)}
+        onZoomOut={() => setCanvasZoom(canvasZoom / 1.2)}
         onZoomTo={setCanvasZoom}
         showMiniMap={preferences.showMiniMap}
         snapToGrid={preferences.snapToGrid}
         smartSnap={preferences.smartSnap}
-        zoom={snapshot.viewport.zoom * 100}
+        zoom={canvasZoom * 100}
       />
       <ToolDock activeTool={activeTool} onToolSelect={handleToolSelect} />
       <LayoutDecisionBar
@@ -1665,7 +1668,6 @@ export default function App({
         capabilities={capabilities}
         readOnly={readOnly}
         canvasId={canvasId}
-        snapshot={snapshot}
         selectedNodeIds={selectedNodeIds}
         renameProjectName={renameProjectName}
         setRenameProjectName={setRenameProjectName}

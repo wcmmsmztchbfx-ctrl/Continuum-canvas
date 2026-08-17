@@ -84,7 +84,7 @@ export interface AppOverlaysProps {
   capabilities: CollaborationCapabilities
   readOnly: boolean
   canvasId?: string
-  snapshot: ProjectSnapshot
+  snapshot?: ProjectSnapshot
   selectedNodeIds: readonly string[]
   renameProjectName: string
   setRenameProjectName: (name: string) => void
@@ -134,7 +134,7 @@ export function AppOverlays({
   capabilities,
   readOnly,
   canvasId,
-  snapshot,
+  snapshot: snapshotProp,
   selectedNodeIds,
   renameProjectName,
   setRenameProjectName,
@@ -149,6 +149,7 @@ export function AppOverlays({
   runMockAction,
   restoreProjectFrom,
 }: AppOverlaysProps) {
+  const snapshot = snapshotProp ?? canvasStore.getState().snapshot
   return (
     <>
       <WorkspaceDropdown

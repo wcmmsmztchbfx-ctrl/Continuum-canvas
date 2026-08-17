@@ -1,4 +1,5 @@
 import type { Point } from '../../model/project'
+import { SpatialHashGrid } from '../../utils/spatialHashGrid'
 
 export interface SnapRect { id?: string; x: number; y: number; width: number; height: number; kind?: 'node' | 'frame' }
 export interface SnapGuide { axis: 'x' | 'y'; value: number; from: number; to: number; label?: string }
@@ -109,18 +110,19 @@ function cullDistantCandidates(
   keepIds?: (string | undefined)[],
 ): SnapRect[] {
   if (candidates.length <= 16) return candidates
-  const minX = rect.x - proximity
-  const maxX = rect.x + rect.width + proximity
-  const minY = rect.y - proximity
-  const maxY = rect.y + rect.height + proximity
-  const keep = new Set(keepIds?.filter((id): id is string => Boolean(id)))
-  return candidates.filter((c) => (
-    (c.id && keep.has(c.id)) ||
-    (c.x + c.width >= minX &&
-      c.x <= maxX &&
-      c.y + c.height >= minY &&
-      c.y <= maxY)
-  ))
+  const grid = new SpatialHashGrid<SnapRect>(1024)
+  grid.insertAll(candidates)
+  const culled = grid.queryRect(rect, proximity)
+  if (keepIds && keepIds.length > 0) {
+    const keep = new Set(keepIds.filter((id): id is string => Boolean(id)))
+    const present = new Set(culled.map((c) => c.id))
+    for (const c of candidates) {
+      if (c.id && keep.has(c.id) && !present.has(c.id)) {
+        culled.push(c)
+      }
+    }
+  }
+  return culled
 }
 
 export function snapRect(input: { rect: SnapRect; candidates: SnapRect[]; zoom: number; enabled: boolean; grid?: number; disable?: boolean; measure?: boolean; previous?: SnapState }): SnapResult {
