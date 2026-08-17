@@ -501,34 +501,6 @@ export default function App({
             }
           : activeProject ?? (await ensureReferenceProject())
 
-        // Purge legacy 37-node reference fixture if detected in local storage
-        if (
-          project.nodes.length === 37 &&
-          project.nodes.some((n) => n.id === 'i-1wBxIhceMW')
-        ) {
-          project = {
-            ...project,
-            viewport: { x: 0, y: 0, zoom: 1 },
-            nodes: [],
-            edges: [],
-          }
-          if (canvasId && canvasDocument) {
-            void workspaceRepository.saveCanvas({
-              ...canvasDocument,
-              viewport: { x: 0, y: 0, zoom: 1 },
-              nodes: [],
-              edges: [],
-            })
-          } else if (activeProjectId) {
-            void defaultProjectRepository.saveProject({
-              ...project,
-              viewport: { x: 0, y: 0, zoom: 1 },
-              nodes: [],
-              edges: [],
-            })
-          }
-        }
-
         if (disposed) return
         canvasStore.getState().restore(JSON.stringify(project))
         if (!canvasDocument) saveActiveProjectId(project.projectId)
