@@ -58,7 +58,7 @@ function processQueue() {
       .finally(() => {
         activeLoads--
         // Use requestAnimationFrame or microtask to smoothly process next batch
-        if (typeof window !== 'undefined' && 'requestAnimationFrame' in window) {
+        if (typeof window !== 'undefined' && 'requestAnimationFrame' in window && import.meta.env?.MODE !== 'test') {
           window.requestAnimationFrame(processQueue)
         } else {
           setTimeout(processQueue, 0)

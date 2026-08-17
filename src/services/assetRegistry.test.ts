@@ -35,6 +35,9 @@ describe('assetRegistry service', () => {
 
     const projOnly = assetRegistry.listAssets({ projectId: 'proj-1' })
     expect(projOnly).toHaveLength(2) // Global assets + project assets
+    expect(projOnly.map((a) => a.id)).toEqual(
+      expect.arrayContaining([asset1.id, asset2.id]),
+    )
   })
 
   it('searches assets by name and tags', () => {

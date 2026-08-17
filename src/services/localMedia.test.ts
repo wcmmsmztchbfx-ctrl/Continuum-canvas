@@ -81,9 +81,29 @@ describe('localMedia service', () => {
       expect(result.kind).toBe('image')
       expect(result.assetId).toBe('33333333-3333-4333-8333-333333333333')
       expect(result.url).toBe('/api/assets/33333333-3333-4333-8333-333333333333')
-      expect(result.width).toBeGreaterThan(0)
-      expect(result.height).toBeGreaterThan(0)
+      expect(result.width).toBe(480)
+      expect(result.height).toBe(320)
       expect(uploader.uploadAsset).toHaveBeenCalled()
+    })
+
+    it('processes audio files correctly with audio kind', async () => {
+      const audioFile = new File(['mock-audio'], 'sound.mp3', {
+        type: 'audio/mp3',
+      })
+      const uploader = {
+        uploadAsset: vi.fn(async (_blob: Blob, filename: string) => ({
+          id: '44444444-4444-4444-8444-444444444444',
+          filename,
+          contentType: 'audio/mp3',
+          size: 10,
+          url: '/api/assets/44444444-4444-4444-8444-444444444444',
+        })),
+      }
+
+      const result = await uploadAndPrepareMediaAsset(audioFile, uploader)
+      expect(result.kind).toBe('audio')
+      expect(result.assetId).toBe('44444444-4444-4444-8444-444444444444')
+      expect(result.url).toBe('/api/assets/44444444-4444-4444-8444-444444444444')
     })
 
     it('falls back gracefully to object URL if upload fails', async () => {
