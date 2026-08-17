@@ -3,9 +3,10 @@ import { ViewportPortal, useStore as useReactFlowStore } from '@xyflow/react'
 import { memo, useCallback, useMemo, type CSSProperties } from 'react'
 
 import type { PresenceState } from '../../contracts/collaboration'
+import { useCollaborationPresence } from '../../collaboration/collaborationPresenceStore'
 
 export interface CollaborationPresenceLayerProps {
-  presence: readonly PresenceState[]
+  presence?: readonly PresenceState[]
 }
 
 interface RemoteNodeBox {
@@ -168,8 +169,10 @@ const RemoteSelectionsAndLocksLayer = memo(function RemoteSelectionsAndLocksLaye
 })
 
 export function CollaborationPresenceLayer({
-  presence,
+  presence: propPresence,
 }: CollaborationPresenceLayerProps) {
+  const storePresence = useCollaborationPresence()
+  const presence = propPresence ?? storePresence
   const visiblePresence = presence.slice(0, 10)
 
   return (

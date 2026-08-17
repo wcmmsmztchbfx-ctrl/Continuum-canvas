@@ -122,6 +122,8 @@
   line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transform-origin: bottom left;
+  transform: scale(var(--canvas-ui-scale, 1));
 }
 
 .collaboration-remote-cursor {
@@ -141,6 +143,8 @@
   color: var(--presence-color);
   fill: var(--presence-color);
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.5));
+  transform-origin: top left;
+  transform: scale(var(--canvas-ui-scale, 1));
 }
 
 .collaboration-remote-cursor > span {
@@ -157,6 +161,8 @@
   line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transform-origin: top left;
+  transform: scale(var(--canvas-ui-scale, 1));
 }
 
 .collaboration-remote-preview,
@@ -191,6 +197,54 @@
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transform-origin: top left;
+  transform: scale(var(--canvas-ui-scale, 1));
+}
+
+.collaboration-following-pill {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(24, 24, 27, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  z-index: 60;
+  color: #e4e4e7;
+  font-size: 12px;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.collaboration-following-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.collaboration-following-exit {
+  margin-left: 4px;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 10px;
+  color: #a1a1aa;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.collaboration-following-exit:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
 }
 
 .collaboration-lock-notice {

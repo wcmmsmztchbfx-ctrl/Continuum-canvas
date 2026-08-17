@@ -445,6 +445,12 @@ export function applyCollaborativeEntityChanges(
     nodes.delete(id)
     nodeTombstones.set(id, true)
   }
+  if (nodeDeletionBackups.size > 50) {
+    const keys = Array.from(nodeDeletionBackups.keys())
+    for (let i = 0; i < keys.length - 50; i++) {
+      nodeDeletionBackups.delete(keys[i]!)
+    }
+  }
   for (const node of changes.nodes.upserted) {
     if (nodeTombstones.has(node.id)) continue
     const current = nodes.get(node.id)
@@ -463,6 +469,12 @@ export function applyCollaborativeEntityChanges(
     }
     edges.delete(id)
     edgeTombstones.set(id, true)
+  }
+  if (edgeDeletionBackups.size > 50) {
+    const keys = Array.from(edgeDeletionBackups.keys())
+    for (let i = 0; i < keys.length - 50; i++) {
+      edgeDeletionBackups.delete(keys[i]!)
+    }
   }
   for (const edge of changes.edges.upserted) {
     if (edgeTombstones.has(edge.id)) continue

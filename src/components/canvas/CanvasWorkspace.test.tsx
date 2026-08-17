@@ -460,7 +460,7 @@ describe('CanvasWorkspace', () => {
 
     expect(reactFlowMock.instance.setViewport).toHaveBeenCalledWith(
       remote.viewport,
-      { duration: 180 },
+      { duration: 60 },
     )
     fireEvent.wheel(view.getByTestId('canvas-workspace'))
     fireEvent.pointerDown(view.getByTestId('canvas-workspace'), { button: 1 })

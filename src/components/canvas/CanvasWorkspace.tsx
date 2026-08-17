@@ -1607,7 +1607,7 @@ export function CanvasWorkspace({
     followViewportRef.current = followed.viewport
     if (sameViewport(flowInstance.getViewport(), followed.viewport)) return
     viewportSourceRef.current = 'follow'
-    void flowInstance.setViewport(followed.viewport, { duration: 180 })
+    void flowInstance.setViewport(followed.viewport, { duration: 60 })
   }, [
     collaborationFollowingMemberId,
     collaborationPresence,
@@ -2418,14 +2418,15 @@ export function CanvasWorkspace({
         }}
         onViewportChange={scheduleViewportUi}
         onMoveStart={(event) => {
-          viewportSourceRef.current = 'local'
-          workspaceRef.current?.setAttribute('data-viewport-moving', 'true')
+          const prevSource = viewportSourceRef.current
           if (
             !event &&
             ['follow', 'fit', 'restore'].includes(
-              viewportSourceRef.current ?? '',
+              prevSource ?? '',
             )
           ) return
+          viewportSourceRef.current = 'local'
+          workspaceRef.current?.setAttribute('data-viewport-moving', 'true')
           if (collaborationFollowingMemberId) {
             stopCollaborationFollowing?.()
           }
@@ -2542,6 +2543,20 @@ export function CanvasWorkspace({
       ) : null}
       {collaborationLockNotice ? (
         <div className="collaboration-lock-notice" role="status">{collaborationLockNotice}</div>
+      ) : null}
+      {collaborationFollowingMemberId ? (
+        <div className="collaboration-following-pill" role="status">
+          <span className="collaboration-following-dot" />
+          <span>正在跟随 <strong>{collaborationPresence?.find((r) => r.member.memberId === collaborationFollowingMemberId)?.member.displayName || '协作者'}</strong> 的视角</span>
+          <button
+            aria-label="退出跟随"
+            className="collaboration-following-exit"
+            onClick={() => stopCollaborationFollowing?.()}
+            type="button"
+          >
+            退出跟随 (Esc)
+          </button>
+        </div>
       ) : null}
     </div>
   )

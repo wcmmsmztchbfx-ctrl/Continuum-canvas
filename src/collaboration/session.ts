@@ -665,8 +665,15 @@ export class CanvasCollaborationSession {
   }
 
   setSelection(nodeIds: readonly string[]): void {
+    const valid = validateNodeIds(nodeIds, MAX_SELECTION_NODE_IDS)
+    if (
+      this.localPresence.selection &&
+      JSON.stringify(valid) === JSON.stringify(this.localPresence.selection.nodeIds)
+    ) {
+      return
+    }
     this.updateLocalPresenceImmediately({
-      selection: { nodeIds: validateNodeIds(nodeIds, MAX_SELECTION_NODE_IDS) },
+      selection: { nodeIds: valid },
     })
   }
 

@@ -125,6 +125,7 @@ export interface CollaborationControllerOptions {
   storage?: Storage
   leaseSettleMs?: number
   shareOrigin?: string
+  refreshIntervalMs?: number
   leaseSettleTimers?: {
     setTimeout(callback: () => void, delay: number): unknown
     clearTimeout(timer: unknown): void
@@ -756,9 +757,10 @@ export class CanvasCollaborationController {
 
   private startRefreshLoop(): void {
     if (this.refreshTimer || this.disposed) return
+    const interval = this.options.refreshIntervalMs ?? 3_000
     this.refreshTimer = setInterval(() => {
       void this.refreshRoom().catch(() => undefined)
-    }, 3_000)
+    }, interval)
     ;(this.refreshTimer as unknown as { unref?: () => void }).unref?.()
   }
 

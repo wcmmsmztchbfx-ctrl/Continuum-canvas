@@ -10,6 +10,8 @@ import type { ProviderCatalogState } from '../components/providers/ProviderCatal
 import { canvasStore } from '../store/canvas-store'
 import type { WorkspaceRepository } from '../workspace'
 
+import { collaborationPresenceStore } from '../collaboration/collaborationPresenceStore'
+
 export interface UseAppCollaborationOptions {
   hydrated: boolean
   canvasId?: string
@@ -109,15 +111,15 @@ export function useAppCollaboration({
     collaborationControllerRef.current = controller
     setCollaborationState(controller.getState())
     const unsubscribe = controller.subscribe(setCollaborationState)
-    setCollaborationPresence(controller.getPresence())
+    collaborationPresenceStore.setPresence(controller.getPresence())
     const unsubscribePresence = controller.subscribePresence((presence) => {
-      setCollaborationPresence([...presence])
+      collaborationPresenceStore.setPresence(presence)
     })
     void controller.initializeFromLocation().catch(() => undefined)
     return () => {
       unsubscribe()
       unsubscribePresence()
-      setCollaborationPresence([])
+      collaborationPresenceStore.clear()
       setFollowingMemberId(undefined)
       if (collaborationControllerRef.current === controller) {
         collaborationControllerRef.current = null
