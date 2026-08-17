@@ -223,10 +223,20 @@ export function snapResizeRect(input: { rect: SnapRect; direction: ResizeDirecti
 }
 
 export function unionRect(rects: readonly SnapRect[]): SnapRect {
-  const x = Math.min(...rects.map((rect) => rect.x))
-  const y = Math.min(...rects.map((rect) => rect.y))
-  const right = Math.max(...rects.map((rect) => rect.x + rect.width))
-  const bottom = Math.max(...rects.map((rect) => rect.y + rect.height))
+  if (rects.length === 0) return { x: 0, y: 0, width: 0, height: 0 }
+  let x = Infinity
+  let y = Infinity
+  let right = -Infinity
+  let bottom = -Infinity
+  for (let i = 0; i < rects.length; i++) {
+    const rect = rects[i]!
+    if (rect.x < x) x = rect.x
+    if (rect.y < y) y = rect.y
+    const r = rect.x + rect.width
+    const b = rect.y + rect.height
+    if (r > right) right = r
+    if (b > bottom) bottom = b
+  }
   return { x, y, width: right - x, height: bottom - y }
 }
 

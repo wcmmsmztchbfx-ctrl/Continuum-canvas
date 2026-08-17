@@ -112,11 +112,32 @@ function HistoryMedia({ entry, preview = false }: {
     return <img alt={entry.prompt || entry.asset.filename} src={entry.asset.url} />
   }
   if (entry.mediaType === 'video') {
+    if (!preview) {
+      const assetAny = entry.asset as { posterUrl?: string; thumbnailBlob?: string }
+      const poster = assetAny.posterUrl || assetAny.thumbnailBlob
+      return (
+        <div className="generation-history-modal__video-poster">
+          {poster ? (
+            <img alt={entry.prompt || entry.asset.filename} src={poster} />
+          ) : (
+            <video
+              aria-label={entry.asset.filename}
+              muted
+              playsInline
+              preload="none"
+              src={entry.asset.url}
+            />
+          )}
+          <span className="generation-history-modal__video-badge" aria-hidden="true">
+            <Video size={14} />
+          </span>
+        </div>
+      )
+    }
     return (
       <video
         aria-label={entry.asset.filename}
-        controls={preview}
-        muted={!preview}
+        controls
         playsInline
         preload="metadata"
         src={entry.asset.url}

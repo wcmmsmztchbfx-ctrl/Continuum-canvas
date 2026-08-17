@@ -11,6 +11,22 @@ function stripHtmlTags(str: string): string {
   return str.replace(/<[^>]*>/g, '')
 }
 
+let measureCanvas: HTMLCanvasElement | null = null
+let measureCtx: CanvasRenderingContext2D | null = null
+
+function measureTextWidth(text: string, font: string): number {
+  if (typeof document === 'undefined') return 120
+  if (!measureCanvas) {
+    measureCanvas = document.createElement('canvas')
+    measureCtx = measureCanvas.getContext('2d')
+  }
+  if (measureCtx) {
+    measureCtx.font = font
+    return measureCtx.measureText(text).width
+  }
+  return 120
+}
+
 function TextNodeContent({
   id,
   data,
@@ -80,12 +96,9 @@ function TextNodeContent({
     editor.style.height = '0px'
     editor.style.height = `${Math.max(42, editor.scrollHeight)}px`
     if (autoWidth) {
-      const measure = document.createElement('span')
-      measure.style.cssText = `position:fixed;visibility:hidden;white-space:pre;font:${model?.data.fontWeight ?? 500} ${model?.data.fontSize ?? 24}px ${model?.data.fontFamily ?? 'sans-serif'}`
-      measure.textContent = text || '输入文字'
-      document.body.append(measure)
-      const width = Math.min(640, Math.max(80, measure.getBoundingClientRect().width + 8))
-      measure.remove()
+      const font = `${model?.data.fontWeight ?? 500} ${model?.data.fontSize ?? 24}px ${model?.data.fontFamily ?? 'sans-serif'}`
+      const measuredWidth = measureTextWidth(text || '输入文字', font)
+      const width = Math.min(640, Math.max(80, measuredWidth + 8))
       data.onResize?.(id, { width, height: Math.max(42, editor.scrollHeight) })
     }
   }, [autoWidth, data, id, model?.data.fontFamily, model?.data.fontSize, model?.data.fontWeight, plain, text])

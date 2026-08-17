@@ -1499,15 +1499,25 @@ export function CanvasWorkspace({
   const snapCandidates = useCallback((excludedIds: readonly string[]) => {
     const excluded = new Set(excludedIds)
     const result: SnapRect[] = []
+    const snapshot = store.getState().snapshot
+    const modelById = new Map(snapshot.nodes.map((candidate) => [candidate.id, candidate]))
     const liveNodes = typeof flowInstance?.getNodes === 'function'
       ? flowInstance.getNodes()
-      : mapProjectSnapshotToReactFlow(store.getState().snapshot).nodes
+      : mapProjectSnapshotToReactFlow(snapshot).nodes
     for (const node of liveNodes) {
-      const model = store.getState().snapshot.nodes.find((candidate) => candidate.id === node.id)
-      if (!model || excluded.has(node.id) || model.hidden || model.locked) continue
+      if (excluded.has(node.id)) continue
+      const model = modelById.get(node.id)
+      if (!model || model.hidden || model.locked) continue
       const internal = flowInstance?.getInternalNode(node.id)
       const position = internal?.internals.positionAbsolute ?? node.position
-      result.push({ id: node.id, x: position.x, y: position.y, width: model.size.width, height: model.size.height, kind: model.type === 'frame' ? 'frame' : 'node' })
+      result.push({
+        id: node.id,
+        x: position.x,
+        y: position.y,
+        width: model.size.width,
+        height: model.size.height,
+        kind: model.type === 'frame' ? 'frame' : 'node',
+      })
     }
     return result
   }, [flowInstance, store])
@@ -1516,11 +1526,49 @@ export function CanvasWorkspace({
     const excluded = new Set(excludedIds)
     const snapshotNow = store.getState().snapshot
     const byId = new Map(snapshotNow.nodes.map((node) => [node.id, node]))
-    const depth = (node: CanvasNode) => { let value = 0; let cursor = node.parentId ? byId.get(node.parentId) : undefined; while (cursor) { value += 1; cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined } return value }
-    return [...snapCandidates(excludedIds)].filter((rect) => {
-      if (rect.kind !== 'frame' || !rect.id || excluded.has(rect.id)) return false
-      return center.x >= rect.x && center.x <= rect.x + rect.width && center.y >= rect.y && center.y <= rect.y + rect.height
-    }).sort((left, right) => depth(byId.get(right.id!)!) - depth(byId.get(left.id!)!) || snapshotNow.nodes.findIndex((node) => node.id === right.id) - snapshotNow.nodes.findIndex((node) => node.id === left.id))[0]?.id
+    const indexById = new Map(snapshotNow.nodes.map((node, idx) => [node.id, idx]))
+    const depthCache = new Map<string, number>()
+    const getDepth = (node: CanvasNode | undefined): number => {
+      if (!node) return 0
+      const cached = depthCache.get(node.id)
+      if (cached !== undefined) return cached
+      let value = 0
+      let cursor = node.parentId ? byId.get(node.parentId) : undefined
+      while (cursor) {
+        value += 1
+        cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined
+      }
+      depthCache.set(node.id, value)
+      return value
+    }
+
+    const candidates = snapCandidates(excludedIds)
+    let bestFrameId: string | undefined
+    let bestDepth = -1
+    let bestIndex = -1
+
+    for (const rect of candidates) {
+      if (rect.kind !== 'frame' || !rect.id || excluded.has(rect.id)) continue
+      if (
+        center.x >= rect.x &&
+        center.x <= rect.x + rect.width &&
+        center.y >= rect.y &&
+        center.y <= rect.y + rect.height
+      ) {
+        const frameNode = byId.get(rect.id)
+        const frameDepth = getDepth(frameNode)
+        const frameIndex = indexById.get(rect.id) ?? -1
+        if (
+          frameDepth > bestDepth ||
+          (frameDepth === bestDepth && frameIndex > bestIndex)
+        ) {
+          bestDepth = frameDepth
+          bestIndex = frameIndex
+          bestFrameId = rect.id
+        }
+      }
+    }
+    return bestFrameId
   }, [snapCandidates, store])
 
   const restoreDragGeometry = useCallback((geometries: Map<string, DragGeometry>) => {

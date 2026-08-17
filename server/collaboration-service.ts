@@ -459,7 +459,7 @@ export class CollaborationService {
     this.now = options.now ?? (() => new Date())
     this.id = options.id ?? randomUUID
     this.secret = options.secret ?? defaultSecret
-    this.compactAfterUpdates = options.compactAfterUpdates ?? 100
+    this.compactAfterUpdates = options.compactAfterUpdates ?? 1_000
     this.compactAfterBytes = options.compactAfterBytes ?? 1024 * 1024
     this.maxCandidateUpdateBytes = options.maxCandidateUpdateBytes ?? COLLABORATION_MAX_DOCUMENT_BYTES
     this.maxDocumentBytes = options.maxDocumentBytes ?? COLLABORATION_MAX_DOCUMENT_BYTES
@@ -1042,16 +1042,16 @@ export class CollaborationService {
   applyValidatedUpdate(roomId: string, update: Uint8Array, origin: unknown): void {
     const room = this.room(roomId)
     this.assertWritable(room)
-    if (update.byteLength > this.maxCandidateUpdateBytes) {
+    if (
+      update.byteLength > this.maxCandidateUpdateBytes ||
+      room.updateBytes + update.byteLength > this.maxDocumentBytes
+    ) {
       throw new CollaborationUpdateError()
     }
     const candidateDocument = this.getOrCreateValidationDocument(room)
     try {
       Y.applyUpdate(candidateDocument.doc, update, 'validation')
       exportCollaborativeCanvasSnapshot(candidateDocument)
-      if (Y.encodeStateAsUpdate(candidateDocument.doc).byteLength > this.maxDocumentBytes) {
-        throw new Error('Collaborative canvas document exceeds maximum encoded size')
-      }
     } catch (error) {
       room.validationDocument?.destroy()
       room.validationDocument = undefined

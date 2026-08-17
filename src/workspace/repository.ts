@@ -288,7 +288,8 @@ export function createWorkspaceRepository(
     },
 
     async saveCanvas(snapshot) {
-      const parsed = parseCanvasSnapshot(serializeCanvas(snapshot))
+      const serialized = serializeCanvas(snapshot)
+      const parsed = parseCanvasSnapshot(serialized)
       const manifest = await readManifest()
       const canvas = requireCanvas(manifest, parsed.canvasId)
       if (canvas.projectId !== parsed.projectId) {
@@ -299,7 +300,7 @@ export function createWorkspaceRepository(
       canvas.updatedAt = now()
       await commit(manifest, {
         putDocuments: [
-          { canvasId: parsed.canvasId, serialized: serializeCanvas(parsed) },
+          { canvasId: parsed.canvasId, serialized },
         ],
       })
     },
