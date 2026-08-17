@@ -3,7 +3,6 @@ import {
   Check,
   Eye,
   EyeOff,
-  KeyRound,
   Plus,
   RefreshCw,
   Save,
@@ -108,12 +107,32 @@ export function ProviderDrawer({
   }, [draft, selected])
 
   useEffect(() => {
-    if (!open || adding || selectedId) return
-    const initial = state.preferredProvider ?? state.providers[0]
-    if (!initial) return
-    setSelectedId(initial.id)
-    setDraft(providerDraft(initial))
+    if (!open || adding) return
+    if (!selectedId) {
+      const initial = state.preferredProvider ?? state.providers[0]
+      if (initial) {
+        setSelectedId(initial.id)
+        setDraft(providerDraft(initial))
+      }
+    }
   }, [adding, open, selectedId, state.preferredProvider, state.providers])
+
+  useEffect(() => {
+    if (!open || !selectedId || !selected?.secretConfigured) {
+      if (!selected?.secretConfigured) setSecret('')
+      return
+    }
+    let active = true
+    void state.getProviderSecret(selectedId).then((key) => {
+      if (active && key) {
+        setSecret(key)
+        setShowSecret(true)
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [open, selectedId, selected?.secretConfigured, state.getProviderSecret])
 
   useEffect(() => {
     if (!open || !surfaceRef.current) return
@@ -142,8 +161,14 @@ export function ProviderDrawer({
     setSelectedId(provider.id)
     setDraft(providerDraft(provider))
     setSecret('')
+    setShowSecret(true)
     setTestFeedback(null)
     void state.selectProvider(provider.id)
+    if (provider.secretConfigured) {
+      void state.getProviderSecret(provider.id).then((key) => {
+        if (key) setSecret(key)
+      })
+    }
   }
 
   const saveMetadata = async () => {
@@ -164,10 +189,14 @@ export function ProviderDrawer({
     if (!saved) return
     if (secret.trim()) {
       await state.setProviderSecret(id, secret.trim())
-      setSecret('')
+      setSecret(secret.trim())
       onNotify?.('供应商配置及 API Key 已保存', 'success')
+    } else if (selected?.secretConfigured && !secret.trim()) {
+      await state.clearProviderSecret(id)
+      setSecret('')
+      onNotify?.('供应商配置已保存（已清空 API Key）', 'success')
     } else {
-      onNotify?.(saved.secretConfigured ? '供应商配置已保存（已保留原有 API Key）' : '供应商配置已保存', 'success')
+      onNotify?.('供应商配置已保存', 'success')
     }
     setAdding(false)
     setSelectedId(saved.id)
@@ -207,29 +236,12 @@ export function ProviderDrawer({
     onNotify?.('供应商已保存、验证并同步', 'success')
   }
 
-  const saveSecret = async () => {
-    if (readOnly) return
-    if (!selectedId || unsupported || !secret.trim()) return
-    const saved = await state.setProviderSecret(selectedId, secret.trim())
-    if (!saved) return
-    setSecret('')
-    onNotify?.('API Key 已更新', 'success')
-  }
-
-  const clearSecret = async () => {
-    if (readOnly) return
-    if (!selectedId) return
-    const cleared = await state.clearProviderSecret(selectedId)
-    if (cleared) onNotify?.('API Key 已清除', 'info')
-  }
-
   const handleTestConnection = async () => {
     if (readOnly || !selectedId || unsupported) return
     setTestFeedback(null)
     const id = draft.id.trim().toLowerCase()
     if (secret.trim()) {
       await state.setProviderSecret(id, secret.trim())
-      setSecret('')
     }
     if (isDraftDirty && draft.name.trim() && draft.baseUrl.trim()) {
       await state.saveProvider(id, {
@@ -264,7 +276,6 @@ export function ProviderDrawer({
     const id = draft.id.trim().toLowerCase()
     if (secret.trim()) {
       await state.setProviderSecret(id, secret.trim())
-      setSecret('')
     }
     if (isDraftDirty && draft.name.trim() && draft.baseUrl.trim()) {
       await state.saveProvider(id, {
@@ -485,38 +496,14 @@ export function ProviderDrawer({
 
               {!unsupported ? (
                 <label className="integration-field provider-form-grid__wide">
-                  <div className="provider-form-grid__label-row">
-                    <span>API Key</span>
-                    {!adding && selected?.secretConfigured ? (
-                      <span className="provider-form-grid__key-status">
-                        已配置密钥
-                        <button
-                          className="provider-form-grid__clear-key-link"
-                          disabled={readOnly || state.busyAction === `secret:${selected.id}`}
-                          onClick={(e) => {
-                            e.preventDefault()
-                            void clearSecret()
-                          }}
-                          type="button"
-                        >
-                          清除
-                        </button>
-                      </span>
-                    ) : null}
-                  </div>
+                  <span>API Key</span>
                   <div className="integration-field__input-wrapper">
                     <input
-                      aria-label={adding ? 'API Key' : '替换 API Key'}
+                      aria-label="API Key"
                       autoComplete="off"
                       disabled={readOnly}
                       onChange={(event) => setSecret(event.target.value)}
-                      placeholder={
-                        adding
-                          ? '输入供应商 API Key'
-                          : selected?.secretConfigured
-                            ? `${selected.maskedSecret ?? '••••••••'}（已保存，输入以替换）`
-                            : '输入供应商 API Key'
-                      }
+                      placeholder="输入供应商 API Key"
                       spellCheck={false}
                       type={showSecret ? 'text' : 'password'}
                       value={secret}
@@ -532,11 +519,6 @@ export function ProviderDrawer({
                       {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
                     </button>
                   </div>
-                  {!adding && selected?.secretConfigured && !secret ? (
-                    <small style={{ fontSize: '11px', color: '#10b981', marginTop: '4px', display: 'block' }}>
-                      ✓ API Key 已保存到系统，留空保持原 Key，修改时直接输入新 Key 即可
-                    </small>
-                  ) : null}
                   {createStage ? <p aria-live="polite" className="provider-form-grid__stage">{createStage}</p> : null}
                 </label>
               ) : null}
@@ -591,16 +573,6 @@ export function ProviderDrawer({
                 <Save aria-hidden="true" />
                 保存供应商
               </button>
-              {!adding && !unsupported && secret.trim() ? (
-                <button
-                  className="overlay-primary-button"
-                  disabled={readOnly || state.busyAction === `secret:${selected?.id}`}
-                  onClick={() => void saveSecret()}
-                  type="button"
-                >
-                  <KeyRound aria-hidden="true" />保存新密钥
-                </button>
-              ) : null}
               {!adding && !unsupported ? (
                 <>
                   <button

@@ -88,6 +88,7 @@ function gateway(): ProviderGateway {
         update.adapterType === 'aistartlab-openapi' &&
         (id === provider.id),
     })),
+    getProviderSecret: vi.fn().mockResolvedValue('sk-real-plaintext-secret-1234'),
     setProviderSecret: vi.fn().mockResolvedValue({
       ...unsupported,
       secretConfigured: true,
@@ -211,7 +212,7 @@ describe('provider management UI', () => {
     expect(onManage).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps a replacement key local until PUT and clears the field afterwards', async () => {
+  it('keeps a replacement key local until PUT and updates the provider', async () => {
     const mockGateway = gateway()
     render(
       <ProviderCatalogProvider gateway={mockGateway}>
@@ -221,13 +222,15 @@ describe('provider management UI', () => {
 
     await screen.findByRole('dialog', { name: '管理 API 接入' })
     const user = userEvent.setup()
-    const secret = await screen.findByLabelText('替换 API Key')
+    await user.click(await screen.findByRole('button', { name: 'AIStartLab' }))
+    const secret = await screen.findByLabelText('API Key')
     expect(screen.getByLabelText('接口地址')).toHaveAttribute('readonly')
+    await user.clear(secret)
     await user.type(secret, 'new-secret-value-9999')
     expect(mockGateway.setProviderSecret).not.toHaveBeenCalled()
     expect(JSON.stringify(localStorage)).not.toContain('new-secret-value-9999')
 
-    await user.click(screen.getByRole('button', { name: '保存新密钥' }))
+    await user.click(screen.getByRole('button', { name: '保存供应商' }))
     await waitFor(() =>
       expect(mockGateway.setProviderSecret).toHaveBeenCalledWith(
         'aistartlab',
@@ -235,7 +238,6 @@ describe('provider management UI', () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ),
     )
-    expect(secret).toHaveValue('')
   })
 
   it('never offers key, test, or sync actions for an unsupported adapter', async () => {
@@ -249,7 +251,7 @@ describe('provider management UI', () => {
     await user.click(await screen.findByRole('button', { name: '自定义供应商' }))
 
     expect(screen.getByText('当前适配器不支持生成')).toBeVisible()
-    expect(screen.queryByLabelText('替换 API Key')).toBeNull()
+    expect(screen.queryByLabelText('API Key')).toBeNull()
     expect(screen.queryByRole('button', { name: /测试连接/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /同步模型/ })).toBeNull()
     expect(mockGateway.setProviderSecret).not.toHaveBeenCalled()
@@ -266,7 +268,7 @@ describe('provider management UI', () => {
     await user.click(await screen.findByRole('button', { name: 'OpenAI 官方' }))
 
     expect(screen.queryByText('当前适配器不支持生成')).toBeNull()
-    expect(screen.getByLabelText('替换 API Key')).toBeVisible()
+    expect(screen.getByLabelText('API Key')).toBeVisible()
     await user.click(screen.getByRole('button', { name: /测试连接/ }))
     await user.click(screen.getByRole('button', { name: /同步模型/ }))
     expect(mockGateway.testProvider).toHaveBeenCalledWith('openai', expect.anything())
@@ -417,5 +419,26 @@ describe('provider management UI', () => {
     expect(mockGateway.updateProvider).toHaveBeenCalledWith('topapis', expect.not.objectContaining({ apiKey: expect.anything() }), expect.anything())
     expect(mockGateway.setProviderSecret).toHaveBeenCalledWith('topapis', 'unit-secret', expect.anything())
     expect(mockGateway.testProvider).toHaveBeenCalledWith('topapis', expect.anything())
+  })
+
+  it('auto-loads full plaintext secret on provider select and supports eye toggle', async () => {
+    const mockGateway = gateway()
+    render(
+      <ProviderCatalogProvider gateway={mockGateway}>
+        <ProviderDrawer onClose={vi.fn()} open />
+      </ProviderCatalogProvider>,
+    )
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'AIStartLab' }))
+
+    await waitFor(() => expect(mockGateway.getProviderSecret).toHaveBeenCalledWith('aistartlab', expect.anything()))
+    const secretInput = screen.getByLabelText('API Key')
+    await waitFor(() => expect(secretInput).toHaveValue('sk-real-plaintext-secret-1234'))
+
+    // Eye button to toggle visibility
+    const toggleBtn = screen.getByTitle('隐藏密钥')
+    expect(toggleBtn).toBeVisible()
+    await user.click(toggleBtn)
+    expect(secretInput).toHaveAttribute('type', 'password')
   })
 })

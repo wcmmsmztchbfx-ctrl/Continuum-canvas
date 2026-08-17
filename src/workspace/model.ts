@@ -1,4 +1,4 @@
-import type { NodeSize, Point, Viewport } from '../model/project'
+import type { NodeSize, Point, Viewport } from '../model/project.ts'
 
 export const WORKSPACE_MANIFEST_VERSION = 1 as const
 export const MAX_WORKSPACE_NAME_LENGTH = 60
@@ -43,6 +43,17 @@ export interface WorkspaceManifestV1 {
   projects: WorkspaceProject[]
   canvases: WorkspaceCanvas[]
   pendingOperations: WorkspacePendingOperation[]
+}
+
+export interface StoredCanvasDocument {
+  canvasId: string
+  serialized: string
+}
+
+export interface WorkspaceCommit {
+  manifest: string | WorkspaceManifestV1
+  putDocuments?: StoredCanvasDocument[]
+  deleteCanvasIds?: string[]
 }
 
 type UnknownRecord = Record<string, unknown>

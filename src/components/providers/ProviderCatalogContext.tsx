@@ -44,6 +44,10 @@ export interface ProviderGateway {
     update: ProviderUpdate,
     options?: GatewayRequestOptions,
   ) => Promise<ProviderMetadata>
+  getProviderSecret: (
+    providerId: string,
+    options?: GatewayRequestOptions,
+  ) => Promise<string>
   setProviderSecret: (
     providerId: string,
     apiKey: string,
@@ -78,6 +82,7 @@ export interface ProviderCatalogState {
     providerId: string,
     update: ProviderUpdate,
   ) => Promise<ProviderMetadata | undefined>
+  getProviderSecret: (providerId: string) => Promise<string | undefined>
   setProviderSecret: (
     providerId: string,
     secret: string,
@@ -393,6 +398,16 @@ export function ProviderCatalogProvider({
     [gateway, rememberProvider, withAction],
   )
 
+  const getProviderSecret = useCallback(
+    async (providerId: string) => {
+      if (!apiManagementAllowedRef.current) return undefined
+      return withAction(`secret:${providerId}`, (signal) =>
+        gateway.getProviderSecret(providerId, { signal }),
+      )
+    },
+    [gateway, withAction],
+  )
+
   const clearProviderSecret = useCallback(
     async (providerId: string) => {
       if (!apiManagementAllowedRef.current) return undefined
@@ -430,6 +445,7 @@ export function ProviderCatalogProvider({
       syncProvider,
       testProvider,
       saveProvider,
+      getProviderSecret,
       setProviderSecret,
       clearProviderSecret,
     }),

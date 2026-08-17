@@ -817,6 +817,12 @@ async function routeApi(
     return true
   }
   const secretMatch = /^\/api\/providers\/([a-z][a-z0-9-]{0,47})\/secret$/.exec(path)
+  if (secretMatch && method === 'GET') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const secret = await runtime.getProviderSecret(secretMatch[1])
+    sendJson(response, 200, { apiKey: secret ?? '' })
+    return true
+  }
   if (secretMatch && method === 'PUT') {
     authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
     const body = record(await readJson(request))
@@ -963,6 +969,61 @@ async function routeApi(
       return runtime.assets.deleteUnreferenced(candidates, protectedIds)
     })
     sendJson(response, 200, { canvasId, deletedAssetIds })
+    return true
+  }
+  if (method === 'GET' && path === '/api/workspace/manifest') {
+    const manifest = await runtime.workspace.getManifest()
+    sendJson(response, 200, { manifest })
+    return true
+  }
+  if (method === 'POST' && path === '/api/workspace/commit') {
+    const body = await readJson(request) as {
+      manifest?: unknown
+      putDocuments?: Array<{ canvasId: string; serialized: string }>
+      deleteCanvasIds?: string[]
+    }
+    if (!body || typeof body !== 'object') {
+      throw new ApiError(400, 'invalid_input', 'Invalid workspace commit payload')
+    }
+    const manifest = await runtime.workspace.commit(body as import('../src/workspace/model.ts').WorkspaceCommit)
+    if (Array.isArray(body.putDocuments)) {
+      for (const doc of body.putDocuments) {
+        if (doc && typeof doc.serialized === 'string') {
+          const snapshot = parseCanvasSnapshot(doc.serialized)
+          await runtime.canvases.saveCanvas(snapshot)
+        }
+      }
+    }
+    if (Array.isArray(body.deleteCanvasIds)) {
+      for (const canvasId of body.deleteCanvasIds) {
+        if (typeof canvasId === 'string') {
+          await runtime.canvases.deleteCanvas(canvasId)
+        }
+      }
+    }
+    sendJson(response, 200, { manifest })
+    return true
+  }
+  const canvasPathMatch = /^\/api\/canvases\/([A-Za-z0-9._:-]+)$/.exec(path)
+  if (canvasPathMatch && method === 'GET') {
+    const canvasId = canvasPathMatch[1]
+    const canvas = await runtime.canvases.getCanvas(canvasId)
+    if (!canvas) {
+      throw new ApiError(404, 'canvas_not_found', `Canvas ${canvasId} not found`)
+    }
+    sendJson(response, 200, { canvas })
+    return true
+  }
+  if (canvasPathMatch && method === 'PUT') {
+    const canvasId = canvasPathMatch[1]
+    const body = await readJson(request) as { canvas?: unknown } | Record<string, unknown>
+    const serialized = JSON.stringify(body && typeof body === 'object' && 'canvas' in body ? (body as { canvas: unknown }).canvas : body)
+    const snapshot = parseCanvasSnapshot(serialized)
+    if (snapshot.canvasId !== canvasId) {
+      throw new ApiError(400, 'invalid_input', 'Canvas ID mismatch')
+    }
+    await runtime.canvases.saveCanvas(snapshot)
+    sendJson(response, 200, { canvas: snapshot })
     return true
   }
   if (method === 'POST' && path === '/api/assets') {

@@ -1,6 +1,7 @@
-import { createIndexedDbWorkspaceBackend } from '../persistence/projectRepository'
+import { createServerWorkspaceBackend } from '../persistence/serverWorkspaceBackend'
 import { createWorkspaceRepository } from './repository'
 
 export const defaultWorkspaceRepository = createWorkspaceRepository(
-  createIndexedDbWorkspaceBackend(),
+  createServerWorkspaceBackend(),
 )
+

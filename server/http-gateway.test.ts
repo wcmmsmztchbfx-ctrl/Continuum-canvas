@@ -645,6 +645,12 @@ describe('HTTP gateway', () => {
     expect(replaced.status).toBe(200)
     expect(JSON.stringify(await json(replaced))).not.toContain('replacement-secret-9876')
 
+    const revealed = await fetch(`${gateway.origin}/api/providers/aistartlab/secret`, {
+      method: 'GET', headers: adminHeaders(gateway),
+    })
+    expect(revealed.status).toBe(200)
+    expect(await json(revealed)).toEqual({ apiKey: 'replacement-secret-9876' })
+
     const cleared = await fetch(`${gateway.origin}/api/providers/aistartlab/secret`, { method: 'DELETE', headers: adminHeaders(gateway) })
     expect(cleared.status).toBe(200)
     expect(await json(cleared)).toEqual(expect.objectContaining({ secretConfigured: false }))
@@ -1233,5 +1239,71 @@ describe('HTTP gateway', () => {
     await expect(resolveMainOptions(['--production'], {}, 'D:/app')).resolves.toEqual(expect.objectContaining({
       host: '127.0.0.1', port: 4173, distDir: join('D:/app', 'dist'),
     }))
+  })
+
+  it('serves workspace manifest, commit, and canvas document endpoints', async () => {
+    const gateway = await start()
+
+    // 1. GET /api/workspace/manifest
+    const manifestRes = await fetch(`${gateway.origin}/api/workspace/manifest`)
+    expect(manifestRes.status).toBe(200)
+    const { manifest } = await json(manifestRes)
+    expect(manifest.version).toBe(1)
+    expect(manifest.canvases).toHaveLength(1)
+
+    // 2. PUT /api/canvases/:canvasId
+    const canvasPayload = {
+      version: 3,
+      canvasId: 'default-project',
+      projectId: 'default-project',
+      name: '画布 1',
+      viewport: { x: 0, y: 0, zoom: 1 },
+      nodes: [
+        {
+          id: 'test-node-1',
+          type: 'text',
+          name: '文本',
+          position: { x: 50, y: 50 },
+          size: { width: 200, height: 100 },
+          data: { text: '服务端保存测试' },
+        },
+      ],
+      edges: [],
+      comments: [],
+    }
+
+    const saveRes = await fetch(`${gateway.origin}/api/canvases/default-project`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(canvasPayload),
+    })
+    expect(saveRes.status).toBe(200)
+
+    // 3. GET /api/canvases/:canvasId
+    const getRes = await fetch(`${gateway.origin}/api/canvases/default-project`)
+    expect(getRes.status).toBe(200)
+    const { canvas } = await json(getRes)
+    expect(canvas.nodes[0]?.data?.text).toBe('服务端保存测试')
+
+    // 4. POST /api/workspace/commit
+    manifest.canvases.push({
+      canvasId: 'canvas-2',
+      projectId: 'default-project',
+      name: '第二块画布',
+      position: { x: 0, y: 0 },
+      nodeCount: 0,
+      favorite: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    const commitRes = await fetch(`${gateway.origin}/api/workspace/commit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ manifest }),
+    })
+    expect(commitRes.status).toBe(200)
+    const commitData = await json(commitRes)
+    expect(commitData.manifest.canvases).toHaveLength(2)
   })
 })

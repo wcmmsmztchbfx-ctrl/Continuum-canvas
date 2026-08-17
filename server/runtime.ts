@@ -34,6 +34,8 @@ import {
   CollaborationService,
   type CollaborationServiceOptions,
 } from './collaboration-service.ts'
+import { WorkspaceService } from './workspace-service.ts'
+import { CanvasPersistenceService } from './canvas-storage.ts'
 
 export type AdapterFactory = (provider: ProviderMetadata, apiKey: string) => ProviderAdapter
 
@@ -131,9 +133,12 @@ export interface GatewayRuntime {
   readonly history: GenerationHistoryStore
   readonly runner: GenerationRunner
   readonly collaboration: CollaborationService
+  readonly workspace: WorkspaceService
+  readonly canvases: CanvasPersistenceService
   trackOperation<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
   adapterFor(providerId: string): ProviderAdapter
   updateProvider(record: ProviderRecord): Promise<ProviderMetadata>
+  getProviderSecret(providerId: string): Promise<string | undefined>
   setProviderSecret(providerId: string, apiKey: string): Promise<ProviderMetadata>
   deleteProviderSecret(providerId: string): Promise<ProviderMetadata>
   testProvider(providerId: string): Promise<ProviderMetadata>
@@ -191,6 +196,8 @@ export async function createGatewayRuntime(options: {
     const jobs = await GenerationJobStore.open({ dataDir })
     const history = await GenerationHistoryStore.open({ dataDir })
     const canvasAssetReferences = await CanvasAssetReferenceStore.open({ dataDir })
+    const workspace = new WorkspaceService({ dataDir })
+    const canvases = new CanvasPersistenceService({ dataDir })
     const activeCollaboration = await CollaborationService.open({
       ...options.collaborationOptions,
       dataDir,
@@ -284,6 +291,8 @@ export async function createGatewayRuntime(options: {
       history,
       runner,
       collaboration: activeCollaboration,
+      workspace,
+      canvases,
       trackOperation,
       adapterFor,
       async updateProvider(record) {
@@ -292,6 +301,13 @@ export async function createGatewayRuntime(options: {
           const updated = providers.getPublic(record.id)
           if (!updated) throw new RuntimeNotFoundError('Provider not found')
           return updated
+        })
+      },
+      async getProviderSecret(providerId) {
+        return trackOperation(async () => {
+          const provider = providers.getPublic(providerId)
+          if (!provider) throw new RuntimeNotFoundError('Provider not found')
+          return providers.getSecret(providerId)
         })
       },
       async setProviderSecret(providerId, apiKey) {
@@ -345,6 +361,11 @@ export async function createGatewayRuntime(options: {
               await activeCollaboration.close()
             } catch (error) {
               failure = error
+            }
+            try {
+              await canvases.flushAll()
+            } catch (error) {
+              failure ??= error
             }
             try {
               await runner?.close()

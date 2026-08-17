@@ -512,6 +512,20 @@ export class GatewayClient {
     return response
   }
 
+  async getProviderSecret(
+    providerId: string,
+    options?: GatewayRequestOptions,
+  ): Promise<string> {
+    await this.ensureSensitiveAccess(options)
+    const response = await this.request<{ apiKey: string }>(
+      `/api/providers/${encodeURIComponent(providerId)}/secret`,
+      { method: 'GET' },
+      options,
+    )
+    if (typeof response?.apiKey !== 'string') invalidResponse('Gateway returned an invalid secret')
+    return response.apiKey
+  }
+
   async testProvider(
     providerId: string,
     options?: GatewayRequestOptions,

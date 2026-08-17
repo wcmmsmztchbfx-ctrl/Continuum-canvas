@@ -17,26 +17,19 @@ import {
 } from './model'
 import { createBrowserUuid } from '../utils/id'
 import type {
+  StoredCanvasDocument,
   WorkspaceCanvas,
+  WorkspaceCommit,
   WorkspaceManifestV1,
   WorkspacePendingOperation,
   WorkspaceProject,
 } from './model'
 
-export interface StoredCanvasDocument {
-  canvasId: string
-  serialized: string
-}
+export type { StoredCanvasDocument, WorkspaceCommit }
 
 export interface WorkspaceInitialization {
   manifest: string
   documents: StoredCanvasDocument[]
-}
-
-export interface WorkspaceCommit {
-  manifest: string
-  putDocuments?: StoredCanvasDocument[]
-  deleteCanvasIds?: string[]
 }
 
 export interface WorkspaceStorageBackend {

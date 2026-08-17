@@ -33,7 +33,7 @@ export function useAppCollaboration({
 }: UseAppCollaborationOptions) {
   const [collaborationState, setCollaborationState] =
     useState<CollaborationControllerState>({ status: 'inactive', inviteLinks: {} })
-  const [collaborationPresence, setCollaborationPresence] = useState<PresenceState[]>([])
+  const [collaborationPresence, setCollaborationPresence] = useState<readonly PresenceState[]>([])
   const [followingMemberId, setFollowingMemberId] = useState<string>()
   const collaborationControllerRef = useRef<CanvasCollaborationController | null>(null)
 
@@ -112,14 +112,17 @@ export function useAppCollaboration({
     setCollaborationState(controller.getState())
     const unsubscribe = controller.subscribe(setCollaborationState)
     collaborationPresenceStore.setPresence(controller.getPresence())
+    setCollaborationPresence(controller.getPresence())
     const unsubscribePresence = controller.subscribePresence((presence) => {
       collaborationPresenceStore.setPresence(presence)
+      setCollaborationPresence(presence)
     })
     void controller.initializeFromLocation().catch(() => undefined)
     return () => {
       unsubscribe()
       unsubscribePresence()
       collaborationPresenceStore.clear()
+      setCollaborationPresence([])
       setFollowingMemberId(undefined)
       if (collaborationControllerRef.current === controller) {
         collaborationControllerRef.current = null

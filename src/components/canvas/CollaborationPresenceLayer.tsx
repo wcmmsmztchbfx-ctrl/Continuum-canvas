@@ -172,7 +172,7 @@ export function CollaborationPresenceLayer({
   presence: propPresence,
 }: CollaborationPresenceLayerProps) {
   const storePresence = useCollaborationPresence()
-  const presence = propPresence ?? storePresence
+  const presence = propPresence && propPresence.length > 0 ? propPresence : storePresence
   const visiblePresence = presence.slice(0, 10)
 
   return (

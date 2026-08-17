@@ -1290,7 +1290,6 @@ export function CanvasWorkspace({
     void remoteLockKey
     void selectedNodeKey
     const previousSignatures = stableModelSignaturesRef.current
-    const modelById = new Map(snapshot.nodes.map((node) => [node.id, node]))
     const previousById = new Map(stableNodesRef.current.map((n) => [n.id, n]))
     const incomingEdges = new Map<string, string>()
     for (const edge of snapshot.edges) {
@@ -1299,42 +1298,44 @@ export function CanvasWorkspace({
         incomingEdges.set(edge.target, `${prevTarget}|${edge.source}:${edge.referenceAlias}`)
       }
     }
-    const signatures = new Map(
-      snapshot.nodes.map((node) => [
-        node.id,
-        `${node.type}:${node.position.x},${node.position.y},${node.size.width},${node.size.height},${node.name},${node.parentId ?? ''},${node.locked ? 1 : 0},${node.hidden ? 1 : 0},${'url' in node.data ? node.data.url : ''},${'text' in node.data ? node.data.text : ''},${'generation' in node.data ? node.data.generation?.status : ''}#${incomingEdges.get(node.id) ?? ''}`,
-      ]),
-    )
+    const signatures = new Map<string, string>()
     const projectIdUnchanged = stableProjectIdRef.current === snapshot.projectId
+
     const incoming = decorateNodes(project.nodes).map((node) => {
+      const model = node.data.node
+      const lock = remoteLocksRef.current.get(node.id)
+      const lockSig = lock ? `${lock.memberId}:${lock.kind}` : ''
+      const isSelected = selectedNodeIds.includes(node.id)
+      const refPickSig = `${node.data.referencePickCandidate ? 1 : 0}:${node.data.referencePickTarget ? 1 : 0}:${node.data.referencePickerActive ? 1 : 0}`
+      const sig = model
+        ? `${JSON.stringify(model)}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}#${refPickSig}#${imagePanelMode}`
+        : `${node.id}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}#${refPickSig}#${imagePanelMode}`
+      signatures.set(node.id, sig)
+
       const previous = previousById.get(node.id)
-      const previousModel = previous?.data.node
-      const nextModel = modelById.get(node.id)
-      if (
-        !previous ||
-        !previousModel ||
-        !nextModel ||
-        !projectIdUnchanged ||
-        previousSignatures.get(node.id) !== signatures.get(node.id)
-      ) {
-        return node
+      const prevSig = previousSignatures.get(node.id)
+
+      if (previous && prevSig === sig && projectIdUnchanged) {
+        return previous
       }
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          node: previousModel,
-          references: node.data.references,
-          referenceCandidates: previous.data.referenceCandidates,
-        },
-      }
+      return node
     })
     const next = stabilizeProjectedNodes(stableNodesRef.current, incoming)
     stableNodesRef.current = next
     stableModelSignaturesRef.current = signatures
     stableProjectIdRef.current = snapshot.projectId
     return next
-  }, [decorateNodes, project.nodes, remoteLockKey, selectedNodeKey, snapshot.edges, snapshot.nodes, snapshot.projectId])
+  }, [
+    decorateNodes,
+    imagePanelMode,
+    project.nodes,
+    referencePickTargetId,
+    remoteLockKey,
+    selectedNodeIds,
+    selectedNodeKey,
+    snapshot.edges,
+    snapshot.projectId,
+  ])
   const persistentEdges = useMemo(() => {
     void selectedNodeKey
     const next = stabilizeProjectedEdges(stableEdgesRef.current, decorateEdges(project.edges))

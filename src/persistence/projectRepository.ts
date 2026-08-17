@@ -332,7 +332,7 @@ export function createIndexedDbWorkspaceBackend(
       )
       await transaction.objectStore(WORKSPACE_MANIFEST_STORE_NAME).put({
         id: WORKSPACE_MANIFEST_KEY,
-        serialized: commit.manifest,
+        serialized: typeof commit.manifest === 'string' ? commit.manifest : JSON.stringify(commit.manifest),
       })
       const documentStore = transaction.objectStore(CANVAS_DOCUMENT_STORE_NAME)
       for (const document of commit.putDocuments ?? []) {
