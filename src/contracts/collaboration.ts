@@ -10,6 +10,16 @@ export const COLLABORATION_MAX_CLIENT_MESSAGE_BYTES = COLLABORATION_MAX_SERVER_M
 
 export type CollaborationRole = 'owner' | 'editor' | 'viewer'
 
+export interface TunnelStatus {
+  enabled: boolean
+  mode: 'auto' | 'custom'
+  status: 'stopped' | 'downloading' | 'starting' | 'running' | 'error'
+  downloadProgress?: number
+  publicUrl?: string
+  customUrl?: string
+  error?: string
+}
+
 export type CollaborationConnectionStatus =
   | 'connecting'
   | 'connected'

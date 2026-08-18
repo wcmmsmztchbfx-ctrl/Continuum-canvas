@@ -939,6 +939,43 @@ describe('canvas store document mutations', () => {
     })
   })
 
+  it('does not overwrite size or position of layer mode or pasted images on natural size load', () => {
+    const layerSnapshot = structuredClone(initialSnapshot)
+    layerSnapshot.nodes[0] = {
+      ...layerSnapshot.nodes[0],
+      id: 'pasted-image-1',
+      type: 'image',
+      position: { x: 500, y: 300 },
+      size: { width: 1200, height: 900 },
+      data: {
+        url: '/api/assets/some-image',
+        displayMode: 'layer',
+        generationSettings: {
+          kind: 'image',
+          providerId: '',
+          channel: '',
+          model: '',
+          mode: 'text2image',
+          quality: 'standard',
+          resolution: '2K',
+          aspectRatio: '16:9',
+          count: 1,
+        },
+      },
+    }
+    const store = createCanvasStore(layerSnapshot)
+
+    // Simulates image onLoad event with natural dimensions (e.g. 4:3 1600x1200)
+    store.getState().reconcileImageNaturalSize('pasted-image-1', 1600, 1200)
+
+    // Node size and position must remain 100% untouched
+    expect(store.getState().snapshot.nodes[0]).toMatchObject({
+      id: 'pasted-image-1',
+      position: { x: 500, y: 300 },
+      size: { width: 1200, height: 900 },
+    })
+  })
+
   it('persists a media prompt draft through serialization and undo', () => {
     const store = createCanvasStore(initialSnapshot)
 

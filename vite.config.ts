@@ -44,11 +44,12 @@ export default defineConfig(({ mode }) => {
       host: resolveViteHost(env),
       port: 4173,
       strictPort: true,
+      allowedHosts: true,
       watch: {
         ignored: ['**/data/**', '**/.env.local', '**/.env'],
       },
       proxy: {
-        '/api': { target: gatewayTarget, ws: true },
+        '/api': { target: gatewayTarget, ws: true, changeOrigin: true },
       },
     },
   }

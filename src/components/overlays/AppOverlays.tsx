@@ -184,9 +184,9 @@ export function AppOverlays({
         followingMemberId={followingMemberId}
         onClose={() => closeProductPopup('collaboration')}
         onCloseRoom={() => collaborationAction((controller) => controller.closeRoom())}
-        onCreateInvite={(role) =>
+        onCreateInvite={(role, customOrigin) =>
           collaborationAction(async (controller) => {
-            const link = await controller.createInvite(role)
+            const link = await controller.createInvite(role, customOrigin)
             await copyText(link)
           })
         }
@@ -209,6 +209,10 @@ export function AppOverlays({
           collaborationAction((controller) => controller.forceResetAndEnable(displayName))
         }
         onDismissConflict={() => collaborationControllerRef.current?.dismissConflict()}
+        onGetTunnelStatus={async () => collaborationControllerRef.current?.getTunnelStatus()}
+        onStartTunnel={async (mode, customUrl) => collaborationControllerRef.current?.startTunnel(mode, customUrl)}
+        onStopTunnel={async () => collaborationControllerRef.current?.stopTunnel()}
+        onSetCustomTunnelUrl={async (customUrl) => collaborationControllerRef.current?.setCustomTunnelUrl(customUrl)}
         open={popup === 'collaboration'}
         presence={collaborationPresence}
         state={collaborationState}

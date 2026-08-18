@@ -148,6 +148,21 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
+async function readOptionalJson(request: IncomingMessage): Promise<Record<string, unknown> | undefined> {
+  const contentType = request.headers['content-type']?.split(';', 1)[0].trim().toLowerCase()
+  if (contentType !== 'application/json') return undefined
+  const bytes = await readBody(request, JSON_LIMIT)
+  if (bytes.byteLength === 0) return undefined
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(bytes).toString('utf8'))
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined
+  } catch {
+    throw new ApiError(400, 'invalid_input', 'Request body is not valid JSON')
+  }
+}
+
 function record(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new ApiError(400, 'invalid_input', 'Request body must be an object')
@@ -661,6 +676,7 @@ async function routeApi(
   secureCollaborationCookies: boolean,
   localAdminAllowed: boolean,
   localAdminRecoveryAllowed: boolean,
+  frontendPort: number = 4173,
 ): Promise<boolean> {
   const method = request.method ?? 'GET'
   const path = url.pathname
@@ -802,6 +818,40 @@ async function routeApi(
       roomId: memberMatch[1], sessionToken, memberId: memberMatch[2],
     })
     sendJson(response, 200, { removed: true })
+    return true
+  }
+  if (method === 'GET' && path === '/api/collaboration/tunnel') {
+    sendJson(response, 200, runtime.tunnel.getStatus())
+    return true
+  }
+  if (method === 'POST' && path === '/api/collaboration/tunnel/start') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const body = await readOptionalJson(request)
+    const mode = body?.mode === 'custom' ? 'custom' : 'auto'
+    if (mode === 'custom') {
+      if (typeof body?.customUrl === 'string') {
+        await runtime.tunnel.setCustomUrl(body.customUrl)
+      }
+      const status = await runtime.tunnel.startCustomMode()
+      sendJson(response, 200, status)
+    } else {
+      const status = await runtime.tunnel.startAutoTunnel(frontendPort)
+      sendJson(response, 200, status)
+    }
+    return true
+  }
+  if (method === 'POST' && path === '/api/collaboration/tunnel/stop') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const status = await runtime.tunnel.stopTunnel()
+    sendJson(response, 200, status)
+    return true
+  }
+  if (method === 'PUT' && path === '/api/collaboration/tunnel/custom-url') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const body = record(await readJson(request))
+    const customUrl = typeof body.customUrl === 'string' ? body.customUrl : undefined
+    const status = await runtime.tunnel.setCustomUrl(customUrl)
+    sendJson(response, 200, status)
     return true
   }
   if (method === 'GET' && path === '/api/providers') {
@@ -1147,11 +1197,21 @@ export async function startGateway(options: {
   })
   const publicOrigin = network.publicOrigin
   const allowedOrigins = network.allowedOrigins
+  const dynamicAllowedOrigins = [...allowedOrigins]
+  let dynamicPublicOrigin = publicOrigin
   const localHostOnly = options.localHostOnly ?? isLoopbackHost(host)
   let runtime: GatewayRuntime
   let localAdmin: LocalAdminService
   try {
     runtime = await createGatewayRuntime(options)
+    runtime.tunnel.onOriginChange((dynamicOrigin) => {
+      if (dynamicOrigin) {
+        if (!dynamicAllowedOrigins.includes(dynamicOrigin)) {
+          dynamicAllowedOrigins.push(dynamicOrigin)
+        }
+        dynamicPublicOrigin = dynamicOrigin
+      }
+    })
     try {
       localAdmin = await LocalAdminService.open({ dataDir: runtime.dataDir })
     } catch (error) {
@@ -1196,9 +1256,12 @@ export async function startGateway(options: {
           request.method === 'POST' || request.method === 'PUT' ||
           request.method === 'PATCH' || request.method === 'DELETE'
         ) {
-          assertAllowedOrigin(request, allowedOrigins, localHostOnly)
+          assertAllowedOrigin(request, dynamicAllowedOrigins, localHostOnly)
         }
         const loopbackBrowserOrigin = hasLoopbackBrowserOrigin(request)
+        const frontendPort = options.distDir
+          ? (options.port ?? 4173)
+          : (Number(process.env.CANVAS_VITE_PORT) || 4173)
         await routeApi(
           runtime,
           localAdmin,
@@ -1207,9 +1270,10 @@ export async function startGateway(options: {
           url,
           options.rawBodyLimit ?? RAW_LIMIT,
           signal,
-          publicOrigin?.toLowerCase().startsWith('https://') ?? false,
+          (dynamicPublicOrigin ?? publicOrigin)?.toLowerCase().startsWith('https://') ?? false,
           (localHostOnly && isLoopbackHost(host)) || loopbackBrowserOrigin,
           loopbackBrowserOrigin,
+          frontendPort,
         )
         return
       }
@@ -1233,7 +1297,7 @@ export async function startGateway(options: {
   const collaborationWebSocket = attachCollaborationWebSocket({
     server,
     service: runtime.collaboration,
-    allowedOrigins,
+    allowedOrigins: dynamicAllowedOrigins,
     maxMessageBytes: options.collaborationMaxMessageBytes,
     heartbeatMs: options.collaborationHeartbeatMs,
     validateRequest: (request) => {

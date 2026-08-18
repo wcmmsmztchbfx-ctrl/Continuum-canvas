@@ -108,6 +108,10 @@ export interface CollaborationClientHandle {
   removeMember: CollaborationClient['removeMember']
   leaveRoom: CollaborationClient['leaveRoom']
   closeRoom: CollaborationClient['closeRoom']
+  getTunnelStatus?: CollaborationClient['getTunnelStatus']
+  startTunnel?: CollaborationClient['startTunnel']
+  stopTunnel?: CollaborationClient['stopTunnel']
+  setCustomTunnelUrl?: CollaborationClient['setCustomTunnelUrl']
 }
 
 export interface CollaborationControllerOptions {
@@ -506,10 +510,10 @@ export class CanvasCollaborationController {
     if (this.state.pendingInvite) this.patch({ pendingInvite: undefined, status: 'inactive', error: undefined })
   }
 
-  async createInvite(role: 'editor' | 'viewer'): Promise<string> {
+  async createInvite(role: 'editor' | 'viewer', customOrigin?: string): Promise<string> {
     const room = this.requireOwnerRoom()
     const created = await this.client.createInvite(room.roomId, role)
-    const link = this.inviteUrl(room.roomId, created.secret)
+    const link = this.inviteUrl(room.roomId, created.secret, customOrigin)
     this.patch({
       room: { ...room, invites: [...room.invites, created.invite] },
       inviteLinks: { ...this.state.inviteLinks, [created.invite.id]: link },
@@ -867,17 +871,39 @@ export class CanvasCollaborationController {
     return this.state.room
   }
 
-  private inviteUrl(roomId: string, secret: string): string {
-    const url = new URL(this.location.href)
-    if (this.options.shareOrigin) {
-      const shareOrigin = new URL(this.options.shareOrigin).origin
-      const configured = new URL(shareOrigin)
-      url.protocol = configured.protocol
-      url.host = configured.host
+  inviteUrl(roomId: string, secret: string, customOrigin?: string): string {
+    const baseOrigin = customOrigin?.trim() || this.options.shareOrigin
+    let url: URL
+    if (baseOrigin) {
+      try {
+        const configured = new URL(baseOrigin)
+        const current = new URL(this.location.href)
+        url = new URL(current.pathname + current.search, configured.origin)
+      } catch {
+        url = new URL(this.location.href)
+      }
+    } else {
+      url = new URL(this.location.href)
     }
     url.searchParams.set('collabRoom', roomId)
     url.hash = new URLSearchParams({ invite: secret }).toString()
     return url.toString()
+  }
+
+  async getTunnelStatus(): Promise<import('../contracts/collaboration.ts').TunnelStatus | undefined> {
+    return this.client.getTunnelStatus?.()
+  }
+
+  async startTunnel(mode?: 'auto' | 'custom', customUrl?: string): Promise<import('../contracts/collaboration.ts').TunnelStatus | undefined> {
+    return this.client.startTunnel?.(mode, customUrl)
+  }
+
+  async stopTunnel(): Promise<import('../contracts/collaboration.ts').TunnelStatus | undefined> {
+    return this.client.stopTunnel?.()
+  }
+
+  async setCustomTunnelUrl(customUrl?: string): Promise<import('../contracts/collaboration.ts').TunnelStatus | undefined> {
+    return this.client.setCustomTunnelUrl?.(customUrl)
   }
 
   private replaceRoomInUrl(roomId: string): void {

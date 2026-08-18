@@ -12,19 +12,25 @@ import { gatewayClient } from './services/gatewayClient'
 import { canvasStore } from './store/canvas-store'
 import type { WorkspaceRepository } from './workspace'
 
-vi.mock('./services/localMedia', () => ({
-  persistLocalMedia: vi.fn(async (file: File) => ({
+vi.mock('./services/localMedia', () => {
+  const persistLocalMedia = vi.fn(async (file: File) => ({
     assetId: `asset-${file.name}`,
     url: `/api/assets/asset-${file.name}`,
-  })),
-  uploadAndPrepareMediaAsset: vi.fn(async (file: File) => ({
-    kind: file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'image',
-    url: `/api/assets/asset-${file.name}`,
-    assetId: `asset-${file.name}`,
-    width: 480,
-    height: 320,
-  })),
-}))
+  }))
+  return {
+    persistLocalMedia,
+    uploadAndPrepareMediaAsset: vi.fn(async (file: File) => {
+      const asset = await persistLocalMedia(file)
+      return {
+        kind: file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'image',
+        url: asset.url,
+        assetId: asset.assetId,
+        width: 480,
+        height: 320,
+      }
+    }),
+  }
+})
 
 const emptySnapshot = (canvasId = 'clipboard-canvas'): CanvasSnapshotV2 => ({
   version: 2,

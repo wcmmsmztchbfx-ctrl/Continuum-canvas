@@ -1330,21 +1330,30 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
       const current = get().snapshot
       const node = current.nodes.find((candidate) => candidate.id === nodeId)
       if (node?.type !== 'image') return
-      const requested = node.data.generation?.actualSettings?.aspectRatio ??
+
+      // Do NOT reset sizes for layer/pasted/uploaded nodes or nodes without generation
+      if (node.data.displayMode === 'layer' || !node.data.generation) return
+      // If outputAspectRatio is already recorded, do not reconcile again on reload
+      if (node.data.generation.outputAspectRatio) return
+
+      const requested = node.data.generation.actualSettings?.aspectRatio ??
         node.data.generationSettings?.aspectRatio
       if (!requested || !materiallyDifferentRatio(requested, naturalWidth, naturalHeight)) {
+        return
+      }
+      const outputAspectRatio = ratioStringFromDimensions(naturalWidth, naturalHeight)
+      if (node.data.generation.outputAspectRatio === outputAspectRatio) {
         return
       }
       const next = resizeAroundCenter(
         node.position,
         node.size,
-        sizeForAspectRatio(ratioStringFromDimensions(naturalWidth, naturalHeight)),
+        sizeForAspectRatio(outputAspectRatio),
       )
-      const outputAspectRatio = ratioStringFromDimensions(naturalWidth, naturalHeight)
       if (
         next.size.width === node.size.width &&
         next.size.height === node.size.height &&
-        node.data.generation?.outputAspectRatio === outputAspectRatio
+        node.data.generation.outputAspectRatio === outputAspectRatio
       ) {
         return
       }
@@ -1356,15 +1365,13 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
               ? {
                   ...candidate,
                   ...next,
-                  data: candidate.data.generation
-                    ? {
-                        ...candidate.data,
-                        generation: {
-                          ...candidate.data.generation,
-                          outputAspectRatio,
-                        },
-                      }
-                    : candidate.data,
+                  data: {
+                    ...candidate.data,
+                    generation: {
+                      ...candidate.data.generation!,
+                      outputAspectRatio,
+                    },
+                  },
                 }
               : candidate,
           ),

@@ -145,6 +145,7 @@ export interface CollaborationServiceOptions {
   maxCandidateUpdateBytes?: number
   maxDocumentBytes?: number
   persistence?: CollaborationPersistence
+  onSnapshotSaved?: (snapshot: CanvasSnapshotV2) => Promise<void> | void
 }
 
 export class CollaborationPersistenceError extends Error {
@@ -596,6 +597,11 @@ export class CollaborationService {
     await this.persistence.writeBytes(join(room.directory, 'snapshot.bin'), binarySnapshot)
     await this.persistence.writeBytes(join(room.directory, 'updates.bin'), new Uint8Array())
     await this.persistence.writeJson(join(room.directory, 'canvas.snapshot.json'), canvasSnapshot)
+    try {
+      await this.options.onSnapshotSaved?.(canvasSnapshot)
+    } catch {
+      // Snapshot mirror failures do not fail collaboration persistence
+    }
     room.updateCount = 0
     room.updateBytes = 0
     room.dirty = false

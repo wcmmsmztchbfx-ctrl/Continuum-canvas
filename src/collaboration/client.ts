@@ -203,6 +203,9 @@ export class CollaborationClient {
   private readonly fetchImpl: typeof fetch
   private readonly storage: Storage
   private readonly createDeviceId: () => string
+  private localAdminSessionFlight?: Promise<void>
+  private localAdminSessionReady = false
+  private collaborationRoomId?: string
 
   constructor(options: CollaborationClientOptions = {}) {
     this.baseUrl = options.baseUrl?.replace(/\/$/, '') ?? ''
@@ -213,6 +216,25 @@ export class CollaborationClient {
 
   private deviceId(): string {
     return getOrCreateCollaborationDeviceId(this.storage, this.createDeviceId)
+  }
+
+  private async ensureLocalAdminSession(options?: CollaborationRequestOptions): Promise<void> {
+    if (this.collaborationRoomId || this.localAdminSessionReady) return
+    if (!this.localAdminSessionFlight) {
+      this.localAdminSessionFlight = this.request(
+        '/api/local-admin/session',
+        { method: 'POST' },
+        options,
+      ).then((response) => {
+        if (response.ok !== true) failInvalidResponse('Gateway returned an invalid local administrator session')
+        this.localAdminSessionReady = true
+      }).finally(() => { this.localAdminSessionFlight = undefined })
+    }
+    return this.localAdminSessionFlight
+  }
+
+  private async ensureSensitiveAccess(options?: CollaborationRequestOptions): Promise<void> {
+    if (!this.collaborationRoomId) await this.ensureLocalAdminSession(options)
   }
 
   private async request(
@@ -431,5 +453,51 @@ export class CollaborationClient {
       { method: 'DELETE' }, options,
     )
     if (payload.closed !== true) failInvalidResponse('Collaboration room was not closed')
+  }
+
+  async getTunnelStatus(options?: CollaborationRequestOptions): Promise<import('../contracts/collaboration.ts').TunnelStatus> {
+    const payload = await this.request('/api/collaboration/tunnel', { method: 'GET' }, options)
+    return payload as unknown as import('../contracts/collaboration.ts').TunnelStatus
+  }
+
+  async startTunnel(
+    mode?: 'auto' | 'custom',
+    customUrl?: string,
+    options?: CollaborationRequestOptions,
+  ): Promise<import('../contracts/collaboration.ts').TunnelStatus> {
+    await this.ensureSensitiveAccess(options)
+    const payload = await this.request(
+      '/api/collaboration/tunnel/start',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode, customUrl }),
+      },
+      options,
+    )
+    return payload as unknown as import('../contracts/collaboration.ts').TunnelStatus
+  }
+
+  async stopTunnel(options?: CollaborationRequestOptions): Promise<import('../contracts/collaboration.ts').TunnelStatus> {
+    await this.ensureSensitiveAccess(options)
+    const payload = await this.request('/api/collaboration/tunnel/stop', { method: 'POST' }, options)
+    return payload as unknown as import('../contracts/collaboration.ts').TunnelStatus
+  }
+
+  async setCustomTunnelUrl(
+    customUrl?: string,
+    options?: CollaborationRequestOptions,
+  ): Promise<import('../contracts/collaboration.ts').TunnelStatus> {
+    await this.ensureSensitiveAccess(options)
+    const payload = await this.request(
+      '/api/collaboration/tunnel/custom-url',
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ customUrl }),
+      },
+      options,
+    )
+    return payload as unknown as import('../contracts/collaboration.ts').TunnelStatus
   }
 }

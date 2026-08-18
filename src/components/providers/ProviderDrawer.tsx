@@ -503,7 +503,11 @@ export function ProviderDrawer({
                       autoComplete="off"
                       disabled={readOnly}
                       onChange={(event) => setSecret(event.target.value)}
-                      placeholder="输入供应商 API Key"
+                      placeholder={
+                        selected?.maskedSecret
+                          ? `已保存 (${selected.maskedSecret})`
+                          : '输入供应商 API Key'
+                      }
                       spellCheck={false}
                       type={showSecret ? 'text' : 'password'}
                       value={secret}

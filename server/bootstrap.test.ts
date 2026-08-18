@@ -181,7 +181,7 @@ describe('runtime bootstrap', () => {
       host: '127.0.0.1',
       port: 4173,
       strictPort: true,
-      proxy: { '/api': { target: 'http://127.0.0.1:4174', ws: true } },
+      proxy: { '/api': expect.objectContaining({ target: 'http://127.0.0.1:4174', ws: true }) },
     }))
   })
 

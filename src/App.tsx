@@ -62,7 +62,12 @@ import {
   uploadAndPrepareMediaAsset,
 } from './services'
 import { canvasStore } from './store/canvas-store'
-import type { CanvasNode, ProjectSnapshot } from './model/project'
+import {
+  DEFAULT_IMAGE_GENERATION_SETTINGS,
+  DEFAULT_VIDEO_GENERATION_SETTINGS,
+  type CanvasNode,
+  type ProjectSnapshot,
+} from './model/project'
 import {
   canvasThumbnailService,
   type CanvasThumbnailService,
@@ -73,7 +78,6 @@ import { createBrowserUuid } from './utils/id'
 import {
   contentsFromDataTransfer,
   createCanvasClipboardEnvelope,
-  detectMediaKind,
   persistRemoteClipboardMedia,
   readClipboardContents,
   resolveClipboardContents,
@@ -1055,19 +1059,40 @@ export default function App({
       internalClipboardRef.current = undefined
       const nodes: CanvasNode[] = []
       for (const [index, file] of resolved.files.entries()) {
-        const media = await detectMediaKind(file)
-        if (!media) continue
-        const asset = await persistLocalMedia(file)
-        nodes.push({
-          id: `clipboard-source-${index}`,
-          type: media,
-          name: file.name,
-          position: { x: index * 32, y: index * 32 },
-          size: media === 'image'
-            ? { width: 480, height: 320 }
-            : { width: 480, height: 270 },
-          data: { url: asset.url, assetId: asset.assetId },
-        } as CanvasNode)
+        // Uploads media and prepares asset (delegates to persistLocalMedia(file))
+        const prepared = await uploadAndPrepareMediaAsset(file)
+        const name = file.name || '粘贴素材'
+        if (prepared.kind === 'image') {
+          nodes.push({
+            id: `clipboard-source-${index}`,
+            type: 'image',
+            name,
+            position: { x: index * 32, y: index * 32 },
+            size: { width: prepared.width, height: prepared.height },
+            data: {
+              url: prepared.url,
+              assetId: prepared.assetId,
+              displayMode: 'layer',
+              generationSettings: DEFAULT_IMAGE_GENERATION_SETTINGS,
+            },
+          } as CanvasNode)
+        } else if (prepared.kind === 'video') {
+          nodes.push({
+            id: `clipboard-source-${index}`,
+            type: 'video',
+            name,
+            position: { x: index * 32, y: index * 32 },
+            size: { width: prepared.width, height: prepared.height },
+            data: {
+              url: prepared.url,
+              poster: prepared.posterUrl,
+              assetId: prepared.assetId,
+              displayMode: 'layer',
+              durationSec: prepared.durationSec ?? 5,
+              generationSettings: DEFAULT_VIDEO_GENERATION_SETTINGS,
+            },
+          } as CanvasNode)
+        }
       }
       pasteGraph(nodes, [], `files:${resolved.files.map((file) => `${file.name}:${file.size}`).join('|')}`)
     } else if (resolved.kind === 'url') {

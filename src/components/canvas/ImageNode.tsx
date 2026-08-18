@@ -187,27 +187,27 @@ function ImageNodeContent({
           overflow: 'hidden',
         }}
       >
-        {hasThumbnail ? (
+        {hasThumbnail && thumbnailAllowed && effectiveThumbnailUrl ? (
           <img
             alt={data.alt ?? data.name}
             className="canvas-media-node__content canvas-image-thumbnail"
             decoding="async"
             draggable={false}
             loading="lazy"
-            src={thumbnailAllowed ? effectiveThumbnailUrl : undefined}
+            src={effectiveThumbnailUrl}
             style={{
               objectFit: modelData?.objectFit ?? 'cover',
               borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
             }}
           />
         ) : null}
-        {hasImage && shouldRenderHighRes ? (
+        {hasImage && shouldRenderHighRes && (highResAllowed || !hasThumbnail) && responsiveHighResUrl ? (
           <img
             className={`canvas-media-node__content ${hasThumbnail ? 'canvas-image-highres' : ''} ${highResLoaded ? 'is-loaded' : ''}`}
             decoding="async"
             draggable={false}
             loading="lazy"
-            src={highResAllowed ? responsiveHighResUrl : undefined}
+            src={responsiveHighResUrl}
             alt={data.alt ?? data.name}
             style={{
               objectFit: modelData?.objectFit ?? 'cover',
@@ -224,8 +224,8 @@ function ImageNodeContent({
                 cacheThumbnailFromElement(data.url, event.currentTarget)
               }
             }}
-            onError={() => {
-              if (!hasThumbnail) {
+            onError={(event) => {
+              if (event.currentTarget.getAttribute('src') && !hasThumbnail) {
                 setFailed(true)
               }
             }}

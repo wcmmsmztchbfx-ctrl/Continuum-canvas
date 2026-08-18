@@ -35,6 +35,7 @@ import {
   type CollaborationServiceOptions,
 } from './collaboration-service.ts'
 import { WorkspaceService } from './workspace-service.ts'
+import { TunnelService } from './tunnel-service.ts'
 import { CanvasPersistenceService } from './canvas-storage.ts'
 
 export type AdapterFactory = (provider: ProviderMetadata, apiKey: string) => ProviderAdapter
@@ -135,6 +136,7 @@ export interface GatewayRuntime {
   readonly collaboration: CollaborationService
   readonly workspace: WorkspaceService
   readonly canvases: CanvasPersistenceService
+  readonly tunnel: TunnelService
   trackOperation<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
   adapterFor(providerId: string): ProviderAdapter
   updateProvider(record: ProviderRecord): Promise<ProviderMetadata>
@@ -201,8 +203,16 @@ export async function createGatewayRuntime(options: {
     const activeCollaboration = await CollaborationService.open({
       ...options.collaborationOptions,
       dataDir,
+      onSnapshotSaved: async (snapshot) => {
+        try {
+          await canvases.saveCanvas(snapshot)
+        } catch {
+          // ignore
+        }
+      },
     })
     collaboration = activeCollaboration
+    const tunnel = await TunnelService.open({ dataDir })
     const writeCollaborativeJob = (job: import('../src/contracts/generation.ts').GenerationJob) => {
       if (!job.roomId) return
       try {
@@ -293,6 +303,7 @@ export async function createGatewayRuntime(options: {
       collaboration: activeCollaboration,
       workspace,
       canvases,
+      tunnel,
       trackOperation,
       adapterFor,
       async updateProvider(record) {
@@ -361,6 +372,11 @@ export async function createGatewayRuntime(options: {
               await activeCollaboration.close()
             } catch (error) {
               failure = error
+            }
+            try {
+              await tunnel.stopTunnel()
+            } catch (error) {
+              failure ??= error
             }
             try {
               await canvases.flushAll()
