@@ -512,7 +512,7 @@ export function InspectorPanel({
                 disabled={readOnly || isLocked}
                 onChange={(e) => handlePosChange('x', Number(e.target.value))}
                 type="number"
-                value={Math.round(activeNode.position.y ? activeNode.position.x : activeNode.position.x)}
+                value={Math.round(activeNode.position.x)}
               />
             </div>
             <div className="inspector-field">
@@ -567,44 +567,50 @@ export function InspectorPanel({
           </div>
 
           {/* Rotation & Radius */}
-          <div className="inspector-row">
-            {'rotation' in activeNode.data ? (
-              <div className="inspector-field">
-                <ScrubbableLabel
-                  label="旋转°"
-                  onChange={(val) => updateActiveData({ rotation: val })}
-                  value={Math.round((activeNode.data as { rotation?: number }).rotation ?? 0)}
-                />
-                <input
-                  aria-label="旋转角度"
-                  className="inspector-field__input"
-                  disabled={readOnly || isLocked}
-                  onChange={(e) => updateActiveData({ rotation: Number(e.target.value) || 0 })}
-                  type="number"
-                  value={Math.round((activeNode.data as { rotation?: number }).rotation ?? 0)}
-                />
-              </div>
-            ) : null}
-            {'radius' in activeNode.data || nodeType === 'image' || nodeType === 'video' ? (
-              <div className="inspector-field">
-                <ScrubbableLabel
-                  label="圆角"
-                  min={0}
-                  onChange={(val) => updateActiveData({ radius: Math.max(0, val) })}
-                  value={Math.round((activeNode.data as { radius?: number }).radius ?? 0)}
-                />
-                <input
-                  aria-label="圆角大小"
-                  className="inspector-field__input"
-                  disabled={readOnly || isLocked}
-                  min={0}
-                  onChange={(e) => updateActiveData({ radius: Math.max(0, Number(e.target.value) || 0) })}
-                  type="number"
-                  value={Math.round((activeNode.data as { radius?: number }).radius ?? 0)}
-                />
-              </div>
-            ) : null}
-          </div>
+          {('rotation' in activeNode.data || 'radius' in activeNode.data || nodeType === 'image' || nodeType === 'video') ? (
+            <div className="inspector-row inspector-row--grid">
+              {'rotation' in activeNode.data ? (
+                <div className="inspector-field">
+                  <ScrubbableLabel
+                    label="旋转°"
+                    onChange={(val) => updateActiveData({ rotation: val })}
+                    value={Math.round((activeNode.data as { rotation?: number }).rotation ?? 0)}
+                  />
+                  <input
+                    aria-label="旋转角度"
+                    className="inspector-field__input"
+                    disabled={readOnly || isLocked}
+                    onChange={(e) => updateActiveData({ rotation: Number(e.target.value) || 0 })}
+                    type="number"
+                    value={Math.round((activeNode.data as { rotation?: number }).rotation ?? 0)}
+                  />
+                </div>
+              ) : (
+                <div className="inspector-field-placeholder" />
+              )}
+              {'radius' in activeNode.data || nodeType === 'image' || nodeType === 'video' ? (
+                <div className="inspector-field">
+                  <ScrubbableLabel
+                    label="圆角"
+                    min={0}
+                    onChange={(val) => updateActiveData({ radius: Math.max(0, val) })}
+                    value={Math.round((activeNode.data as { radius?: number }).radius ?? 0)}
+                  />
+                  <input
+                    aria-label="圆角大小"
+                    className="inspector-field__input"
+                    disabled={readOnly || isLocked}
+                    min={0}
+                    onChange={(e) => updateActiveData({ radius: Math.max(0, Number(e.target.value) || 0) })}
+                    type="number"
+                    value={Math.round((activeNode.data as { radius?: number }).radius ?? 0)}
+                  />
+                </div>
+              ) : (
+                <div className="inspector-field-placeholder" />
+              )}
+            </div>
+          ) : null}
 
           {/* Frame Preset Dropdown */}
           {nodeType === 'frame' ? (

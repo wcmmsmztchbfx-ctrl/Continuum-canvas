@@ -599,7 +599,11 @@ async function serveAsset(
   if (!asset) throw new RuntimeNotFoundError('Asset not found')
   try {
     const opened = await runtime.assets.openResponse(assetId, request.headers.range)
-    response.writeHead(opened.status, { ...opened.headers, 'x-content-type-options': 'nosniff' })
+    response.writeHead(opened.status, {
+      ...opened.headers,
+      'x-content-type-options': 'nosniff',
+      'cache-control': 'public, max-age=31536000, immutable',
+    })
     if (request.method === 'HEAD') {
       opened.stream.destroy()
       response.end()

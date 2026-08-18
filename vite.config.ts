@@ -35,6 +35,16 @@ export default defineConfig(({ mode }) => {
                 test: /node_modules[\\/]@xyflow[\\/]/,
                 priority: 2,
               },
+              {
+                name: 'collab-vendor',
+                test: /node_modules[\\/](yjs|y-protocols|y-indexeddb|lib0)[\\/]/,
+                priority: 2,
+              },
+              {
+                name: 'icons-vendor',
+                test: /node_modules[\\/]lucide-react[\\/]/,
+                priority: 2,
+              },
             ],
           },
         },

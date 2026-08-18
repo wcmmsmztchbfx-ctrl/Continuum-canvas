@@ -94,7 +94,7 @@ describe('application workspace routing', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     await waitFor(() => expect(window.location.pathname).toBe('/canvas'))
-    await waitFor(() => expect(screen.getByTestId('canvas-workspace')).toBeVisible())
+    expect(await screen.findByTestId('canvas-workspace', {}, { timeout: 4000 })).toBeVisible()
     expect(new URLSearchParams(window.location.search).get('canvasId')).toBeTruthy()
     expect(screen.getByRole('button', { name: /新分镜画布/ })).toBeVisible()
   })
@@ -127,7 +127,7 @@ describe('application workspace routing', () => {
         </GenerationApprovalProvider>
       </ProviderCatalogProvider>,
     )
-    await screen.findByTestId('canvas-workspace')
+    await screen.findByTestId('canvas-workspace', {}, { timeout: 4000 })
 
     expect(new URLSearchParams(window.location.search).get('collabRoom'))
       .toBe('room-refresh')

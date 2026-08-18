@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 
-import App from './App'
 import { WorkspaceHome } from './components/workspace'
 import {
   buildCanvasRoute,
@@ -20,6 +19,8 @@ import {
   useActiveCollaboration,
 } from './collaboration/activeCollaborationStore'
 import { FloatingCollaborationBadge } from './components/collaboration/FloatingCollaborationBadge'
+
+const App = lazy(() => import('./App'))
 
 interface BrowserLocationSnapshot {
   pathname: string
@@ -137,20 +138,22 @@ function CanvasRoute({
     (candidate) => candidate.canvasId === resolved.canvasId,
   )
   return (
-    <App
-      canvasId={resolved.canvasId}
-      key={resolved.canvasId}
-      onNavigateCanvas={(canvasId, projectId) =>
-        navigate(buildCanvasRoute(projectId, canvasId))
-      }
-      onNavigateWorkspace={(create) =>
-        navigate(create ? `/?create=${create}` : '/')
-      }
-      projectId={resolved.projectId}
-      projectName={project?.name ?? canvas?.name ?? '独立画布'}
-      workspaceRepository={repository}
-      thumbnailService={thumbnailService}
-    />
+    <Suspense fallback={<main aria-busy="true" className="workspace-home-loading">正在载入画布编辑器...</main>}>
+      <App
+        canvasId={resolved.canvasId}
+        key={resolved.canvasId}
+        onNavigateCanvas={(canvasId, projectId) =>
+          navigate(buildCanvasRoute(projectId, canvasId))
+        }
+        onNavigateWorkspace={(create) =>
+          navigate(create ? `/?create=${create}` : '/')
+        }
+        projectId={resolved.projectId}
+        projectName={project?.name ?? canvas?.name ?? '独立画布'}
+        workspaceRepository={repository}
+        thumbnailService={thumbnailService}
+      />
+    </Suspense>
   )
 }
 

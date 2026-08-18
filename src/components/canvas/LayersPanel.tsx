@@ -141,7 +141,14 @@ export function LayersPanel(props: LayersPanelProps) {
         {visible.map(({ node, depth }) => {
           const expandable = node.type === 'group' || node.type === 'frame'
           const Icon = icons[node.type]
-          const mediaUrl = node.type === 'image' ? (node.data as { url?: string }).url : node.type === 'video' ? (node.data as { poster?: string; url?: string }).poster : undefined
+          const mediaData = (node.type === 'image' || node.type === 'video')
+            ? (node.data as { url?: string; thumbnailUrl?: string; poster?: string })
+            : undefined
+          const rawUrl = mediaData?.url
+          const explicitThumb = mediaData?.thumbnailUrl || mediaData?.poster
+          const mediaThumbSrc = rawUrl
+            ? (getFastThumbnailUrl(rawUrl, explicitThumb) || explicitThumb || rawUrl)
+            : explicitThumb
           return (
             <div
               className="layers-panel__row"
@@ -232,13 +239,13 @@ export function LayersPanel(props: LayersPanelProps) {
                 </span>
               ) : (node.type === 'image' || node.type === 'video') ? (
                 <span className="layers-panel__thumb" title={node.type === 'video' ? '视频' : '图片'}>
-                  {mediaUrl ? (
+                  {mediaThumbSrc ? (
                     <span className="layers-panel__thumb-media">
                       <img
                         alt=""
                         decoding="async"
                         loading="lazy"
-                        src={getFastThumbnailUrl(mediaUrl) || mediaUrl}
+                        src={mediaThumbSrc}
                       />
                       {node.type === 'video' ? <span className="layers-panel__thumb-play">▶</span> : null}
                     </span>

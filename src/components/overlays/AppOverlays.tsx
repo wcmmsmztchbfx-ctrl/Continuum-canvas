@@ -267,63 +267,67 @@ export function AppOverlays({
         }}
         open={panel !== null}
       />
-      <GenerationHistoryModal
-        onClose={() => setHistoryOpen(false)}
-        onNotify={(message, tone = 'info') => notify(message, tone)}
-        onUse={(entry) => {
-          if (readOnly) return
-          const state = canvasStore.getState()
-          const viewport = state.snapshot.viewport
-          const zoom = Math.max(viewport.zoom, 0.01)
-          state.createNodeFromHistory(entry, {
-            x: (window.innerWidth / 2 - viewport.x) / zoom,
-            y: (window.innerHeight / 2 - viewport.y) / zoom,
-          })
-        }}
-        open={historyOpen}
-        projectId={snapshot.projectId}
-      />
-      <AssetManagerModal
-        onClose={() => setAssetManagerOpen(false)}
-        onInsertAsset={(asset) => {
-          if (readOnly) return
-          const state = canvasStore.getState()
-          const viewport = state.snapshot.viewport
-          const zoom = Math.max(viewport.zoom, 0.01)
-          const centerPos = {
-            x: (window.innerWidth / 2 - viewport.x) / zoom,
-            y: (window.innerHeight / 2 - viewport.y) / zoom,
-          }
-          const nodeId = `asset-${asset.type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
-          if (asset.type === 'video') {
-            state.addNode({
-              id: nodeId,
-              type: 'video',
-              name: asset.name,
-              position: centerPos,
-              size: { width: asset.width || 480, height: asset.height || 270 },
-              data: {
-                url: asset.url,
-                poster: asset.posterUrl || asset.thumbnailUrl,
-              },
+      {historyOpen && (
+        <GenerationHistoryModal
+          onClose={() => setHistoryOpen(false)}
+          onNotify={(message, tone = 'info') => notify(message, tone)}
+          onUse={(entry) => {
+            if (readOnly) return
+            const state = canvasStore.getState()
+            const viewport = state.snapshot.viewport
+            const zoom = Math.max(viewport.zoom, 0.01)
+            state.createNodeFromHistory(entry, {
+              x: (window.innerWidth / 2 - viewport.x) / zoom,
+              y: (window.innerHeight / 2 - viewport.y) / zoom,
             })
-          } else {
-            state.addNode({
-              id: nodeId,
-              type: 'image',
-              name: asset.name,
-              position: centerPos,
-              size: { width: asset.width || 400, height: asset.height || 400 },
-              data: {
-                url: asset.url,
-              },
-            })
-          }
-        }}
-        onNotify={(message, tone = 'info') => notify(message, tone)}
-        open={assetManagerOpen}
-        projectId={snapshot.projectId}
-      />
+          }}
+          open={historyOpen}
+          projectId={snapshot.projectId}
+        />
+      )}
+      {assetManagerOpen && (
+        <AssetManagerModal
+          onClose={() => setAssetManagerOpen(false)}
+          onInsertAsset={(asset) => {
+            if (readOnly) return
+            const state = canvasStore.getState()
+            const viewport = state.snapshot.viewport
+            const zoom = Math.max(viewport.zoom, 0.01)
+            const centerPos = {
+              x: (window.innerWidth / 2 - viewport.x) / zoom,
+              y: (window.innerHeight / 2 - viewport.y) / zoom,
+            }
+            const nodeId = `asset-${asset.type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+            if (asset.type === 'video') {
+              state.addNode({
+                id: nodeId,
+                type: 'video',
+                name: asset.name,
+                position: centerPos,
+                size: { width: asset.width || 480, height: asset.height || 270 },
+                data: {
+                  url: asset.url,
+                  poster: asset.posterUrl || asset.thumbnailUrl,
+                },
+              })
+            } else {
+              state.addNode({
+                id: nodeId,
+                type: 'image',
+                name: asset.name,
+                position: centerPos,
+                size: { width: asset.width || 400, height: asset.height || 400 },
+                data: {
+                  url: asset.url,
+                },
+              })
+            }
+          }}
+          onNotify={(message, tone = 'info') => notify(message, tone)}
+          open={assetManagerOpen}
+          projectId={snapshot.projectId}
+        />
+      )}
       <PublishDialog
         description={publishDescription}
         onClose={() => setDialog(null)}
