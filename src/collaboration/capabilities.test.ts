@@ -18,12 +18,12 @@ function state(
 }
 
 describe('collaborationCapabilities', () => {
-  it('keeps single-user canvases writable and freezes collaboration connection windows', () => {
+  it('keeps single-user canvases writable and allows local API management', () => {
     expect(collaborationCapabilities(state('inactive'))).toEqual({
       canEdit: true, canPublish: true, canManageApi: true, canManageMembers: true,
     })
     expect(collaborationCapabilities(state('connecting', 'owner'))).toEqual({
-      canEdit: false, canPublish: false, canManageApi: false, canManageMembers: false,
+      canEdit: false, canPublish: false, canManageApi: true, canManageMembers: true,
     })
   })
 
@@ -39,9 +39,9 @@ describe('collaborationCapabilities', () => {
     })
   })
 
-  it('keeps offline owners and editors locally editable without allowing network actions', () => {
+  it('keeps offline owners and editors locally editable while restricting remote collaborator API management', () => {
     expect(collaborationCapabilities(state('offline', 'owner'))).toEqual({
-      canEdit: true, canPublish: false, canManageApi: false, canManageMembers: false,
+      canEdit: true, canPublish: false, canManageApi: true, canManageMembers: true,
     })
     expect(collaborationCapabilities(state('offline', 'editor'))).toEqual({
       canEdit: true, canPublish: false, canManageApi: false, canManageMembers: false,

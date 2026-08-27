@@ -45,6 +45,14 @@ const PRESETS: ProviderRecord[] = [
     enabled: false,
     preferred: false,
   },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    adapterType: 'openai-compatible',
+    baseUrl: 'https://api.deepseek.com/v1',
+    enabled: false,
+    preferred: false,
+  },
 ]
 
 const SUPPORTED_ADAPTERS = GENERATION_ADAPTER_TYPES

@@ -1070,8 +1070,9 @@
 
 .canvas-edge__path--selected,
 .react-flow__edge.selected .canvas-edge__path {
-  stroke: #e0e4e8;
-  stroke-width: 3;
+  stroke: #0d99ff;
+  stroke-width: 3.5;
+  filter: drop-shadow(0 0 6px rgba(13, 153, 255, 0.7));
 }
 
 .canvas-edge__flow,

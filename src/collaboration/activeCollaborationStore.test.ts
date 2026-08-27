@@ -10,10 +10,11 @@ import {
 describe('activeCollaborationStore', () => {
   beforeEach(() => {
     localStorage.clear()
+    sessionStorage.clear()
     clearActiveCollaboration()
   })
 
-  it('persists and retrieves active collaboration from storage', () => {
+  it('persists and retrieves active collaboration from session storage', () => {
     expect(getActiveCollaboration()).toBeNull()
 
     const collab = {
@@ -29,9 +30,12 @@ describe('activeCollaborationStore', () => {
 
     setActiveCollaboration(collab)
     expect(getActiveCollaboration()).toEqual(collab)
+    expect(sessionStorage.getItem('libtv.active-collaboration.v1')).toBeTruthy()
+    expect(localStorage.getItem('libtv.active-collaboration.v1')).toBeNull()
 
     clearActiveCollaboration()
     expect(getActiveCollaboration()).toBeNull()
+    expect(sessionStorage.getItem('libtv.active-collaboration.v1')).toBeNull()
   })
 
   it('notifies subscribers on active collaboration change', () => {

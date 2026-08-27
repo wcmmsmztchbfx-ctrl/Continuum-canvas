@@ -54,6 +54,7 @@ export interface AppOverlaysProps {
   addNodePosition?: OverlayPosition
   providerDrawerOpen: boolean
   setProviderDrawerOpen: (open: boolean) => void
+  providerDrawerTab?: 'media' | 'agent'
   historyOpen: boolean
   setHistoryOpen: (open: boolean) => void
   assetManagerOpen: boolean
@@ -110,6 +111,7 @@ export function AppOverlays({
   addNodePosition,
   providerDrawerOpen,
   setProviderDrawerOpen,
+  providerDrawerTab,
   historyOpen,
   setHistoryOpen,
   assetManagerOpen,
@@ -175,6 +177,7 @@ export function AppOverlays({
             }}
             onNotify={(message, tone = 'info') => notify(message, tone)}
             open
+            initialTab={providerDrawerTab}
             readOnly={!capabilities.canManageApi}
           />
         </Suspense>
@@ -420,6 +423,13 @@ export function AppOverlays({
         position={contextPosition}
       />
       <NodeContextMenu
+        hasImage={Boolean(
+          selectedNodeIds.length > 0 &&
+            (() => {
+              const targetNode = snapshot.nodes.find((n) => n.id === selectedNodeIds[0])
+              return targetNode?.type === 'image' && Boolean(targetNode.data?.url)
+            })(),
+        )}
         isLocked={Boolean(
           selectedNodeIds.length > 0 &&
             snapshot.nodes.find((n) => n.id === selectedNodeIds[0])?.locked,

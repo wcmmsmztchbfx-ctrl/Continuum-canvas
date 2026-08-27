@@ -434,11 +434,101 @@ describe('provider management UI', () => {
     await waitFor(() => expect(mockGateway.getProviderSecret).toHaveBeenCalledWith('aistartlab', expect.anything()))
     const secretInput = screen.getByLabelText('API Key')
     await waitFor(() => expect(secretInput).toHaveValue('sk-real-plaintext-secret-1234'))
+    expect(secretInput).toHaveAttribute('type', 'password')
 
     // Eye button to toggle visibility
-    const toggleBtn = screen.getByTitle('隐藏密钥')
+    const toggleBtn = screen.getByTitle('显示明文')
     expect(toggleBtn).toBeVisible()
     await user.click(toggleBtn)
+    expect(secretInput).toHaveAttribute('type', 'text')
+    expect(screen.getByTitle('隐藏密钥')).toBeVisible()
+
+    await user.click(screen.getByTitle('隐藏密钥'))
     expect(secretInput).toHaveAttribute('type', 'password')
   })
+
+  it('allows switching to Agent LLM tab, auto-filling presets and saving configuration', async () => {
+    const originalFetch = globalThis.fetch
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/agent/providers') {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              providers: [
+                {
+                  id: 'deepseek',
+                  name: 'DeepSeek',
+                  baseUrl: 'https://api.deepseek.com/v1',
+                  model: 'deepseek-chat',
+                  enabled: true,
+                  preferred: true,
+                  secretConfigured: false,
+                },
+                {
+                  id: 'openai',
+                  name: 'OpenAI 官方',
+                  baseUrl: 'https://api.openai.com/v1',
+                  model: 'gpt-4o',
+                  enabled: true,
+                  preferred: false,
+                  secretConfigured: false,
+                },
+              ],
+            }),
+        } as Response)
+      }
+      if (url === '/api/agent/test') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ok: true, message: '连接成功！大模型正常响应。' }),
+        } as Response)
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response)
+    })
+    globalThis.fetch = fetchMock
+
+    const mockGateway = gateway()
+    render(
+      <ProviderCatalogProvider gateway={mockGateway}>
+        <ProviderDrawer onClose={vi.fn()} open />
+      </ProviderCatalogProvider>,
+    )
+    const user = userEvent.setup()
+
+    // Switch to Agent LLM Tab
+    const agentTabBtn = screen.getByRole('button', { name: /Agent 对话大模型/ })
+    await user.click(agentTabBtn)
+
+    expect(await screen.findByRole('button', { name: '新增大模型' })).toBeInTheDocument()
+
+    // Click OpenAI in left list
+    const openaiItem = screen.getByRole('button', { name: /OpenAI 官方/ })
+    await user.click(openaiItem)
+
+    expect(screen.getByLabelText('供应商名称')).toHaveValue('OpenAI 官方')
+    expect(screen.getByLabelText('接口地址')).toHaveValue('https://api.openai.com/v1')
+    expect(screen.getByLabelText('模型名称')).toHaveValue('gpt-4o')
+
+    // Type API Key
+    const keyInput = screen.getByLabelText('API Key')
+    await user.type(keyInput, 'sk-test-key')
+
+    // Click Save
+    const saveBtn = screen.getByRole('button', { name: /保存供应商/ })
+    await user.click(saveBtn)
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/agent/providers',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('OpenAI 官方'),
+        }),
+      )
+    })
+
+    globalThis.fetch = originalFetch
+  })
 })
+

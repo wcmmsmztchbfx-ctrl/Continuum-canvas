@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { renderHook } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { cleanup, renderHook } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { canvasStore } from '../store/canvas-store'
 import { useAppHotkeys } from './useAppHotkeys'
@@ -43,6 +43,10 @@ describe('useAppHotkeys', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     canvasStore.getState().restore(JSON.stringify(initialSnapshot))
+  })
+
+  afterEach(() => {
+    cleanup()
   })
 
   it('switches tool with V and B keys', () => {
@@ -131,6 +135,36 @@ describe('useAppHotkeys', () => {
     ).toBe(false)
   })
 
+  it('deletes selected edges with Delete key directly', () => {
+    canvasStore.getState().restore(
+      JSON.stringify({
+        ...initialSnapshot,
+        edges: [{ id: 'edge-1', source: 'node-1', target: 'node-2', relation: 'flow' }],
+      }),
+    )
+    canvasStore.getState().selectEdge('edge-1')
+    expect(canvasStore.getState().selectedEdgeIds).toEqual(['edge-1'])
+
+    renderHook(() =>
+      useAppHotkeys({
+        hydrated: true,
+        collaborationControllerRef: controllerRef,
+        setActiveTool,
+        performUndo,
+        performRedo,
+        copySelectedNodes,
+        withBulkLease,
+        notify,
+      }),
+    )
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete' }))
+    expect(canvasStore.getState().selectedEdgeIds).toEqual([])
+    expect(
+      canvasStore.getState().snapshot.edges.some((e) => e.id === 'edge-1'),
+    ).toBe(false)
+  })
+
   it('triggers undo and redo with Ctrl+Z and Ctrl+Shift+Z', () => {
     renderHook(() =>
       useAppHotkeys({
@@ -151,9 +185,19 @@ describe('useAppHotkeys', () => {
     expect(performUndo).toHaveBeenCalled()
 
     document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Process', code: 'KeyZ', ctrlKey: true }),
+    )
+    expect(performUndo).toHaveBeenCalledTimes(2)
+
+    document.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true }),
     )
     expect(performRedo).toHaveBeenCalled()
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Process', code: 'KeyZ', ctrlKey: true, shiftKey: true }),
+    )
+    expect(performRedo).toHaveBeenCalledTimes(2)
   })
 
   it('ignores shortcuts when typing inside an input or textarea', () => {

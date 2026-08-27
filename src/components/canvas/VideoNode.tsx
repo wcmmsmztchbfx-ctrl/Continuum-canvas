@@ -33,6 +33,8 @@ function formatVideoTime(seconds: number): string {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
 }
 
+const videoPlaybackPositions = new Map<string, number>()
+
 function VideoNodeContent({
   id,
   data,
@@ -49,7 +51,8 @@ function VideoNodeContent({
   const timeDisplayRef = useRef<HTMLSpanElement | null>(null)
   const isSeeking = useRef(false)
   const resizeGranted = useRef(false)
-  const currentTimeRef = useRef(0)
+  const playbackKey = data.url ? `${id}:${data.url}` : ''
+  const currentTimeRef = useRef(playbackKey ? (videoPlaybackPositions.get(playbackKey) ?? 0) : 0)
 
   const updateScrubberDom = (time: number, dur: number) => {
     const vDur = Number.isFinite(dur) && dur > 0 ? dur : 0
@@ -71,6 +74,14 @@ function VideoNodeContent({
     if (video && Number.isFinite(video.duration) && video.duration > 0) {
       const newDur = video.duration
       setDuration((prev) => (Math.abs(prev - newDur) > 0.01 ? newDur : prev))
+      const savedTime = currentTimeRef.current
+      if (savedTime > 0 && Math.abs(video.currentTime - savedTime) > 0.3) {
+        try {
+          video.currentTime = Math.min(savedTime, newDur)
+        } catch {
+          // Ignore seek errors on unready elements
+        }
+      }
       updateScrubberDom(currentTimeRef.current, newDur)
     }
   }
@@ -79,16 +90,17 @@ function VideoNodeContent({
     setFailed(false)
     setPlaying(false)
     setVideoReady(false)
-    currentTimeRef.current = 0
+    const savedTime = playbackKey ? (videoPlaybackPositions.get(playbackKey) ?? 0) : 0
+    currentTimeRef.current = savedTime
     const video = videoRef.current
     if (video && Number.isFinite(video.duration) && video.duration > 0) {
       setDuration(video.duration)
-      updateScrubberDom(0, video.duration)
+      updateScrubberDom(savedTime, video.duration)
     } else {
       setDuration(0)
-      updateScrubberDom(0, 0)
+      updateScrubberDom(savedTime, 0)
     }
-  }, [data.url])
+  }, [data.url, playbackKey])
 
   useEffect(() => {
     updateScrubberDom(currentTimeRef.current, duration)
@@ -159,7 +171,10 @@ function VideoNodeContent({
       setPlaying(true)
     } else {
       const video = videoRef.current
-      if (video) video.pause()
+      if (video) {
+        video.pause()
+        if (playbackKey) videoPlaybackPositions.set(playbackKey, video.currentTime)
+      }
       setPlaying(false)
     }
   }
@@ -193,6 +208,7 @@ function VideoNodeContent({
     const validDur = Number.isFinite(duration) && duration > 0 ? duration : (videoRef.current?.duration || 0)
     const clampedTime = validDur > 0 ? Math.min(Math.max(0, targetTime), validDur) : Math.max(0, targetTime)
     currentTimeRef.current = clampedTime
+    if (playbackKey) videoPlaybackPositions.set(playbackKey, clampedTime)
     updateScrubberDom(clampedTime, validDur)
     if (videoRef.current && Number.isFinite(clampedTime)) {
       videoRef.current.currentTime = clampedTime
@@ -276,11 +292,9 @@ function VideoNodeContent({
             onDurationChange={syncDuration}
             onEnded={() => {
               setPlaying(false)
-              const video = videoRef.current
-              if (video && Number.isFinite(video.duration) && video.duration > 0) {
-                currentTimeRef.current = video.duration
-                updateScrubberDom(video.duration, video.duration)
-              }
+              if (playbackKey) videoPlaybackPositions.set(playbackKey, 0)
+              currentTimeRef.current = 0
+              updateScrubberDom(0, duration)
             }}
             onLoadedData={(event) => {
               setVideoReady(true)
@@ -301,6 +315,7 @@ function VideoNodeContent({
               if (!duration || duration <= 0) syncDuration()
               if (!isSeeking.current) {
                 currentTimeRef.current = video.currentTime
+                if (playbackKey) videoPlaybackPositions.set(playbackKey, video.currentTime)
                 updateScrubberDom(video.currentTime, video.duration || duration)
               }
             }}

@@ -528,6 +528,32 @@ describe('collaborative canvas document', () => {
     peer.destroy()
   })
 
+  it('observes and publishes nodeOrder when layer order changes in collaborative document', () => {
+    const collaborative = createCollaborativeCanvasDocument(complexSnapshot())
+    const receivedChanges: any[] = []
+    const unsubscribe = observeCollaborativeEntityChanges(
+      collaborative,
+      () => 'local',
+      (changes) => receivedChanges.push(changes),
+    )
+
+    collaborative.transact(() => {
+      applyCollaborativeEntityChanges(collaborative, {
+        origin: 'local',
+        nodes: { upserted: [], removed: [] },
+        edges: { upserted: [], removed: [] },
+        nodeOrder: ['image-source', 'group-1', 'text-1', 'image-target'],
+      })
+    })
+
+    expect(receivedChanges.length).toBeGreaterThan(0)
+    const lastChange = receivedChanges.at(-1)
+    expect(lastChange?.nodeOrder).toEqual(['image-source', 'group-1', 'text-1', 'image-target'])
+
+    unsubscribe()
+    collaborative.destroy()
+  })
+
   it('destroys only documents owned by the collaborative handle', () => {
     const externalDoc = new Y.Doc()
     const externalDestroyed = vi.fn()

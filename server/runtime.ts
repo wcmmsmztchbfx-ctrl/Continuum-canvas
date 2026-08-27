@@ -37,6 +37,7 @@ import {
 import { WorkspaceService } from './workspace-service.ts'
 import { TunnelService } from './tunnel-service.ts'
 import { CanvasPersistenceService } from './canvas-storage.ts'
+import { AgentConfigStore } from './agent-config-store.ts'
 
 export type AdapterFactory = (provider: ProviderMetadata, apiKey: string) => ProviderAdapter
 
@@ -137,6 +138,7 @@ export interface GatewayRuntime {
   readonly workspace: WorkspaceService
   readonly canvases: CanvasPersistenceService
   readonly tunnel: TunnelService
+  readonly agentConfig: AgentConfigStore
   trackOperation<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
   adapterFor(providerId: string): ProviderAdapter
   updateProvider(record: ProviderRecord): Promise<ProviderMetadata>
@@ -213,6 +215,7 @@ export async function createGatewayRuntime(options: {
     })
     collaboration = activeCollaboration
     const tunnel = await TunnelService.open({ dataDir })
+    const agentConfig = await AgentConfigStore.open({ dataDir, env: options.env ?? process.env, envFile })
     const writeCollaborativeJob = (job: import('../src/contracts/generation.ts').GenerationJob) => {
       if (!job.roomId) return
       try {
@@ -304,6 +307,7 @@ export async function createGatewayRuntime(options: {
       workspace,
       canvases,
       tunnel,
+      agentConfig,
       trackOperation,
       adapterFor,
       async updateProvider(record) {

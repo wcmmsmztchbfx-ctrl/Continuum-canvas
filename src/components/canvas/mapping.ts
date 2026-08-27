@@ -135,9 +135,10 @@ export interface ReactFlowProject {
   viewport: Viewport
 }
 
-function mapNode(
+export function mapNode(
   node: CanvasNode,
   references: CanvasFlowNodeData['references'] = [],
+  zIndex = 1,
 ): CanvasFlowNode {
   let type: CanvasFlowNodeType = node.type
   if (node.type === 'text') {
@@ -173,6 +174,7 @@ function mapNode(
     type,
     position: { ...node.position },
     parentId: node.parentId,
+    zIndex,
     width: node.size.width,
     height: node.size.height,
     initialWidth: node.size.width,
@@ -180,6 +182,7 @@ function mapNode(
     style: {
       width: node.size.width,
       height: node.size.height,
+      zIndex,
       ...(node.hidden || ('hidden' in node.data && node.data.hidden) ? { display: 'none' } : {}),
     },
     draggable: !(node.locked || ('locked' in node.data && node.data.locked)),
@@ -200,7 +203,7 @@ export function mapProjectSnapshotToReactFlow(
 ): ReactFlowProject {
   return {
     viewport: { ...snapshot.viewport },
-    nodes: snapshot.nodes.map((node) =>
+    nodes: snapshot.nodes.map((node, index) =>
       mapNode(
         node,
         getOrderedReferences(snapshot, node.id).flatMap(({ edge, node: reference }) =>
@@ -215,6 +218,7 @@ export function mapProjectSnapshotToReactFlow(
               }]
             : [],
         ),
+        index + 1,
       ),
     ),
     edges: snapshot.edges.map((edge) => ({

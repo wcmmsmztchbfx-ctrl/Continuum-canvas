@@ -620,6 +620,7 @@ export class CanvasCollaborationController {
     await this.client.leaveRoom(room.roomId)
     await this.detach()
     this.clearRoomFromUrl()
+    clearActiveCollaboration()
   }
 
   async closeRoom(): Promise<void> {

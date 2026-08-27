@@ -453,6 +453,23 @@ describe('contextual controls', () => {
     expect(onAction).toHaveBeenCalledWith('toggle-lock')
   })
 
+  it('renders copy-image action only when hasImage is true', () => {
+    const onAction = vi.fn()
+    const { rerender } = render(
+      <NodeContextMenu hasImage={false} onAction={onAction} onClose={vi.fn()} open />,
+    )
+
+    expect(screen.queryByRole('menuitem', { name: '复制图片' })).toBeNull()
+
+    rerender(
+      <NodeContextMenu hasImage onAction={onAction} onClose={vi.fn()} open />,
+    )
+
+    expect(screen.getByRole('menuitem', { name: '复制图片' })).toBeVisible()
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制图片' }))
+    expect(onAction).toHaveBeenCalledWith('copy-image')
+  })
+
   it('exposes the original-style multi-selection commands', () => {
     const onAction = vi.fn()
     const view = render(

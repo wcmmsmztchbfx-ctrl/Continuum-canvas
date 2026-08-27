@@ -79,6 +79,32 @@ describe('canvas store selection and mode', () => {
     store.getState().setMode('connect')
     expect(store.getState().mode).toBe('connect')
   })
+
+  it('selects, toggles, and clears existing edges and resets node selection on single select', () => {
+    const store = createCanvasStore({
+      ...initialSnapshot,
+      edges: [
+        { id: 'edge-1', source: 'image-1', target: 'text-1', relation: 'flow' },
+        { id: 'edge-2', source: 'text-1', target: 'image-1', relation: 'flow' },
+      ],
+    })
+
+    store.getState().selectNode('image-1')
+    expect(store.getState().selectedNodeIds).toEqual(['image-1'])
+
+    store.getState().selectEdge('edge-1')
+    expect(store.getState().selectedEdgeIds).toEqual(['edge-1'])
+    expect(store.getState().selectedNodeIds).toEqual([])
+
+    store.getState().selectEdge('edge-2', true)
+    expect(store.getState().selectedEdgeIds).toEqual(['edge-1', 'edge-2'])
+
+    store.getState().selectEdge('edge-1', true)
+    expect(store.getState().selectedEdgeIds).toEqual(['edge-2'])
+
+    store.getState().selectEdge(null)
+    expect(store.getState().selectedEdgeIds).toEqual([])
+  })
 })
 
 describe('canvas store entity changes', () => {
@@ -1415,6 +1441,24 @@ describe('canvas store reference relations', () => {
     store.getState().setNodeVisibility(first!.id, false)
     store.getState().setNodeLocked(first!.id, true)
     expect(store.getState().snapshot.nodes.find((node) => node.id === first!.id)).toMatchObject({ hidden: true, locked: true })
+  })
+
+  it('preserves array order and does not elevate nodes on standard canvas move', () => {
+    const snapshot: ProjectSnapshot = {
+      ...initialSnapshot,
+      nodes: [
+        { id: 'node-bottom', type: 'text', name: 'Bottom', position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, data: { text: '1' } },
+        { id: 'node-middle', type: 'text', name: 'Middle', position: { x: 50, y: 50 }, size: { width: 100, height: 100 }, data: { text: '2' } },
+        { id: 'node-top', type: 'text', name: 'Top', position: { x: 100, y: 100 }, size: { width: 100, height: 100 }, data: { text: '3' } },
+      ],
+    }
+    const store = createCanvasStore(snapshot)
+    store.getState().moveNodesInHierarchy([{ id: 'node-bottom', positionAbsolute: { x: 200, y: 200 } }], undefined)
+    expect(store.getState().snapshot.nodes.map((n) => n.id)).toEqual(['node-bottom', 'node-middle', 'node-top'])
+    expect(store.getState().snapshot.nodes[0]!.position).toEqual({ x: 200, y: 200 })
+
+    store.getState().moveNodesInHierarchy([{ id: 'node-middle', positionAbsolute: { x: 250, y: 250 } }], undefined)
+    expect(store.getState().snapshot.nodes.map((n) => n.id)).toEqual(['node-bottom', 'node-middle', 'node-top'])
   })
 
   it('allows moving, deleting, and resizing nodes freely', () => {

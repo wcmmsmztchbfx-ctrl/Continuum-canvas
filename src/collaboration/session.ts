@@ -564,7 +564,8 @@ export class CanvasCollaborationSession {
       this.#document,
       (origin) => {
         if (!this.hasSynchronizedDocument) return undefined
-        return origin === this.remoteOrigin || origin === this.persistence ? 'remote' : 'local'
+        if (origin === this.#document.localOrigin) return 'local'
+        return 'remote'
       },
       (changes) => this.pendingEntityChanges.push(changes),
     )

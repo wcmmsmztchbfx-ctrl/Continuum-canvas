@@ -274,11 +274,16 @@ function applyRecordChange(
 
 function applyOrderChange(
   values: Y.Map<YRecord>,
+  orderArray: Y.Array<string> | undefined,
   previous: readonly string[],
-  next: readonly string[],
+  next: readonly string[] | undefined,
 ): void {
-  if (sameJson(previous, next)) return
+  if (!next || sameJson(previous, next)) return
   next.forEach((id, index) => values.get(id)?.set(ORDER_FIELD, index))
+  if (orderArray) {
+    if (orderArray.length > 0) orderArray.delete(0, orderArray.length)
+    if (next.length > 0) orderArray.insert(0, [...next])
+  }
 }
 
 function decodedForComparison(value: unknown): unknown {
@@ -410,8 +415,8 @@ export function applyCollaborativeSnapshotChange(
   for (const [id, edge] of nextEdges) {
     if (!previousEdges.has(id)) edges.set(id, encodeRecord(edge as unknown as Record<string, unknown>, ['edge']))
   }
-  applyOrderChange(nodes, previous.nodes.map((node) => node.id), next.nodes.map((node) => node.id))
-  applyOrderChange(edges, previous.edges.map((edge) => edge.id), next.edges.map((edge) => edge.id))
+  applyOrderChange(nodes, doc.getArray<string>(NODE_ORDER_KEY), previous.nodes.map((node) => node.id), next.nodes.map((node) => node.id))
+  applyOrderChange(edges, doc.getArray<string>(EDGE_ORDER_KEY), previous.edges.map((edge) => edge.id), next.edges.map((edge) => edge.id))
   const comments = doc.getMap<YRecord>(COMMENTS_KEY)
   const previousComments = new Map(previous.comments.map((comment) => [comment.id, comment]))
   const nextComments = new Map(next.comments.map((comment) => [comment.id, comment]))
@@ -424,7 +429,12 @@ export function applyCollaborativeSnapshotChange(
     }
   }
   for (const [id, comment] of nextComments) if (!previousComments.has(id)) comments.set(id, encodeRecord(comment as unknown as Record<string, unknown>, ['comment']))
-  applyOrderChange(comments, previous.comments.map((comment) => comment.id), next.comments.map((comment) => comment.id))
+  applyOrderChange(
+    comments,
+    doc.getArray<string>(COMMENT_ORDER_KEY),
+    (previous.comments ?? []).map((comment) => comment.id),
+    (next.comments ?? []).map((comment) => comment.id),
+  )
 }
 
 export function applyCollaborativeEntityChanges(
@@ -457,7 +467,7 @@ export function applyCollaborativeEntityChanges(
     if (current instanceof Y.Map) syncRecord(current, node as unknown as Record<string, unknown>, ['node'])
     else nodes.set(node.id, encodeRecord(node as unknown as Record<string, unknown>, ['node']))
   }
-  if (changes.nodeOrder) applyOrderChange(nodes, [], changes.nodeOrder)
+  if (changes.nodeOrder) applyOrderChange(nodes, doc.getArray<string>(NODE_ORDER_KEY), [], changes.nodeOrder)
 
   const edges = doc.getMap<YRecord>(EDGES_KEY)
   const edgeTombstones = doc.getMap<boolean>(EDGE_TOMBSTONES_KEY)
@@ -482,7 +492,7 @@ export function applyCollaborativeEntityChanges(
     if (current instanceof Y.Map) syncRecord(current, edge as unknown as Record<string, unknown>, ['edge'])
     else edges.set(edge.id, encodeRecord(edge as unknown as Record<string, unknown>, ['edge']))
   }
-  if (changes.edgeOrder) applyOrderChange(edges, [], changes.edgeOrder)
+  if (changes.edgeOrder) applyOrderChange(edges, doc.getArray<string>(EDGE_ORDER_KEY), [], changes.edgeOrder)
 
   if (changes.comments || changes.commentOrder) {
     const comments = doc.getMap<YRecord>(COMMENTS_KEY)
@@ -492,7 +502,7 @@ export function applyCollaborativeEntityChanges(
       if (current instanceof Y.Map) syncRecord(current, comment as unknown as Record<string, unknown>, ['comment'])
       else comments.set(comment.id, encodeRecord(comment as unknown as Record<string, unknown>, ['comment']))
     }
-    if (changes.commentOrder) applyOrderChange(comments, [], changes.commentOrder)
+    if (changes.commentOrder) applyOrderChange(comments, doc.getArray<string>(COMMENT_ORDER_KEY), [], changes.commentOrder)
   }
 }
 
@@ -544,18 +554,24 @@ export function observeCollaborativeEntityChanges(
   const { doc } = collaborative
   const nodes = doc.getMap<YRecord>(NODES_KEY)
   const edges = doc.getMap<YRecord>(EDGES_KEY)
+  const nodeOrderArray = doc.getArray<string>(NODE_ORDER_KEY)
+  const edgeOrderArray = doc.getArray<string>(EDGE_ORDER_KEY)
   const nodeTombstones = doc.getMap<boolean>(NODE_TOMBSTONES_KEY)
   const edgeTombstones = doc.getMap<boolean>(EDGE_TOMBSTONES_KEY)
   const pending = new WeakMap<Y.Transaction, {
     nodeIds: Set<string>
     edgeIds: Set<string>
     nameChanged: boolean
+    nodeOrderChanged: boolean
+    edgeOrderChanged: boolean
   }>()
   const state = (transaction: Y.Transaction) => {
     const current = pending.get(transaction) ?? {
       nodeIds: new Set<string>(),
       edgeIds: new Set<string>(),
       nameChanged: false,
+      nodeOrderChanged: false,
+      edgeOrderChanged: false,
     }
     pending.set(transaction, current)
     return current
@@ -571,10 +587,20 @@ export function observeCollaborativeEntityChanges(
       if (event.target === (kind === 'nodes' ? nodes : edges) && event instanceof Y.YMapEvent) {
         for (const id of event.keysChanged) ids.add(id)
       }
+      if (event instanceof Y.YMapEvent && event.keysChanged.has(ORDER_FIELD)) {
+        if (kind === 'nodes') state(transaction).nodeOrderChanged = true
+        if (kind === 'edges') state(transaction).edgeOrderChanged = true
+      }
     }
   }
   const collectNodes = (events: Y.YEvent<any>[], transaction: Y.Transaction) => collectEntityIds('nodes', events, transaction)
   const collectEdges = (events: Y.YEvent<any>[], transaction: Y.Transaction) => collectEntityIds('edges', events, transaction)
+  const collectNodeOrder = (_event: Y.YArrayEvent<string>, transaction: Y.Transaction) => {
+    state(transaction).nodeOrderChanged = true
+  }
+  const collectEdgeOrder = (_event: Y.YArrayEvent<string>, transaction: Y.Transaction) => {
+    state(transaction).edgeOrderChanged = true
+  }
   const collectNodeTombstones = (event: Y.YMapEvent<boolean>, transaction: Y.Transaction) => {
     for (const id of event.keysChanged) state(transaction).nodeIds.add(id)
   }
@@ -602,15 +628,31 @@ export function observeCollaborativeEntityChanges(
       if (entity) edgeUpserted.push(entity)
       else edgeRemoved.push(id)
     }
+    let nodeOrder: string[] | undefined
+    if (changed.nodeOrderChanged) {
+      nodeOrder = orderedRecords<CanvasNode>(nodes, nodeOrderArray, { entries: 0 })
+        .filter((node) => !nodeTombstones.has(node.id))
+        .map((node) => node.id)
+    }
+    let edgeOrder: string[] | undefined
+    if (changed.edgeOrderChanged) {
+      edgeOrder = orderedRecords<CanvasEdge>(edges, edgeOrderArray, { entries: 0 })
+        .filter((edge) => !edgeTombstones.has(edge.id))
+        .map((edge) => edge.id)
+    }
     listener({
       origin,
       ...(changed.nameChanged ? { name: doc.getMap<unknown>(META_KEY).get('name') as string } : {}),
       nodes: { upserted: nodeUpserted, removed: nodeRemoved },
       edges: { upserted: edgeUpserted, removed: edgeRemoved },
+      ...(nodeOrder ? { nodeOrder } : {}),
+      ...(edgeOrder ? { edgeOrder } : {}),
     })
   }
   nodes.observeDeep(collectNodes)
   edges.observeDeep(collectEdges)
+  nodeOrderArray.observe(collectNodeOrder)
+  edgeOrderArray.observe(collectEdgeOrder)
   nodeTombstones.observe(collectNodeTombstones)
   edgeTombstones.observe(collectEdgeTombstones)
   doc.getMap<unknown>(META_KEY).observe(collectMeta)
@@ -618,6 +660,8 @@ export function observeCollaborativeEntityChanges(
   return () => {
     nodes.unobserveDeep(collectNodes)
     edges.unobserveDeep(collectEdges)
+    nodeOrderArray.unobserve(collectNodeOrder)
+    edgeOrderArray.unobserve(collectEdgeOrder)
     nodeTombstones.unobserve(collectNodeTombstones)
     edgeTombstones.unobserve(collectEdgeTombstones)
     doc.getMap<unknown>(META_KEY).unobserve(collectMeta)

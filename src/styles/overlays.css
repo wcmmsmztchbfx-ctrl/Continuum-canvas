@@ -1158,8 +1158,8 @@
 }
 
 .provider-drawer {
-  display: grid;
-  grid-template-rows: 58px minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   width: min(780px, calc(100vw - 32px));
   height: calc(100vh - 16px);
   overflow: hidden;
@@ -1172,7 +1172,80 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 12px 0 18px;
+  height: 54px;
   border-bottom: 1px solid var(--overlay-border);
+  flex-shrink: 0;
+}
+
+.provider-drawer__tabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid var(--overlay-border);
+  flex-shrink: 0;
+}
+
+.provider-drawer__tab-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #888888;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 120ms ease;
+}
+
+.provider-drawer__tab-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.provider-drawer__tab-btn.is-active {
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.12);
+  font-weight: 600;
+}
+
+.agent-llm-config-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px;
+  gap: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.agent-llm-presets {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+
+.agent-llm-preset-chip {
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #232324;
+  color: #cccccc;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.agent-llm-preset-chip:hover {
+  background: #2c2d30;
+  color: #ffffff;
+  border-color: rgba(78, 136, 255, 0.4);
 }
 
 .provider-drawer__header > div {
@@ -1203,6 +1276,8 @@
 
 .provider-drawer__layout {
   display: grid;
+  flex: 1;
+  min-height: 0;
   grid-template-columns: 220px minmax(0, 1fr);
   min-height: 0;
 }

@@ -56,6 +56,9 @@ function Probe() {
       <button onClick={() => void state.syncProvider('aistartlab', { force: true })} type="button">
         强制同步
       </button>
+      <button onClick={() => state.setApiManagementAllowed(false)} type="button">
+        禁用管理
+      </button>
     </div>
   )
 }
@@ -214,4 +217,47 @@ describe('ProviderCatalogProvider', () => {
     view.unmount()
     expect(signal?.aborted).toBe(true)
   })
+
+  it('fetches latest public catalog via getCatalog when api management is disabled (collaborator mode)', async () => {
+    const updatedCatalog: ProviderCatalog = {
+      providerId: 'aistartlab',
+      version: 'catalog-v-collaborator',
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+      models: [],
+    }
+    const gateway: ProviderGateway = {
+      listProviders: vi.fn().mockResolvedValue([provider]),
+      getCatalog: vi.fn().mockResolvedValue(catalog),
+      syncProvider: vi.fn().mockRejectedValue(new Error('Forbidden')),
+      testProvider: vi.fn(),
+      updateProvider: vi.fn(),
+      setProviderSecret: vi.fn(),
+      clearProviderSecret: vi.fn(),
+    }
+
+    render(
+      <ProviderCatalogProvider gateway={gateway}>
+        <Probe />
+      </ProviderCatalogProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByText('catalog-v1')).toBeVisible())
+
+    // Simulate joining collaboration room as a collaborator (apiManagementAllowed = false)
+    fireEvent.click(screen.getByRole('button', { name: '禁用管理' }))
+
+    // Host updates catalog on the server
+    vi.mocked(gateway.getCatalog).mockResolvedValue(updatedCatalog)
+
+    // Collaborator triggers syncProvider (e.g. before submitting a generation task)
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    // Should fetch latest catalog from server via getCatalog without calling admin syncProvider
+    await waitFor(() => expect(screen.getByText('catalog-v-collaborator')).toBeVisible())
+    expect(gateway.getCatalog).toHaveBeenCalledTimes(2)
+    // syncProvider was called 1 time during initial mount before disabling management, and 0 times after
+    expect(gateway.syncProvider).toHaveBeenCalledTimes(1)
+  })
 })
+

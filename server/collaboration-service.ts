@@ -446,6 +446,7 @@ export class CollaborationService {
   private readonly maxCandidateUpdateBytes: number
   private readonly maxDocumentBytes: number
   private readonly persistence: CollaborationPersistence
+  private readonly onSnapshotSaved?: (snapshot: CanvasSnapshotV2) => Promise<void> | void
   private readonly persistenceErrorListeners = new Set<(
     roomId: string,
     error: CollaborationPersistenceError,
@@ -464,6 +465,7 @@ export class CollaborationService {
     this.compactAfterBytes = options.compactAfterBytes ?? 1024 * 1024
     this.maxCandidateUpdateBytes = options.maxCandidateUpdateBytes ?? COLLABORATION_MAX_DOCUMENT_BYTES
     this.maxDocumentBytes = options.maxDocumentBytes ?? COLLABORATION_MAX_DOCUMENT_BYTES
+    this.onSnapshotSaved = options.onSnapshotSaved
     this.persistence = options.persistence ?? {
       append: (path, bytes) => appendFile(path, bytes),
       writeBytes: atomicWriteBytes,
@@ -598,7 +600,7 @@ export class CollaborationService {
     await this.persistence.writeBytes(join(room.directory, 'updates.bin'), new Uint8Array())
     await this.persistence.writeJson(join(room.directory, 'canvas.snapshot.json'), canvasSnapshot)
     try {
-      await this.options.onSnapshotSaved?.(canvasSnapshot)
+      await this.onSnapshotSaved?.(canvasSnapshot)
     } catch {
       // Snapshot mirror failures do not fail collaboration persistence
     }

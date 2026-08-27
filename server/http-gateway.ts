@@ -902,6 +902,213 @@ async function routeApi(
     sendJson(response, 200, { catalog: await runtime.syncProvider(syncMatch[1]) })
     return true
   }
+
+  // Agent Providers REST API
+  if (method === 'GET' && path === '/api/agent/providers') {
+    const providers = runtime.agentConfig.listPublic()
+    sendJson(response, 200, { providers })
+    return true
+  }
+
+  if (method === 'POST' && path === '/api/agent/providers') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const body = record(await readJson(request))
+    const id = typeof body.id === 'string' ? body.id : ''
+    const name = typeof body.name === 'string' ? body.name : ''
+    const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl : ''
+    const model = typeof body.model === 'string' ? body.model : ''
+    if (!id || !name || !baseUrl || !model) {
+      sendJson(response, 400, { error: { message: '供应商 ID、名称、接口地址与模型名称均为必填项' } })
+      return true
+    }
+    const updated = await runtime.agentConfig.upsert({
+      id,
+      name,
+      baseUrl,
+      model,
+      enabled: body.enabled !== undefined ? Boolean(body.enabled) : true,
+      preferred: Boolean(body.preferred),
+      secret: typeof body.secret === 'string' ? body.secret : undefined,
+    })
+    sendJson(response, 200, { ok: true, provider: updated })
+    return true
+  }
+
+  const agentProviderPreferredMatch = path.match(/^\/api\/agent\/providers\/([^/]+)\/preferred$/)
+  if (method === 'POST' && agentProviderPreferredMatch) {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const targetId = decodeURIComponent(agentProviderPreferredMatch[1]!)
+    const updated = await runtime.agentConfig.setPreferred(targetId)
+    if (!updated) {
+      sendJson(response, 404, { error: { message: '未找到该 Agent 供应商' } })
+      return true
+    }
+    sendJson(response, 200, { ok: true, provider: updated })
+    return true
+  }
+
+  const agentProviderSecretMatch = path.match(/^\/api\/agent\/providers\/([^/]+)\/secret$/)
+  if (method === 'GET' && agentProviderSecretMatch) {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const targetId = decodeURIComponent(agentProviderSecretMatch[1]!)
+    const secret = runtime.agentConfig.getSecret(targetId)
+    sendJson(response, 200, { secret: secret || '' })
+    return true
+  }
+
+  if (method === 'POST' && agentProviderSecretMatch) {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const targetId = decodeURIComponent(agentProviderSecretMatch[1]!)
+    const body = record(await readJson(request))
+    const secret = typeof body.secret === 'string' ? body.secret : ''
+    await runtime.agentConfig.setSecret(targetId, secret)
+    const updated = runtime.agentConfig.getPublic(targetId)
+    sendJson(response, 200, { ok: true, provider: updated })
+    return true
+  }
+
+  if (method === 'DELETE' && agentProviderSecretMatch) {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const targetId = decodeURIComponent(agentProviderSecretMatch[1]!)
+    await runtime.agentConfig.deleteSecret(targetId)
+    const updated = runtime.agentConfig.getPublic(targetId)
+    sendJson(response, 200, { ok: true, provider: updated })
+    return true
+  }
+
+  const agentProviderItemMatch = path.match(/^\/api\/agent\/providers\/([^/]+)$/)
+  if (method === 'DELETE' && agentProviderItemMatch) {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const targetId = decodeURIComponent(agentProviderItemMatch[1]!)
+    const deleted = await runtime.agentConfig.delete(targetId)
+    sendJson(response, 200, { ok: deleted })
+    return true
+  }
+
+  if (method === 'POST' && path === '/api/agent/test') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const body = record(await readJson(request))
+    const result = await runtime.agentConfig.testConnection({
+      baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : '',
+      model: typeof body.model === 'string' ? body.model : '',
+      secret: typeof body.secret === 'string' ? body.secret : undefined,
+      id: typeof body.id === 'string' ? body.id : undefined,
+    })
+    sendJson(response, 200, result)
+    return true
+  }
+
+  if (method === 'GET' && path === '/api/agent/status') {
+    const preferred = runtime.agentConfig.getPreferred()
+    if (preferred && preferred.enabled && preferred.secretConfigured) {
+      sendJson(response, 200, {
+        configured: true,
+        providerId: preferred.id,
+        providerName: preferred.name,
+        baseUrl: preferred.baseUrl,
+        model: preferred.model,
+      })
+      return true
+    }
+
+    const list = runtime.agentConfig.listPublic()
+    const found = list.find((p) => p.enabled && p.secretConfigured)
+    if (found) {
+      sendJson(response, 200, {
+        configured: true,
+        providerId: found.id,
+        providerName: found.name,
+        baseUrl: found.baseUrl,
+        model: found.model,
+      })
+      return true
+    }
+
+    sendJson(response, 200, {
+      configured: false,
+      message: '尚未接入 Agent 大模型，请在 API 管理中配置 API Key',
+    })
+    return true
+  }
+
+  if (method === 'POST' && path === '/api/agent/chat') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const body = record(await readJson(request))
+    const messages = Array.isArray(body.messages) ? body.messages : []
+    const tools = Array.isArray(body.tools) ? body.tools : undefined
+    const stream = body.stream === true
+    const explicitProviderId = typeof body.providerId === 'string' ? body.providerId : undefined
+
+    let chosen = explicitProviderId ? runtime.agentConfig.getPublic(explicitProviderId) : runtime.agentConfig.getPreferred()
+    let secret = chosen ? runtime.agentConfig.getSecret(chosen.id) : undefined
+
+    if (!chosen || !secret || !chosen.enabled) {
+      // fallback to any configured and enabled in agentConfig
+      const list = runtime.agentConfig.listPublic()
+      const found = list.find((p) => p.enabled && p.secretConfigured)
+      if (found) {
+        chosen = found
+        secret = runtime.agentConfig.getSecret(found.id)
+      }
+    }
+
+    if (!chosen || !secret) {
+      sendJson(response, 400, { error: { code: 'not_configured', message: '尚未接入 Agent 大模型，请在「管理 API 接入」中配置大模型的 API Key' } })
+      return true
+    }
+
+    const chatEndpoint = `${chosen.baseUrl.replace(/\/+$/, '')}/chat/completions`
+    let model = chosen.model
+    if (typeof body.model === 'string' && body.model.trim()) {
+      model = body.model.trim()
+    }
+
+    try {
+      const outgoing = await fetch(chatEndpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Authorization': `Bearer ${secret}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          ...(tools ? { tools, tool_choice: 'auto' } : {}),
+          stream,
+        }),
+      })
+
+      if (!outgoing.ok) {
+        const errText = await outgoing.text().catch(() => '')
+        sendJson(response, outgoing.status, { error: { message: errText || 'LLM provider request failed' } })
+        return true
+      }
+
+      if (stream && outgoing.body) {
+        response.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        })
+        const reader = outgoing.body.getReader()
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          response.write(value)
+        }
+        response.end()
+        return true
+      }
+
+      const data = await outgoing.json()
+      sendJson(response, 200, data)
+      return true
+    } catch (err: unknown) {
+      sendJson(response, 502, { error: { message: err instanceof Error ? err.message : 'Failed to reach upstream LLM' } })
+      return true
+    }
+  }
+
   if (method === 'GET' && path === '/api/catalog') {
     const providerId = url.searchParams.get('providerId')
     if (!providerId) throw new ApiError(400, 'invalid_input', 'providerId is required')
@@ -1074,6 +1281,29 @@ async function routeApi(
     }
     await runtime.canvases.saveCanvas(snapshot)
     sendJson(response, 200, { canvas: snapshot })
+    return true
+  }
+  const canvasAgentChatMatch = /^\/api\/canvases\/([A-Za-z0-9._:-]+)\/agent-chat$/.exec(path)
+  if (canvasAgentChatMatch && method === 'GET') {
+    const canvasId = canvasAgentChatMatch[1]
+    const messages = await runtime.canvases.getAgentChat(canvasId)
+    sendJson(response, 200, { messages })
+    return true
+  }
+  if (canvasAgentChatMatch && method === 'PUT') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const canvasId = canvasAgentChatMatch[1]
+    const body = await readJson(request) as { messages?: unknown[] }
+    const messages = Array.isArray(body?.messages) ? body.messages : []
+    await runtime.canvases.saveAgentChat(canvasId, messages)
+    sendJson(response, 200, { ok: true })
+    return true
+  }
+  if (canvasAgentChatMatch && method === 'DELETE') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const canvasId = canvasAgentChatMatch[1]
+    await runtime.canvases.clearAgentChat(canvasId)
+    sendJson(response, 200, { ok: true })
     return true
   }
   if (method === 'POST' && path === '/api/assets') {

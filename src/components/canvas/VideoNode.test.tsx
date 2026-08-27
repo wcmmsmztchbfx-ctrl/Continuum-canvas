@@ -83,4 +83,59 @@ describe('VideoNode', () => {
     expect(video.currentTime).toBe(7.75)
     expect(screen.getByText('00:07 / 00:15')).toBeInTheDocument()
   })
+
+  it('remembers playback position and resumes when node is unmounted and remounted', () => {
+    const props = {
+      id: 'video-resume-node', selected: true, isConnectable: true,
+      data: {
+        name: '断点续播测试', mediaType: 'video', url: 'https://example.test/resume-test.mp4',
+        isSoleSelection: true,
+      },
+    } as never
+
+    const { unmount, container } = render(
+      <ReactFlowProvider>
+        <VideoNode {...props} />
+      </ReactFlowProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '播放' }))
+    const video = container.querySelector('video') as HTMLVideoElement
+    expect(video).not.toBeNull()
+
+    Object.defineProperty(video, 'duration', { value: 30, writable: true, configurable: true })
+    Object.defineProperty(video, 'currentTime', { value: 0, writable: true, configurable: true })
+    fireEvent.loadedMetadata(video)
+
+    const slider = screen.getByRole('slider', { name: '播放进度' }) as HTMLInputElement
+    // Seek to 12 seconds
+    fireEvent.change(slider, { target: { value: '12' } })
+    expect(video.currentTime).toBe(12)
+
+    // User navigates away / unmounts the node
+    unmount()
+
+    // User returns / remounts the node
+    const view2 = render(
+      <ReactFlowProvider>
+        <VideoNode {...props} />
+      </ReactFlowProvider>,
+    )
+
+    // Should retain the 12s time display
+    expect(screen.getByText('00:12 / 00:00')).toBeInTheDocument()
+
+    // When playing is started, the video element is mounted and restored to 12s
+    fireEvent.click(screen.getByRole('button', { name: '播放' }))
+    const video2 = view2.container.querySelector('video') as HTMLVideoElement
+    expect(video2).not.toBeNull()
+
+    Object.defineProperty(video2, 'duration', { value: 30, writable: true, configurable: true })
+    Object.defineProperty(video2, 'currentTime', { value: 0, writable: true, configurable: true })
+    fireEvent.loadedMetadata(video2)
+
+    expect(video2.currentTime).toBe(12)
+    expect(screen.getByText('00:12 / 00:30')).toBeInTheDocument()
+  })
 })
+

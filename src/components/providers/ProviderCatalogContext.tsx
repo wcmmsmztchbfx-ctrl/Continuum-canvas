@@ -228,7 +228,7 @@ export function ProviderCatalogProvider({
     force = false,
   ) => {
     if (!apiManagementAllowedRef.current) {
-      return Promise.resolve(catalogsRef.current[providerId])
+      return loadCatalog(providerId)
     }
     const existing = syncInFlightRef.current.get(providerId)
     if (existing) return existing
@@ -291,7 +291,7 @@ export function ProviderCatalogProvider({
     })()
     syncInFlightRef.current.set(providerId, operation)
     return operation
-  }, [gateway, rememberCatalog])
+  }, [gateway, loadCatalog, rememberCatalog])
 
   const syncProvider = useCallback(
     (providerId: string, options?: { force?: boolean }) =>

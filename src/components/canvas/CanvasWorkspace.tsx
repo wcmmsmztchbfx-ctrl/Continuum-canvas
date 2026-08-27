@@ -29,7 +29,6 @@ import {
   type Point,
   type Viewport,
 } from '../../model/project'
-import type { GenerationQuoteRequest } from '../../contracts/generation'
 import type { InteractionPreview, NodeLease, NodeLeaseKind, PresenceState } from '../../contracts/collaboration'
 import { selectCatalogModel } from '../../contracts/catalog'
 import { getOrderedReferences } from '../../model/project'
@@ -63,7 +62,6 @@ import { FrameNode, PathNode, ShapeNode } from './CreativeNodes'
 import { canEditReferencesWithCatalog, resolveVideoMode } from './generationUi'
 import { CollaborationPresenceLayer } from './CollaborationPresenceLayer'
 import { ImageEditorWorkspace } from './ImageEditorModal'
-import { parseAspectRatio, sizeForAspectRatio } from './mediaGeometry'
 import { snapRect, snapResizeRect, unionRect, type ResizeDirection, type SnapDistance, type SnapGuide, type SnapRect, type SnapState } from './smartSnapping'
 import { stabilizeProjectedEdges, stabilizeProjectedNodes } from './flowProjection'
 import { useCanvasDrop } from './useCanvasDrop'
@@ -71,6 +69,10 @@ import { SnapOverlay } from './CanvasSnapOverlay'
 import { BrushPreview } from './CanvasBrushOverlay'
 import { CreationPreview } from './CanvasCreationPreview'
 import { LiveSelectionToolbar } from './LiveSelectionToolbar'
+import { useCanvasGeneration } from './useCanvasGeneration'
+import { useCanvasViewportSync } from './useCanvasViewportSync'
+import { CanvasCollaborationOverlays } from './CanvasCollaborationOverlays'
+import { connectedNodeSize, createConnectedNode, getPointerPosition, sameIds } from './nodeCreationHelpers'
 import '@xyflow/react/dist/style.css'
 import './canvas.css'
 
@@ -201,80 +203,6 @@ interface PendingConnectedNode {
   flowPoint: Point
 }
 
-function connectedNodeSize(kind: ConnectedNodeKind) {
-  if (kind === 'image') return { width: 480, height: 320 }
-  if (kind === 'video') return { width: 480, height: 270 }
-  if (kind === 'director') return { width: 560, height: 360 }
-  return { width: 350, height: 350 }
-}
-
-function getPointerPosition(event: MouseEvent | TouchEvent): Point | null {
-  if ('clientX' in event) {
-    return { x: event.clientX, y: event.clientY }
-  }
-
-  const touch = event.changedTouches[0]
-  return touch ? { x: touch.clientX, y: touch.clientY } : null
-}
-
-function createConnectedNode(
-  kind: ConnectedNodeKind | 'image' | 'video' | 'text',
-  id: string,
-  position: Point,
-): CanvasNode {
-  if (kind === 'image') {
-    return {
-      id,
-      type: 'image',
-      name: '图片节点',
-      position,
-      size: { width: 480, height: 320 },
-      data: { url: '', alt: '待生成图片' },
-    }
-  }
-
-  if (kind === 'video') {
-    return {
-      id,
-      type: 'video',
-      name: '视频节点',
-      position,
-      size: { width: 480, height: 270 },
-      data: { url: '' },
-    }
-  }
-
-  if (kind === 'director') {
-    return {
-      id,
-      type: 'group',
-      name: '导演台',
-      position,
-      size: { width: 560, height: 360 },
-      data: { childIds: [], nodeKind: 'director' },
-    }
-  }
-
-  const name = kind === 'audio' ? '音频节点' : kind === 'script' ? '脚本节点' : '文本节点'
-  return {
-    id,
-    type: 'text',
-    name,
-    position,
-    size: { width: 350, height: 350 },
-    data: {
-      text: kind === 'audio' ? '描述需要生成的音乐或声音' : '',
-      nodeKind:
-        kind === 'audio' ? 'audio' : kind === 'script' ? 'script' : 'text',
-    },
-  }
-}
-
-function sameIds(left: string[], right: string[]) {
-  if (left.length !== right.length) return false
-  const rightIds = new Set(right)
-  return rightIds.size === right.length && left.every((id) => rightIds.has(id))
-}
 
 export function CanvasWorkspace({
   activeTool = 'select',
@@ -338,6 +266,7 @@ export function CanvasWorkspace({
     [snapshot.nodes],
   )
   const selectedNodeIds = useStore(store, (state) => state.selectedNodeIds)
+  const selectedEdgeIds = useStore(store, (state) => state.selectedEdgeIds ?? [])
   const mode = useStore(store, (state) => state.mode)
   const [referencePickTargetId, setReferencePickTargetId] = useState<
     string | null
@@ -484,10 +413,12 @@ export function CanvasWorkspace({
   const decorateEdges = useCallback(
     (sourceEdges: CanvasFlowEdge[]) => {
       const selectedIds = new Set(store.getState().selectedNodeIds)
+      const selectedEdges = new Set(store.getState().selectedEdgeIds ?? [])
       const soleSelectionId =
         selectedIds.size === 1 ? [...selectedIds][0] : undefined
       return sourceEdges.map((edge) => ({
         ...edge,
+        selected: selectedEdges.has(edge.id),
         data: {
           ...edge.data,
           relation: edge.data?.relation ?? 'flow',
@@ -743,253 +674,17 @@ export function CanvasWorkspace({
     }
   }, [generationController, providedGenerationController])
 
-  const createConnectedAfterNode = useCallback(
-    (anchorNodeId: string, kind: 'image' | 'video' | 'text') => {
-      if (readOnly) return
-      const current = store.getState().snapshot
-      const anchor = current.nodes.find((node) => node.id === anchorNodeId)
-      if (!anchor) return
-
-      const prefix = kind === 'image' ? 'i' : kind === 'video' ? 'v' : 't'
-      const nodeId = createCanvasId(prefix)
-      const node = createConnectedNode(
-        kind,
-        nodeId,
-        {
-          x: anchor.position.x + anchor.size.width + 180,
-          y: anchor.position.y + (anchor.size.height - (kind === 'text' ? 350 : kind === 'image' ? 320 : 270)) / 2,
-        },
-      )
-      const isReference =
-        (anchor.type === 'image' || anchor.type === 'video') &&
-        (node.type === 'image' || node.type === 'video')
-      const edge: ProjectCanvasEdge = {
-        id: createCanvasId('e'),
-        source: anchorNodeId,
-        target: nodeId,
-        sourceHandle: 'source',
-        targetHandle: 'target',
-        type: 'canvas',
-        relation: isReference ? 'reference' : 'flow',
-        ...(isReference ? { referenceAlias: 1 } : {}),
-      }
-      const relatedNodeIds = current.edges.flatMap((candidate) =>
-        candidate.source === anchorNodeId || candidate.target === anchorNodeId
-          ? [candidate.source, candidate.target]
-          : [],
-      )
-      void runWithNodeLease(
-        [anchorNodeId, ...relatedNodeIds],
-        'bulk',
-        () => store.getState().addConnectedNode(node, edge),
-      )
-    },
-    [readOnly, runWithNodeLease, store],
-  )
-
-  const performGenerate = useCallback(
-    (sourceNodeId: string, request: GenerationQuoteRequest) => {
-      if (readOnly) return
-      const current = store.getState().snapshot
-      const source = current.nodes.find((node) => node.id === sourceNodeId)
-      if (!source || (source.type !== 'image' && source.type !== 'video')) return
-
-      if (request.mediaType !== source.type) return
-      if (request.projectId !== current.projectId) {
-        onGenerationError?.('项目已切换，请重新确认本次生成')
-        return
-      }
-      const configuredCount = request.n ?? 1
-      const resultCount = Number.isInteger(configuredCount)
-        ? Math.max(1, Math.min(16, configuredCount))
-        : 1
-      const targetNodeIds: string[] = []
-      const targetNodes: CanvasNode[] = []
-      const outputEdges: ProjectCanvasEdge[] = []
-      const frozenReferences = getOrderedReferences(current, source.id).flatMap(
-        ({ edge, node }) =>
-          node.type === 'image' || node.type === 'video'
-            ? [{
-                alias: edge.referenceAlias,
-                mediaType: node.type,
-                nodeId: node.id,
-              }]
-            : [],
-      )
-      const frozenSettings: MediaGenerationSettings = request.mediaType === 'image'
-        ? {
-            kind: 'image',
-            providerId: request.providerId,
-            catalogVersion: request.catalogVersion,
-            channel: request.channel,
-            model: request.model,
-            mode: request.mode,
-            quality: request.quality ?? '',
-            resolution: request.quality ?? '',
-            aspectRatio: request.aspectRatio ?? '',
-            count: request.n ?? 1,
-          }
-        : {
-            kind: 'video',
-            providerId: request.providerId,
-            catalogVersion: request.catalogVersion,
-            channel: request.channel,
-            model: request.model,
-            mode: request.mode,
-            resolution: request.quality ?? '',
-            aspectRatio: request.aspectRatio ?? '',
-            durationSec: request.duration ?? 1,
-            generateAudio: request.generateAudio ?? false,
-            count: request.n ?? 1,
-          }
-      const resultSize = parseAspectRatio(request.aspectRatio ?? '')
-        ? sizeForAspectRatio(request.aspectRatio ?? '16:9')
-        : { ...source.size }
-      const createResult = (index: number) => {
-        const prefix = source.type === 'image' ? 'i' : 'v'
-        const resultNodeId = createCanvasId(prefix)
-        const resultHeight = resultSize.height
-        const resultWidth = resultSize.width
-        const resultNode = createConnectedNode(
-          source.type,
-          resultNodeId,
-          {
-            x:
-              source.position.x +
-              source.size.width +
-              180 +
-              Math.floor(index / 2) * (resultWidth + 80),
-            y: source.position.y + (index % 2) * (resultHeight + 60),
-          },
-        )
-        resultNode.size = { ...resultSize }
-        if (source.type === 'image' && resultNode.type === 'image') {
-          resultNode.data.generationSettings = frozenSettings.kind === 'image'
-            ? { ...frozenSettings }
-            : undefined
-        }
-        if (source.type === 'video' && resultNode.type === 'video') {
-          resultNode.data.generationSettings = frozenSettings.kind === 'video'
-            ? { ...frozenSettings }
-            : undefined
-        }
-        targetNodes.push(resultNode)
-        outputEdges.push({
-          id: createCanvasId('e'),
-          source: source.id,
-          target: resultNode.id,
-          sourceHandle: 'source',
-          targetHandle: 'target',
-          type: 'canvas',
-          relation: 'output',
-        })
-        targetNodeIds.push(resultNode.id)
-      }
-
-      targetNodeIds.push(source.id)
-      for (let index = 1; index < resultCount; index += 1) {
-        createResult(index - 1)
-      }
-      const input = {
-          canvasId: request.canvasId,
-          projectId: request.projectId,
-          sourceNodeId: source.id,
-          targetNodeIds,
-          targetNodes,
-          outputEdges,
-          prompt: request.prompt,
-          clientRequestId: request.clientRequestId,
-          references: frozenReferences,
-          settings: frozenSettings,
-        }
-      return generationController.startSubmitted(input)
-        .catch((error: unknown) => {
-          onGenerationError?.(
-            error instanceof Error ? error.message : '生成任务创建失败',
-          )
-        })
-    },
-    [generationController, onGenerationError, readOnly, store],
-  )
-
-  const handleGenerate = useCallback(
-    (sourceNodeId: string, request: GenerationQuoteRequest) => {
-      if (readOnly) return
-      const lockIds = [
-        sourceNodeId,
-        ...getOrderedReferences(store.getState().snapshot, sourceNodeId)
-          .map(({ node }) => node.id),
-      ]
-      let submitted = false
-      void runWithNodeLease(lockIds, 'bulk', async () => {
-          submitted = true
-          await performGenerate(sourceNodeId, request)
-        })
-        .then(() => {
-          if (!submitted) {
-            onGenerationError?.('生成所需节点正在被其他协作者操作，请稍后再试')
-          }
-        })
-    },
-    [onGenerationError, performGenerate, readOnly, runWithNodeLease, store],
-  )
-
-  const performRetry = useCallback(
-    (sourceNodeId: string, prompt: string) => {
-      if (readOnly) return
-      const targetNodeIds = store
-        .getState()
-        .snapshot.nodes.filter((node) => {
-          if (node.type !== 'image' && node.type !== 'video') return false
-          return node.data.generation?.sourceNodeId === sourceNodeId
-        })
-        .sort(
-          (left, right) =>
-            (left.type === 'image' || left.type === 'video'
-              ? left.data.generation?.outputIndex ?? 0
-              : 0) -
-            (right.type === 'image' || right.type === 'video'
-              ? right.data.generation?.outputIndex ?? 0
-              : 0),
-        )
-        .map((node) => node.id)
-      if (!generationController.retry || targetNodeIds.length === 0) {
-        onGenerationError?.('没有可恢复的生成请求')
-        return
-      }
-      const input = { sourceNodeId, targetNodeIds, prompt }
-      return (generationController.retrySubmitted
-        ? generationController.retrySubmitted(input)
-        : generationController.retry?.(input))
-        ?.catch((error: unknown) => {
-          onGenerationError?.(
-            error instanceof Error ? error.message : '生成任务恢复失败',
-          )
-        })
-    },
-    [generationController, onGenerationError, readOnly, store],
-  )
-
-  const handleRetry = useCallback(
-    (sourceNodeId: string, prompt: string) => {
-      if (readOnly) return
-      const current = store.getState().snapshot
-      const targetNodeIds = current.nodes.flatMap((node) =>
-        (node.type === 'image' || node.type === 'video') &&
-        node.data.generation?.sourceNodeId === sourceNodeId
-          ? [node.id]
-          : [],
-      )
-      const referenceSourceIds = getOrderedReferences(current, sourceNodeId)
-        .map(({ node }) => node.id)
-      void runWithNodeLease(
-        [sourceNodeId, ...targetNodeIds, ...referenceSourceIds],
-        'bulk',
-        () => performRetry(sourceNodeId, prompt),
-      )
-    },
-    [performRetry, readOnly, runWithNodeLease, store],
-  )
+  const {
+    createConnectedAfterNode,
+    handleGenerate,
+    handleRetry,
+  } = useCanvasGeneration({
+    store,
+    generationController,
+    readOnly,
+    onGenerationError,
+    runWithNodeLease,
+  })
 
   const handleResizeStart = useCallback((nodeId: string) => {
     const collaborationHandle = collaborationRef.current
@@ -1056,6 +751,7 @@ export function CanvasWorkspace({
     .sort()
     .join('|')
   const selectedNodeKey = [...selectedNodeIds].sort().join('|')
+  const selectedEdgeKey = [...selectedEdgeIds].sort().join('|')
   const [pendingConnection, setPendingConnection] =
     useState<PendingConnectedNode | null>(null)
   const [frameDropTargetId, setFrameDropTargetId] = useState<string>()
@@ -1321,10 +1017,12 @@ export function CanvasWorkspace({
       const lock = remoteLocksRef.current.get(node.id)
       const lockSig = lock ? `${lock.memberId}:${lock.kind}` : ''
       const isSelected = selectedNodeIds.includes(node.id)
+      const isSole = selectedNodeIds.length === 1 && selectedNodeIds[0] === node.id && !connectionGestureActive
       const refPickSig = `${node.data.referencePickCandidate ? 1 : 0}:${node.data.referencePickTarget ? 1 : 0}:${node.data.referencePickerActive ? 1 : 0}`
+      const isSoleSig = isSole ? 1 : 0
       const sig = model
-        ? `${JSON.stringify(model)}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}#${refPickSig}#${imagePanelMode}`
-        : `${node.id}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}#${refPickSig}#${imagePanelMode}`
+        ? `${JSON.stringify(model)}#${node.zIndex ?? ''}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}:${isSoleSig}#${refPickSig}#${imagePanelMode}`
+        : `${node.id}#${node.zIndex ?? ''}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}:${isSoleSig}#${refPickSig}#${imagePanelMode}`
       signatures.set(node.id, sig)
 
       const previous = previousById.get(node.id)
@@ -1353,10 +1051,16 @@ export function CanvasWorkspace({
   ])
   const persistentEdges = useMemo(() => {
     void selectedNodeKey
+    void selectedEdgeKey
     const next = stabilizeProjectedEdges(stableEdgesRef.current, decorateEdges(project.edges))
     stableEdgesRef.current = next
     return next
-  }, [decorateEdges, project.edges, selectedNodeKey])
+  }, [decorateEdges, project.edges, selectedNodeKey, selectedEdgeKey])
+
+  useEffect(() => {
+    setTransientGeometry(new Map())
+  }, [snapshot])
+
   const flowNodes = useMemo(() => {
     const projected = persistentNodes.map((node) => {
       const geometry = transientGeometry.get(node.id)
@@ -1394,9 +1098,7 @@ export function CanvasWorkspace({
       : persistentEdges
   }, [hideConnections, pendingConnection, persistentEdges])
   const [committedZoom, setCommittedZoom] = useState(project.viewport.zoom)
-  const viewportRef = useRef<Viewport>(project.viewport)
   const workspaceRef = useRef<HTMLDivElement | null>(null)
-  const viewportFrameRef = useRef<number | null>(null)
   const lastProjectViewportRef = useRef(project.viewport)
   const connectionRadius =
     CANVAS_CONNECTION_RADIUS / Math.max(committedZoom, CANVAS_MIN_ZOOM)
@@ -1411,35 +1113,16 @@ export function CanvasWorkspace({
   const setCollaborationSelection = collaboration?.setSelection
   const setCollaborationViewport = collaboration?.setViewport
 
-  const cursorFrameRef = useRef<number | null>(null)
-  const pendingCursorPos = useRef<{ x: number; y: number } | null>(null)
-
-  const scheduleCollaborationCursor = useCallback((pos: { x: number; y: number }) => {
-    if (
-      typeof window === 'undefined' ||
-      typeof requestAnimationFrame !== 'function' ||
-      import.meta.env?.MODE === 'test'
-    ) {
-      setCollaborationCursor?.(pos)
-      return
-    }
-    pendingCursorPos.current = pos
-    if (cursorFrameRef.current !== null) return
-    cursorFrameRef.current = requestAnimationFrame(() => {
-      cursorFrameRef.current = null
-      if (pendingCursorPos.current && setCollaborationCursor) {
-        setCollaborationCursor(pendingCursorPos.current)
-      }
-    })
-  }, [setCollaborationCursor])
-
-  useEffect(() => {
-    return () => {
-      if (cursorFrameRef.current !== null) {
-        cancelAnimationFrame(cursorFrameRef.current)
-      }
-    }
-  }, [])
+  const {
+    viewportRef,
+    scheduleViewportUi,
+    flushViewportUi,
+    scheduleCollaborationCursor,
+  } = useCanvasViewportSync({
+    workspaceRef,
+    initialViewport: project.viewport,
+    setCollaborationCursor,
+  })
   type DragGeometry = { position: Point; positionAbsolute: Point }
   const activeDrag = useRef<{
     lease?: NodeLease
@@ -1453,46 +1136,6 @@ export function CanvasWorkspace({
   const viewportSourceRef = useRef<
     'follow' | 'local' | 'fit' | 'restore' | undefined
   >(undefined)
-
-  const writeViewportUi = useCallback((nextViewport: Viewport) => {
-    viewportRef.current = nextViewport
-    workspaceRef.current?.style.setProperty(
-      '--canvas-ui-scale',
-      String(1 / Math.max(nextViewport.zoom, CANVAS_MIN_ZOOM)),
-    )
-  }, [])
-
-  const scheduleViewportUi = useCallback(
-    (nextViewport: Viewport) => {
-      viewportRef.current = nextViewport
-      if (viewportFrameRef.current !== null) return
-      viewportFrameRef.current = requestAnimationFrame(() => {
-        viewportFrameRef.current = null
-        writeViewportUi(viewportRef.current)
-      })
-    },
-    [writeViewportUi],
-  )
-
-  const flushViewportUi = useCallback(
-    (nextViewport: Viewport) => {
-      if (viewportFrameRef.current !== null) {
-        cancelAnimationFrame(viewportFrameRef.current)
-        viewportFrameRef.current = null
-      }
-      writeViewportUi(nextViewport)
-    },
-    [writeViewportUi],
-  )
-
-  useEffect(
-    () => () => {
-      if (viewportFrameRef.current !== null) {
-        cancelAnimationFrame(viewportFrameRef.current)
-      }
-    },
-    [],
-  )
 
   const captureDragGeometry = useCallback((nodes: CanvasFlowNode[]) => new Map(
     nodes.map((node) => {
@@ -2031,7 +1674,7 @@ export function CanvasWorkspace({
 
       setPendingConnection(pending)
     },
-    [flowInstance, readOnly],
+    [flowInstance, handleConnect, readOnly],
   )
 
   const confirmPendingConnection = useCallback(
@@ -2338,6 +1981,8 @@ export function CanvasWorkspace({
         maxZoom={CANVAS_MAX_ZOOM}
         connectionRadius={connectionRadius}
         defaultEdgeOptions={defaultEdgeOptions}
+        elevateNodesOnSelect={false}
+        elevateEdgesOnSelect={false}
         onNodesChange={handleNodesChange}
         onSelectionStart={(event) => {
           selectionGesture.current = new Set(
@@ -2619,6 +2264,11 @@ export function CanvasWorkspace({
             y: event.clientY,
           })
         }}
+        onEdgeClick={(event, edge) => {
+          if (readOnly) return
+          event.stopPropagation()
+          store.getState().selectEdge(edge.id, event.shiftKey)
+        }}
         onPaneClick={(event) => {
           cancelPendingConnection()
           setReferencePickTargetId(null)
@@ -2635,6 +2285,7 @@ export function CanvasWorkspace({
           }
           if (imageEditorDirty && editingImageNodeId) { setPendingImageSelection({ requested: true, nodeId: null }); setPendingImageMode('generate'); return }
           store.getState().selectNode(null)
+          store.getState().selectEdge(null)
           onPaneClick?.()
         }}
         nodesDraggable={isSelectMode && !readOnly}
@@ -2686,23 +2337,12 @@ export function CanvasWorkspace({
           position={pendingConnection.menuPosition}
         />
       ) : null}
-      {collaborationLockNotice ? (
-        <div className="collaboration-lock-notice" role="status">{collaborationLockNotice}</div>
-      ) : null}
-      {collaborationFollowingMemberId ? (
-        <div className="collaboration-following-pill" role="status">
-          <span className="collaboration-following-dot" />
-          <span>正在跟随 <strong>{collaborationPresence?.find((r) => r.member.memberId === collaborationFollowingMemberId)?.member.displayName || '协作者'}</strong> 的视角</span>
-          <button
-            aria-label="退出跟随"
-            className="collaboration-following-exit"
-            onClick={() => stopCollaborationFollowing?.()}
-            type="button"
-          >
-            退出跟随 (Esc)
-          </button>
-        </div>
-      ) : null}
+      <CanvasCollaborationOverlays
+        collaborationFollowingMemberId={collaborationFollowingMemberId}
+        collaborationLockNotice={collaborationLockNotice}
+        collaborationPresence={collaborationPresence}
+        onStopFollowing={stopCollaborationFollowing}
+      />
     </div>
   )
 }

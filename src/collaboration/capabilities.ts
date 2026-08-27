@@ -10,28 +10,22 @@ export interface CollaborationCapabilities {
 export function collaborationCapabilities(
   state: CollaborationControllerState,
 ): CollaborationCapabilities {
-  if (state.status === 'inactive' && !state.session) {
-    return { canEdit: true, canPublish: true, canManageApi: true, canManageMembers: true }
-  }
-  if (!state.session) {
-    return { canEdit: false, canPublish: false, canManageApi: false, canManageMembers: false }
-  }
-  if (state.status === 'offline') {
+  if (!state.session || state.session.role === 'owner') {
+    const isOwnerConnecting = state.session?.role === 'owner' && (state.status === 'connecting' || state.status === 'enabling')
     return {
-      canEdit: state.session.role === 'owner' || state.session.role === 'editor',
-      canPublish: false,
+      canEdit: !isOwnerConnecting,
+      canPublish: state.status === 'synced' || state.status === 'inactive' || !state.session,
+      canManageApi: true,
+      canManageMembers: true,
+    }
+  }
+  if (state.session.role === 'editor') {
+    return {
+      canEdit: state.status === 'synced' || state.status === 'offline',
+      canPublish: state.status === 'synced',
       canManageApi: false,
       canManageMembers: false,
     }
-  }
-  if (state.status !== 'synced') {
-    return { canEdit: false, canPublish: false, canManageApi: false, canManageMembers: false }
-  }
-  if (state.session.role === 'owner') {
-    return { canEdit: true, canPublish: true, canManageApi: true, canManageMembers: true }
-  }
-  if (state.session.role === 'editor') {
-    return { canEdit: true, canPublish: true, canManageApi: false, canManageMembers: false }
   }
   return { canEdit: false, canPublish: false, canManageApi: false, canManageMembers: false }
 }

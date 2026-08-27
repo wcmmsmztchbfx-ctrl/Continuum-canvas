@@ -55,31 +55,47 @@ export function useAppHotkeys({
 
       const state = canvasStore.getState()
       const key = event.key.toLowerCase()
+      const code = event.code
       const modified = event.ctrlKey || event.metaKey
       const controller = collaborationControllerRef.current
       const collaborationReadOnly = controller
         ? !collaborationCapabilities(controller.getState()).canEdit
         : false
 
+      const isZ = key === 'z' || code === 'KeyZ'
+      const isA = key === 'a' || code === 'KeyA'
+      const isC = key === 'c' || code === 'KeyC'
+      const isD = key === 'd' || code === 'KeyD'
+      const isG = key === 'g' || code === 'KeyG'
+      const isV = key === 'v' || code === 'KeyV'
+      const isB = key === 'b' || code === 'KeyB'
+
       if (!modified) {
         if (key === 'escape') {
-          if (state.selectedNodeIds.length > 0) {
+          if (state.selectedNodeIds.length > 0 || state.selectedEdgeIds?.length > 0) {
             state.selectNode(null)
+            state.selectEdge(null)
           }
           return
         }
-        if (key === 'v') {
+        if (isV) {
           setActiveTool('select')
           return
         }
-        if (key === 'b') {
+        if (isB) {
           setActiveTool('brush')
           state.selectNode(null)
+          state.selectEdge(null)
           return
         }
         if (key === 'delete' || key === 'backspace') {
           event.preventDefault()
           if (collaborationReadOnly) return
+          if (state.selectedEdgeIds && state.selectedEdgeIds.length > 0) {
+            state.deleteEdges(state.selectedEdgeIds)
+            state.selectEdge(null)
+            return
+          }
           if (state.selectedNodeIds.length > 0) {
             withBulkLease(state.selectedNodeIds, () =>
               state.deleteNodes(state.selectedNodeIds),
@@ -90,12 +106,12 @@ export function useAppHotkeys({
         return
       }
 
-      if (collaborationReadOnly && modified && (key === 'v' || key === 'd' || key === 'g')) {
+      if (collaborationReadOnly && modified && (isV || isD || isG)) {
         event.preventDefault()
         return
       }
 
-      if (modified && key === 'z') {
+      if (modified && isZ) {
         event.preventDefault()
         const collaboration = controller
         if (collaboration?.isLocalAutosaveSuppressed()) {
@@ -104,19 +120,19 @@ export function useAppHotkeys({
           else performUndo()
         } else if (event.shiftKey) performRedo()
         else performUndo()
-      } else if (modified && key === 'a') {
+      } else if (modified && isA) {
         event.preventDefault()
         canvasStore.setState({
           selectedNodeIds: state.snapshot.nodes.map((node) => node.id),
         })
-      } else if (modified && key === 'c') {
+      } else if (modified && isC) {
         event.preventDefault()
         void copySelectedNodes(state.selectedNodeIds)
           .catch(() => notify('浏览器未允许写入剪贴板', 'error'))
-      } else if (modified && key === 'd') {
+      } else if (modified && isD) {
         event.preventDefault()
         withBulkLease(state.selectedNodeIds, () => state.duplicateNodes(state.selectedNodeIds))
-      } else if (modified && key === 'g') {
+      } else if (modified && isG) {
         event.preventDefault()
         if (event.shiftKey) {
           withBulkLease(state.selectedNodeIds, () => state.ungroupNodes(state.selectedNodeIds))
@@ -132,8 +148,8 @@ export function useAppHotkeys({
       }
     }
 
-    document.addEventListener('keydown', handleShortcut)
-    return () => document.removeEventListener('keydown', handleShortcut)
+    document.addEventListener('keydown', handleShortcut, true)
+    return () => document.removeEventListener('keydown', handleShortcut, true)
   }, [
     copySelectedNodes,
     hydrated,

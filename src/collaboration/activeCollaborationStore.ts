@@ -13,11 +13,18 @@ export interface ActiveCollaboration {
 
 const STORAGE_KEY = 'libtv.active-collaboration.v1'
 
+// Clean up legacy localStorage entries from older versions
+try {
+  globalThis.localStorage?.removeItem(STORAGE_KEY)
+} catch {
+  // Ignore storage errors
+}
+
 const listeners = new Set<(collab: ActiveCollaboration | null) => void>()
 
 export function getActiveCollaboration(): ActiveCollaboration | null {
   try {
-    const raw = globalThis.localStorage?.getItem(STORAGE_KEY)
+    const raw = globalThis.sessionStorage?.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as ActiveCollaboration
     if (parsed && typeof parsed === 'object' && parsed.roomId && parsed.canvasId && parsed.status === 'active') {
@@ -32,9 +39,9 @@ export function getActiveCollaboration(): ActiveCollaboration | null {
 export function setActiveCollaboration(collab: ActiveCollaboration | null): void {
   try {
     if (collab && collab.status === 'active') {
-      globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(collab))
+      globalThis.sessionStorage?.setItem(STORAGE_KEY, JSON.stringify(collab))
     } else {
-      globalThis.localStorage?.removeItem(STORAGE_KEY)
+      globalThis.sessionStorage?.removeItem(STORAGE_KEY)
     }
   } catch {
     // Ignore storage errors

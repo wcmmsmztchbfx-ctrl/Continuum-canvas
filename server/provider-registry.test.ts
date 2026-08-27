@@ -43,6 +43,16 @@ describe('ProviderRegistry', () => {
         preferred: false,
         available: false,
       }),
+      expect.objectContaining({
+        id: 'deepseek',
+        name: 'DeepSeek',
+        adapterType: 'openai-compatible',
+        baseUrl: 'https://api.deepseek.com/v1',
+        secretEnvName: 'API_PROVIDER_DEEPSEEK_KEY',
+        enabled: false,
+        preferred: false,
+        available: false,
+      }),
     ])
 
     const persisted = JSON.parse(await readFile(join(dataDir, 'providers.json'), 'utf8'))
@@ -53,6 +63,7 @@ describe('ProviderRegistry', () => {
       'aistartlab',
       'openai',
       'siliconflow',
+      'deepseek',
     ])
   })
 

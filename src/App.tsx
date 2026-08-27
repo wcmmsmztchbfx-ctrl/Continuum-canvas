@@ -5,13 +5,12 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { useStore } from 'zustand'
-import { Package, Layers3, Settings, PanelLeftClose, PanelLeftOpen, Cpu, UsersRound, Bot } from 'lucide-react'
+import { Package, Layers3, Settings, PanelLeftClose, PanelLeftOpen, Cpu, UsersRound, Bot, GitBranch } from 'lucide-react'
 
 import { CanvasWorkspace, LayersPanel } from './components/canvas'
-import { AssetsSidebarPanel, AgentSidebarPanel } from './components/sidebar'
+import { AssetsSidebarPanel, AgentSidebarPanel, LineageSidebarPanel } from './components/sidebar'
 import { assetRegistry } from './services/assetRegistry'
 import {
   AppOverlays,
@@ -42,10 +41,6 @@ import {
   loadUiPreferences,
   MAX_LAYERS_WIDTH,
   MIN_LAYERS_WIDTH,
-  normalizeLayersWidth,
-  MAX_INSPECTOR_WIDTH,
-  MIN_INSPECTOR_WIDTH,
-  normalizeInspectorWidth,
   saveUiPreferences,
   type UiPreferences,
 } from './persistence'
@@ -54,17 +49,15 @@ import {
   defaultWorkspaceRepository,
   type WorkspaceRepository,
 } from './workspace'
+// Media uploads delegate to persistLocalMedia(file) via useCanvasClipboard
 import {
   ensureMockWorkspace,
   gatewayClient,
   mockApi,
-  persistLocalMedia,
   uploadAndPrepareMediaAsset,
 } from './services'
 import { canvasStore } from './store/canvas-store'
 import {
-  DEFAULT_IMAGE_GENERATION_SETTINGS,
-  DEFAULT_VIDEO_GENERATION_SETTINGS,
   type CanvasNode,
   type ProjectSnapshot,
 } from './model/project'
@@ -76,18 +69,16 @@ import type { CollaborationInteraction, InteractionPreview, NodeLease, NodeLease
 import { useOptionalProviderCatalog } from './components/providers/ProviderCatalogContext'
 import { createBrowserUuid } from './utils/id'
 import {
-  contentsFromDataTransfer,
   createCanvasClipboardEnvelope,
-  persistRemoteClipboardMedia,
   readClipboardContents,
-  resolveClipboardContents,
   writeCanvasClipboardEnvelope,
   type CanvasClipboardEnvelope,
-  type ClipboardContents,
 } from './clipboard-import'
 import { useAppCollaboration } from './hooks/useAppCollaboration'
 import { useAppHotkeys } from './hooks/useAppHotkeys'
-import { copyText } from './utils/clipboard'
+import { useSidebarResize } from './hooks/useSidebarResize'
+import { useCanvasClipboard } from './hooks/useCanvasClipboard'
+import { copyImageToClipboard, copyText } from './utils/clipboard'
 
 type Popup =
   | 'workspace'
@@ -200,29 +191,41 @@ export default function App({
   const [preferences, setPreferences] = useState<UiPreferences>(() =>
     loadUiPreferences(),
   )
-  const [layersWidth, setLayersWidth] = useState(preferences.layersWidth)
-  const [layersResizing, setLayersResizing] = useState(false)
-  const layersResizeRef = useRef<{
-    startX: number
-    startWidth: number
-    width: number
-    cleanup: () => void
-  } | undefined>(undefined)
-
-  const [inspectorWidth, setInspectorWidth] = useState(preferences.inspectorWidth || 280)
-  const [inspectorResizing, setInspectorResizing] = useState(false)
-  const inspectorResizeRef = useRef<{
-    startX: number
-    startWidth: number
-    width: number
-    cleanup: () => void
-  } | undefined>(undefined)
+  const appShellRef = useRef<HTMLElement | null>(null)
+  const {
+    layersWidth,
+    layersResizing,
+    inspectorWidth,
+    inspectorResizing,
+    startLayersResize,
+    startInspectorResize,
+    resizeLayersByKeyboard,
+  } = useSidebarResize({
+    appShellRef,
+    initialLayersWidth: preferences.layersWidth,
+    initialInspectorWidth: preferences.inspectorWidth || 280,
+    onPersistPreferences: (changes) => {
+      setPreferences((current) => {
+        const next = { ...current, ...changes }
+        try {
+          saveUiPreferences(next)
+        } catch (error) {
+          notify(
+            error instanceof Error ? error.message : '保存界面偏好失败',
+            'error',
+          )
+        }
+        return next
+      })
+    },
+  })
   const [activeTool, setActiveTool] = useState<ToolDockTool>('select')
   const [popup, setPopup] = useState<Popup>(null)
   const [providerDrawerOpen, setProviderDrawerOpen] = useState(false)
+  const [providerDrawerTab, setProviderDrawerTab] = useState<'media' | 'agent'>('media')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [assetManagerOpen, setAssetManagerOpen] = useState(false)
-  const [activeLeftTab, setActiveLeftTab] = useState<'layers' | 'assets' | 'agent'>('layers')
+  const [activeLeftTab, setActiveLeftTab] = useState<'layers' | 'lineage' | 'assets' | 'agent'>('layers')
   const [dialog, setDialog] = useState<Dialog>(null)
   const [panel, setPanel] = useState<SidePanelKind | null>(() =>
     isSidePanelKind(preferences.lastOpenPanel) &&
@@ -273,7 +276,6 @@ export default function App({
   const copiedNodeIdsRef = useRef<string[]>([])
   const internalClipboardRef = useRef<CanvasClipboardEnvelope | undefined>(undefined)
   const lastCanvasPointerRef = useRef<OverlayPosition | undefined>(undefined)
-  const pasteCascadeRef = useRef<{ key: string; count: number } | undefined>(undefined)
   const contextMenuDismissedAtRef = useRef(0)
   const snapshot = useStore(canvasStore, (state) => state.snapshot)
   const selectedNodeIds = useStore(canvasStore, (state) => state.selectedNodeIds)
@@ -330,108 +332,7 @@ export default function App({
     [notify],
   )
 
-  const appShellRef = useRef<HTMLElement | null>(null)
 
-  const finishLayersResize = useCallback(() => {
-    const resize = layersResizeRef.current
-    if (!resize) return
-    layersResizeRef.current = undefined
-    resize.cleanup()
-    setLayersResizing(false)
-    setLayersWidth(resize.width)
-    persistPreferences({ layersWidth: resize.width })
-  }, [persistPreferences])
-
-  const startLayersResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    if (window.innerWidth <= 720 || event.button !== 0) return
-    event.preventDefault()
-    event.stopPropagation()
-    const move = (moveEvent: MouseEvent) => {
-      const resize = layersResizeRef.current
-      if (!resize) return
-      const maximum = Math.min(MAX_LAYERS_WIDTH, Math.floor(window.innerWidth * 0.7))
-      const width = Math.min(maximum, Math.max(MIN_LAYERS_WIDTH,
-        resize.startWidth + moveEvent.clientX - resize.startX))
-      resize.width = normalizeLayersWidth(width)
-      if (appShellRef.current) {
-        appShellRef.current.style.setProperty('--layers-sidebar-width', `${resize.width}px`)
-      }
-    }
-    const end = () => finishLayersResize()
-    const cleanup = () => {
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', end)
-      window.removeEventListener('blur', end)
-    }
-    layersResizeRef.current = {
-      startX: event.clientX,
-      startWidth: layersWidth,
-      width: layersWidth,
-      cleanup,
-    }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', end)
-    window.addEventListener('blur', end)
-    setLayersResizing(true)
-  }, [finishLayersResize, layersWidth])
-
-  const finishInspectorResize = useCallback(() => {
-    const resize = inspectorResizeRef.current
-    if (!resize) return
-    inspectorResizeRef.current = undefined
-    resize.cleanup()
-    setInspectorResizing(false)
-    setInspectorWidth(resize.width)
-    persistPreferences({ inspectorWidth: resize.width })
-  }, [persistPreferences])
-
-  const startInspectorResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    if (window.innerWidth <= 720 || event.button !== 0) return
-    event.preventDefault()
-    event.stopPropagation()
-    const startX = event.clientX
-    const startWidth = inspectorWidth
-    const move = (moveEvent: MouseEvent) => {
-      const delta = startX - moveEvent.clientX
-      const maximum = Math.min(MAX_INSPECTOR_WIDTH, Math.floor(window.innerWidth * 0.6))
-      const width = Math.min(maximum, Math.max(MIN_INSPECTOR_WIDTH, startWidth + delta))
-      const normalized = normalizeInspectorWidth(width)
-      if (inspectorResizeRef.current) {
-        inspectorResizeRef.current.width = normalized
-      }
-      if (appShellRef.current) {
-        appShellRef.current.style.setProperty('--inspector-sidebar-width', `${normalized}px`)
-      }
-    }
-    const end = () => finishInspectorResize()
-    const cleanup = () => {
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', end)
-      window.removeEventListener('blur', end)
-    }
-    inspectorResizeRef.current = {
-      startX,
-      startWidth,
-      width: startWidth,
-      cleanup,
-    }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', end)
-    window.addEventListener('blur', end)
-    setInspectorResizing(true)
-  }, [finishInspectorResize, inspectorWidth])
-
-  const resizeLayersByKeyboard = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-    event.preventDefault()
-    event.stopPropagation()
-    const step = event.shiftKey ? 40 : 10
-    const maximum = Math.min(MAX_LAYERS_WIDTH, Math.floor(window.innerWidth * 0.7))
-    const width = Math.min(maximum, Math.max(MIN_LAYERS_WIDTH,
-      layersWidth + (event.key === 'ArrowRight' ? step : -step)))
-    setLayersWidth(width)
-    persistPreferences({ layersWidth: width })
-  }, [layersWidth, persistPreferences])
 
   const runMockAction = useCallback(
     (task: Promise<unknown>, successMessage: string) => {
@@ -767,7 +668,7 @@ export default function App({
     setContextMenu(null)
     canvasStore.getState().setMode('select')
     if (tool === 'undo') { performUndo(); return }
-    if (tool === 'redo') { canvasStore.getState().redo(); return }
+    if (tool === 'redo') { performRedo(); return }
     if (tool === 'upload') {
       setAddNodePosition(undefined)
       setPopup((current) => (current === 'add' ? null : 'add'))
@@ -1010,148 +911,15 @@ export default function App({
     return addNode
   }, [addNodePosition, notify, openGenerationHistory, openPanel, readOnly])
 
-  const importClipboardContents = useCallback(async (contents: ClipboardContents) => {
-    const resolved = await resolveClipboardContents(contents)
-    const pasteAnchor = (signature: string) => {
-      const current = canvasStore.getState().snapshot
-      const zoom = Math.max(current.viewport.zoom, 0.01)
-      const pointer = lastCanvasPointerRef.current ?? {
-        x: window.innerWidth / 2,
-        y: window.innerHeight / 2,
-      }
-      const key = `${signature}:${pointer.x}:${pointer.y}`
-      const count = pasteCascadeRef.current?.key === key
-        ? pasteCascadeRef.current.count + 1
-        : 0
-      pasteCascadeRef.current = { key, count }
-      return {
-        x: (pointer.x - current.viewport.x) / zoom + count * 32,
-        y: (pointer.y - current.viewport.y) / zoom + count * 32,
-      }
-    }
-    const pasteGraph = (
-      nodes: CanvasNode[],
-      edges: CanvasClipboardEnvelope['edges'],
-      signature: string,
-    ) => canvasStore.getState().pasteImportedGraph({
-      nodes,
-      edges,
-      anchor: pasteAnchor(signature),
-    })
-    const importEnvelope = (envelope: CanvasClipboardEnvelope) => {
-      internalClipboardRef.current = envelope
-      pasteGraph(
-        envelope.nodes,
-        envelope.edges,
-        `internal:${envelope.sourceCanvasId}:${envelope.nodes.map((node) => node.id).join(',')}`,
-      )
-    }
-
-    if (resolved.kind === 'empty') {
-      if (!internalClipboardRef.current) throw new Error('剪贴板中没有可粘贴的内容')
-      importEnvelope(internalClipboardRef.current)
-    } else if (resolved.kind === 'error') {
-      throw new Error(resolved.message)
-    } else if (resolved.kind === 'internal') {
-      importEnvelope(resolved.envelope)
-    } else if (resolved.kind === 'files') {
-      copiedNodeIdsRef.current = []
-      internalClipboardRef.current = undefined
-      const nodes: CanvasNode[] = []
-      for (const [index, file] of resolved.files.entries()) {
-        // Uploads media and prepares asset (delegates to persistLocalMedia(file))
-        const prepared = await uploadAndPrepareMediaAsset(file)
-        const name = file.name || '粘贴素材'
-        if (prepared.kind === 'image') {
-          nodes.push({
-            id: `clipboard-source-${index}`,
-            type: 'image',
-            name,
-            position: { x: index * 32, y: index * 32 },
-            size: { width: prepared.width, height: prepared.height },
-            data: {
-              url: prepared.url,
-              assetId: prepared.assetId,
-              displayMode: 'layer',
-              generationSettings: DEFAULT_IMAGE_GENERATION_SETTINGS,
-            },
-          } as CanvasNode)
-        } else if (prepared.kind === 'video') {
-          nodes.push({
-            id: `clipboard-source-${index}`,
-            type: 'video',
-            name,
-            position: { x: index * 32, y: index * 32 },
-            size: { width: prepared.width, height: prepared.height },
-            data: {
-              url: prepared.url,
-              poster: prepared.posterUrl,
-              assetId: prepared.assetId,
-              displayMode: 'layer',
-              durationSec: prepared.durationSec ?? 5,
-              generationSettings: DEFAULT_VIDEO_GENERATION_SETTINGS,
-            },
-          } as CanvasNode)
-        }
-      }
-      pasteGraph(nodes, [], `files:${resolved.files.map((file) => `${file.name}:${file.size}`).join('|')}`)
-    } else if (resolved.kind === 'url') {
-      let asset: { assetId: string; url: string }
-      if (/^data:/i.test(resolved.url)) {
-        const response = await fetch(resolved.url)
-        const blob = await response.blob()
-        asset = await persistLocalMedia(new File(
-          [blob],
-          `clipboard.${resolved.media === 'image' ? 'png' : 'mp4'}`,
-          { type: blob.type },
-        ))
-      } else {
-        asset = await persistRemoteClipboardMedia(resolved.url, resolved.media, gatewayClient)
-      }
-      pasteGraph([{
-        id: 'clipboard-remote-source',
-        type: resolved.media,
-        name: resolved.media === 'image' ? '剪贴板图片' : '剪贴板视频',
-        position: { x: 0, y: 0 },
-        size: resolved.media === 'image'
-          ? { width: 480, height: 320 }
-          : { width: 480, height: 270 },
-        data: { url: asset.url, assetId: asset.assetId },
-      } as CanvasNode], [], `url:${resolved.url}`)
-    } else {
-      pasteGraph([{
-        id: 'clipboard-text-source',
-        type: 'text',
-        name: '文本',
-        position: { x: 0, y: 0 },
-        size: { width: 420, height: 220 },
-        data: { text: resolved.text, nodeKind: 'text' },
-      }], [], `text:${resolved.text}`)
-    }
-  }, [])
-
-  useEffect(() => {
-    const handlePaste = (event: ClipboardEvent) => {
-      if (!hydrated || readOnly) return
-      const target = event.target
-      if (
-        target instanceof HTMLElement &&
-        target.closest('input, textarea, select, [contenteditable="true"]')
-      ) {
-        return
-      }
-
-      event.preventDefault()
-      void importClipboardContents(contentsFromDataTransfer(event.clipboardData))
-        .catch((error: unknown) => notify(
-          error instanceof Error ? error.message : '无法读取剪贴板内容',
-          'error',
-        ))
-    }
-
-    document.addEventListener('paste', handlePaste)
-    return () => document.removeEventListener('paste', handlePaste)
-  }, [hydrated, importClipboardContents, notify, readOnly])
+  const { importClipboardContents } = useCanvasClipboard({
+    store: canvasStore,
+    hydrated,
+    readOnly,
+    notify,
+    lastCanvasPointerRef,
+    copiedNodeIdsRef,
+    internalClipboardRef,
+  })
 
   const handleHelpAction = (action: HelpAction) => {
     if (action === 'guide') setPopup(null)
@@ -1176,7 +944,14 @@ export default function App({
   }
 
   const handleNodeContextAction = (action: NodeContextAction) => {
-    if (readOnly && action !== 'copy-node' && action !== 'copy-to-clipboard') return
+    if (
+      readOnly &&
+      action !== 'copy-node' &&
+      action !== 'copy-to-clipboard' &&
+      action !== 'copy-image'
+    ) {
+      return
+    }
     const selectedIds = canvasStore.getState().selectedNodeIds
     if (action === 'toggle-lock') {
       const snapshot = canvasStore.getState().snapshot
@@ -1212,6 +987,25 @@ export default function App({
     if (action === 'copy-node') {
       void copySelectedNodes(selectedIds)
         .catch(() => notify('浏览器未允许写入剪贴板', 'error'))
+      return
+    }
+    if (action === 'copy-image') {
+      const snapshot = canvasStore.getState().snapshot
+      const node = snapshot.nodes.find(
+        (n) => selectedIds.includes(n.id) && n.type === 'image',
+      )
+      if (!node || node.type !== 'image' || !node.data?.url) {
+        notify('当前节点未包含有效图片数据', 'warning')
+        return
+      }
+      void copyImageToClipboard(node.data.url)
+        .then(() => notify('已复制图片到剪贴板', 'info'))
+        .catch((error: unknown) =>
+          notify(
+            error instanceof Error ? error.message : '无法复制图片到剪贴板',
+            'error',
+          ),
+        )
       return
     }
     if (action === 'paste') {
@@ -1319,6 +1113,26 @@ export default function App({
             <span className="app-layer-sidebar__rail-label">图层</span>
           </button>
           <button
+            aria-label={preferences.layersOpen ? '演化' : '展开演化'}
+            className={`app-layer-sidebar__rail-btn ${preferences.layersOpen && activeLeftTab === 'lineage' ? 'app-layer-sidebar__rail-btn--active' : ''}`}
+            onClick={() => {
+              if (!preferences.layersOpen) {
+                setActiveLeftTab('lineage')
+                persistPreferences({ layersOpen: true })
+              } else if (activeLeftTab === 'lineage') {
+                persistPreferences({ layersOpen: false })
+              } else {
+                setActiveLeftTab('lineage')
+              }
+              setPopup(null)
+            }}
+            title="AI 演化谱系"
+            type="button"
+          >
+            <GitBranch size={18} />
+            <span className="app-layer-sidebar__rail-label">演化</span>
+          </button>
+          <button
             aria-label="资产管理"
             className={`app-layer-sidebar__rail-btn ${preferences.layersOpen && activeLeftTab === 'assets' ? 'app-layer-sidebar__rail-btn--active' : ''}`}
             onClick={() => {
@@ -1413,6 +1227,23 @@ export default function App({
               selectedIds={selectedNodeIds}
             />
           )}
+          {activeLeftTab === 'lineage' && (
+            <LineageSidebarPanel
+              edges={snapshot.edges}
+              nodes={snapshot.nodes}
+              onFocusNode={(id) => {
+                if (imageSelectionGuardRef.current(id)) {
+                  canvasStore.getState().selectNode(id)
+                }
+                setFocusNodeRequest({ id, nonce: Date.now() })
+              }}
+              onNotify={notify}
+              onSelect={(id) => {
+                if (imageSelectionGuardRef.current(id)) canvasStore.getState().selectNode(id)
+              }}
+              selectedIds={selectedNodeIds}
+            />
+          )}
           {activeLeftTab === 'assets' && (
             <AssetsSidebarPanel
               onInsertAsset={(asset) => {
@@ -1455,7 +1286,19 @@ export default function App({
             />
           )}
           {activeLeftTab === 'agent' && (
-            <AgentSidebarPanel onNotify={notify} />
+            <AgentSidebarPanel
+              canvasId={canvasId}
+              onNotify={notify}
+              onOpenProviderDrawer={() => {
+                setProviderDrawerTab('agent')
+                setProviderDrawerOpen(true)
+              }}
+              readOnly={
+                readOnly ||
+                (Boolean(collaborationState.session) &&
+                  collaborationState.session?.role !== 'owner')
+              }
+            />
           )}
           {preferences.layersOpen && (
             <div
@@ -1677,6 +1520,7 @@ export default function App({
         collaborationStatus={collaborationState.status}
         currentNickname={collaborationState.session?.displayName}
         onOpenApiManagement={() => {
+          setProviderDrawerTab('media')
           setProviderDrawerOpen(true)
           setPopup(null)
         }}
@@ -1704,6 +1548,7 @@ export default function App({
         addNodePosition={addNodePosition}
         providerDrawerOpen={providerDrawerOpen}
         setProviderDrawerOpen={setProviderDrawerOpen}
+        providerDrawerTab={providerDrawerTab}
         historyOpen={historyOpen}
         setHistoryOpen={setHistoryOpen}
         assetManagerOpen={assetManagerOpen}

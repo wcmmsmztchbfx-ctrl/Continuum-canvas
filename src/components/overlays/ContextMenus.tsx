@@ -6,6 +6,7 @@ import {
   ClipboardPaste,
   Copy,
   CopyPlus,
+  Image,
   Lock,
   Plus,
   Redo2,
@@ -72,6 +73,7 @@ export type NodeContextAction =
   | 'create-subject'
   | 'toggle-lock'
   | 'copy-node'
+  | 'copy-image'
   | 'duplicate'
   | 'paste'
   | 'delete'
@@ -79,12 +81,14 @@ export type NodeContextAction =
 
 export interface NodeContextMenuProps extends ControlledOverlayProps {
   isLocked?: boolean
+  hasImage?: boolean
   onAction?: (action: NodeContextAction) => void
   position?: OverlayPosition
 }
 
 export function NodeContextMenu({
   isLocked = false,
+  hasImage = false,
   onAction,
   onClose,
   open,
@@ -102,12 +106,15 @@ export function NodeContextMenu({
         separatorBefore: true,
       },
       { action: 'copy-node', icon: Copy, label: '复制节点', separatorBefore: true, shortcut: 'Ctrl C' },
+      ...(hasImage
+        ? ([{ action: 'copy-image', icon: Image, label: '复制图片' }] as const)
+        : []),
       { action: 'duplicate', icon: CopyPlus, label: '生成副本', shortcut: 'Ctrl D' },
       { action: 'paste', icon: ClipboardPaste, label: '粘贴', shortcut: 'Ctrl V' },
       { action: 'delete', danger: true, icon: Trash2, label: '删除', separatorBefore: true, shortcut: 'Delete' },
       { action: 'copy-to-clipboard', icon: ClipboardCopy, label: '复制到剪贴板', separatorBefore: true },
     ],
-    [isLocked],
+    [hasImage, isLocked],
   )
 
   return (
