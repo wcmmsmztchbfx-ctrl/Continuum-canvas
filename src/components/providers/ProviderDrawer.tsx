@@ -47,6 +47,39 @@ const emptyDraft: ProviderDraft = {
   imageRequestMode: 'auto',
 }
 
+export const MEDIA_PROVIDER_PRESETS = [
+  {
+    id: 'aistartlab',
+    name: 'AIStartLab 官方',
+    adapterType: 'aistartlab-openapi',
+    baseUrl: OFFICIAL_AISTARTLAB_BASE_URL,
+  },
+  {
+    id: 'minimax',
+    name: 'MiniMax 官方视频 (MiniMax-H3)',
+    adapterType: 'minimax-video',
+    baseUrl: 'https://api.minimaxi.com',
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI 官方 (DALL-E)',
+    adapterType: 'openai-compatible',
+    baseUrl: 'https://api.openai.com/v1',
+  },
+  {
+    id: 'siliconflow',
+    name: '硅基流动 (SiliconFlow)',
+    adapterType: 'openai-compatible',
+    baseUrl: 'https://api.siliconflow.cn/v1',
+  },
+  {
+    id: 'custom',
+    name: '自定义 OpenAI 兼容',
+    adapterType: 'openai-compatible',
+    baseUrl: 'https://api.example.com/v1',
+  },
+] as const
+
 export interface AgentProviderItem {
   id: string
   name: string
@@ -202,6 +235,11 @@ export function ProviderDrawer({
   const selected = useMemo(
     () => state.providers.find((provider) => provider.id === selectedId),
     [selectedId, state.providers],
+  )
+
+  const currentCatalog = useMemo(
+    () => (selectedId ? state.catalogs?.[selectedId] : undefined),
+    [selectedId, state.catalogs],
   )
 
   const isDraftDirty = useMemo(() => {
@@ -403,8 +441,13 @@ export function ProviderDrawer({
       })
     }
     try {
-      await state.syncProvider(id)
-      onNotify?.('目录同步成功', 'success')
+      const res = await state.syncProvider(id, { force: true })
+      if (res && res.models.length > 0) {
+        setTestFeedback({ type: 'success', message: '目录同步成功' })
+        onNotify?.('目录同步成功', 'success')
+      } else {
+        setTestFeedback({ type: 'error', message: '目录同步未返回可用模型' })
+      }
     } catch (err: unknown) {
       setTestFeedback({
         type: 'error',
@@ -710,6 +753,36 @@ export function ProviderDrawer({
                 ) : null}
               </div>
 
+              {/* Fast Presets Selector when adding media provider */}
+              {adding ? (
+                <label className="integration-field" style={{ marginBottom: '12px' }}>
+                  <span>快速选择官方预设（一键填入常用配置）</span>
+                  <select
+                    aria-label="快速选择生图/视频预设"
+                    disabled={readOnly}
+                    onChange={(e) => {
+                      const found = MEDIA_PROVIDER_PRESETS.find((p) => p.id === e.target.value)
+                      if (found) {
+                        setDraft((prev) => ({
+                          ...prev,
+                          id: found.id === 'custom' ? `custom-${Date.now().toString(36).slice(-4)}` : found.id,
+                          name: found.name,
+                          adapterType: found.adapterType,
+                          baseUrl: found.baseUrl,
+                        }))
+                      }
+                    }}
+                    value={MEDIA_PROVIDER_PRESETS.some((p) => p.id === draft.id) ? draft.id : 'custom'}
+                  >
+                    {MEDIA_PROVIDER_PRESETS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+
               <div className="provider-form-grid">
                 <label className="integration-field">
                   <span>供应商 ID</span>
@@ -763,12 +836,15 @@ export function ProviderDrawer({
                         baseUrl:
                           event.target.value === 'aistartlab-openapi'
                             ? OFFICIAL_AISTARTLAB_BASE_URL
-                            : current.baseUrl,
+                            : event.target.value === 'minimax-video' && (!current.baseUrl || current.baseUrl.includes('aistarslab'))
+                              ? 'https://api.minimaxi.com'
+                              : current.baseUrl,
                       }))
                     }
                     value={draft.adapterType}
                   >
                     <option value="aistartlab-openapi">AIStartLab 官方 OpenAPI</option>
+                    <option value="minimax-video">MiniMax 官方视频 (MiniMax-H3)</option>
                     <option value="openai-compatible">OpenAI 兼容</option>
                     <option value="custom-compatible">自定义（暂不支持）</option>
                   </select>
@@ -923,18 +999,18 @@ export function ProviderDrawer({
                 </div>
               ) : null}
 
-              {!adding && selected && !unsupported && state.catalog && state.catalog.models.length > 0 ? (
+              {!adding && selected && !unsupported && currentCatalog && currentCatalog.models.length > 0 ? (
                 <div className="provider-drawer__catalog-preview">
                   <div className="provider-drawer__catalog-preview-header">
-                    <span>已同步可用模型 ({state.catalog.models.length})</span>
+                    <span>已同步可用模型 ({currentCatalog.models.length})</span>
                     <small>
-                      {state.catalog.fetchedAt
-                        ? `更新于 ${new Date(state.catalog.fetchedAt).toLocaleTimeString()}`
+                      {currentCatalog.fetchedAt
+                        ? `更新于 ${new Date(currentCatalog.fetchedAt).toLocaleTimeString()}`
                         : '已同步'}
                     </small>
                   </div>
                   <div className="provider-drawer__catalog-tags">
-                    {state.catalog.models.slice(0, 16).map((m) => (
+                    {currentCatalog.models.slice(0, 16).map((m) => (
                       <span
                         key={`${m.mediaType}-${m.channel}-${m.model}`}
                         className="provider-drawer__model-tag"
@@ -943,27 +1019,21 @@ export function ProviderDrawer({
                         {m.label || m.title || m.model}
                       </span>
                     ))}
-                    {state.catalog.models.length > 16 ? (
+                    {currentCatalog.models.length > 16 ? (
                       <span className="provider-drawer__model-tag-more">
-                        +{state.catalog.models.length - 16} 更多
+                        +{currentCatalog.models.length - 16} 更多
                       </span>
                     ) : null}
                   </div>
                 </div>
               ) : null}
 
-              {!adding && selected && !unsupported && !state.catalog && !state.error && !testFeedback ? (
+              {!adding && selected && !unsupported && !currentCatalog && !testFeedback ? (
                 <p className="provider-drawer__catalog-empty">
                   {selected.secretConfigured
                     ? '目录尚未同步，点击上方「同步模型」获取可用模型'
                     : '配置密钥后同步目录'}
                 </p>
-              ) : null}
-              {state.error && !testFeedback ? (
-                <div className="provider-drawer__test-feedback is-error" role="alert">
-                  <X size={14} />
-                  <span>{state.error}</span>
-                </div>
               ) : null}
             </main>
           </div>

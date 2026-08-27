@@ -322,6 +322,7 @@ describe('provider management UI', () => {
     const adapter = screen.getByLabelText('适配器') as HTMLSelectElement
     expect(Array.from(adapter.options).map((option) => option.value)).toEqual([
       'aistartlab-openapi',
+      'minimax-video',
       'openai-compatible',
       'custom-compatible',
     ])

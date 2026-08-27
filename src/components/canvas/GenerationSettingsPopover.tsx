@@ -14,7 +14,7 @@ import type {
   VideoGenerationSettings,
 } from '../../model/project'
 import { placeFloatingRect } from './floatingGeometry'
-import { modelCanGenerateAudio } from './generationUi'
+import { modelCanGenerateAudio, supportedVideoModes } from './generationUi'
 
 interface GenerationSettingsPopoverProps {
   anchor?: HTMLElement | null
@@ -28,14 +28,17 @@ interface GenerationSettingsPopoverProps {
 function OptionButton({
   children,
   selected,
+  ariaLabel,
   onClick,
 }: {
   children: ReactNode
   selected: boolean
+  ariaLabel?: string
   onClick: () => void
 }) {
   return (
     <button
+      aria-label={ariaLabel}
       aria-pressed={selected}
       className="canvas-generation-settings__option"
       data-selected={selected}
@@ -47,8 +50,14 @@ function OptionButton({
   )
 }
 
+function formatRatioLabel(ratio: string): string {
+  if (ratio.toLowerCase() === 'adaptive' || ratio.toLowerCase() === 'auto') return '自适应'
+  return ratio
+}
+
 function ratioShape(ratio: string) {
-  if (ratio.toLowerCase() === 'auto') return { width: 13, height: 9 }
+  const norm = ratio.toLowerCase()
+  if (norm === 'auto' || norm === 'adaptive' || norm === '自适应') return { width: 12, height: 12 }
   const values = ratio.split(':').map(Number)
   const width = values[0]
   const height = values[1]
@@ -57,8 +66,8 @@ function ratioShape(ratio: string) {
   }
   const maximum = Math.max(width, height)
   return {
-    width: Math.max(5, (width / maximum) * 15),
-    height: Math.max(5, (height / maximum) * 15),
+    width: Math.max(6, Math.round((width / maximum) * 16)),
+    height: Math.max(6, Math.round((height / maximum) * 16)),
   }
 }
 
@@ -91,7 +100,7 @@ function RatioButton({
           } as CSSProperties
         }
       />
-      <span>{ratio}</span>
+      <span>{formatRatioLabel(ratio)}</span>
     </button>
   )
 }
@@ -116,64 +125,21 @@ function QualityOptions({
 }) {
   return (
     <SettingGroup label="清晰度">
-      <div className="canvas-generation-settings__row">
+      <div className="canvas-generation-settings__segmented">
         {model.qualityOptions.map((option) => (
-          <OptionButton
+          <button
             key={option.value}
+            aria-pressed={selected === option.value}
+            className="canvas-generation-settings__segmented-btn"
+            data-selected={selected === option.value}
             onClick={() => onSelect(option.value)}
-            selected={selected === option.value}
+            type="button"
           >
             {option.label}
-          </OptionButton>
+          </button>
         ))}
       </div>
     </SettingGroup>
-  )
-}
-
-function CommonSettings({
-  model,
-  settings,
-  onRatio,
-  onCount,
-}: {
-  model: CatalogModel
-  settings: MediaGenerationSettings
-  onRatio: (ratio: string) => void
-  onCount: (count: number) => void
-}) {
-  return (
-    <>
-      {model.aspectRatios.length > 0 ? (
-        <SettingGroup label="比例">
-          <div className="canvas-generation-settings__ratio-grid">
-            {model.aspectRatios.map((ratio) => (
-              <RatioButton
-                key={ratio}
-                onClick={() => onRatio(ratio)}
-                ratio={ratio}
-                selected={settings.aspectRatio === ratio}
-              />
-            ))}
-          </div>
-        </SettingGroup>
-      ) : null}
-      {model.countOptions.length > 0 ? (
-        <SettingGroup label="生成数量">
-          <div className="canvas-generation-settings__row">
-            {model.countOptions.map((count) => (
-              <OptionButton
-                key={count}
-                onClick={() => onCount(count)}
-                selected={settings.count === count}
-              >
-                {count}{settings.kind === 'image' ? '张' : '个'}
-              </OptionButton>
-            ))}
-          </div>
-        </SettingGroup>
-      ) : null}
-    </>
   )
 }
 
@@ -188,17 +154,42 @@ function ImageSettings({
 }) {
   return (
     <>
-      <QualityOptions
-        model={model}
-        onSelect={(quality) => onChange({ ...settings, quality, resolution: quality })}
-        selected={settings.quality}
-      />
-      <CommonSettings
-        model={model}
-        onCount={(count) => onChange({ ...settings, count })}
-        onRatio={(aspectRatio) => onChange({ ...settings, aspectRatio })}
-        settings={settings}
-      />
+      {model.aspectRatios.length > 0 ? (
+        <SettingGroup label="比例">
+          <div className="canvas-generation-settings__ratio-grid">
+            {model.aspectRatios.map((ratio) => (
+              <RatioButton
+                key={ratio}
+                onClick={() => onChange({ ...settings, aspectRatio: ratio })}
+                ratio={ratio}
+                selected={settings.aspectRatio === ratio}
+              />
+            ))}
+          </div>
+        </SettingGroup>
+      ) : null}
+      {model.qualityOptions.length > 0 ? (
+        <QualityOptions
+          model={model}
+          onSelect={(quality) => onChange({ ...settings, quality, resolution: quality })}
+          selected={settings.quality}
+        />
+      ) : null}
+      {model.countOptions.length > 0 ? (
+        <SettingGroup label="生成数量">
+          <div className="canvas-generation-settings__pills">
+            {model.countOptions.map((count) => (
+              <OptionButton
+                key={count}
+                onClick={() => onChange({ ...settings, count })}
+                selected={settings.count === count}
+              >
+                {count}张
+              </OptionButton>
+            ))}
+          </div>
+        </SettingGroup>
+      ) : null}
     </>
   )
 }
@@ -213,49 +204,91 @@ function VideoSettings({
   onChange: (settings: VideoGenerationSettings) => void
 }) {
   const supportsAudio = modelCanGenerateAudio(model)
+  const videoModes = supportedVideoModes(model)
+  const selectedMode = videoModes.find((m) => m.value === settings.mode) ?? videoModes[0]
+
   return (
     <>
-      <QualityOptions
-        model={model}
-        onSelect={(resolution) => onChange({ ...settings, resolution })}
-        selected={settings.resolution}
-      />
-      <CommonSettings
-        model={model}
-        onCount={(count) => onChange({ ...settings, count })}
-        onRatio={(aspectRatio) => onChange({ ...settings, aspectRatio })}
-        settings={settings}
-      />
+      {videoModes.length > 0 ? (
+        <SettingGroup label="生成方式">
+          <div className="canvas-generation-settings__segmented">
+            {videoModes.map((mode) => (
+              <button
+                key={mode.value}
+                aria-pressed={selectedMode?.value === mode.value}
+                className="canvas-generation-settings__segmented-btn"
+                data-selected={selectedMode?.value === mode.value}
+                onClick={() => onChange({ ...settings, mode: mode.value })}
+                type="button"
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+        </SettingGroup>
+      ) : null}
+
+      {model.aspectRatios.length > 0 ? (
+        <SettingGroup label="比例">
+          <div className="canvas-generation-settings__ratio-grid">
+            {model.aspectRatios.map((ratio) => (
+              <RatioButton
+                key={ratio}
+                onClick={() => onChange({ ...settings, aspectRatio: ratio })}
+                ratio={ratio}
+                selected={settings.aspectRatio === ratio}
+              />
+            ))}
+          </div>
+        </SettingGroup>
+      ) : null}
+
+      {model.qualityOptions.length > 0 ? (
+        <QualityOptions
+          model={model}
+          onSelect={(resolution) => onChange({ ...settings, resolution })}
+          selected={settings.resolution}
+        />
+      ) : null}
+
       {model.durationOptions.length > 0 ? (
-        <SettingGroup label="视频时长">
-          <div className="canvas-generation-settings__row">
+        <SettingGroup label="时长">
+          <div className="canvas-generation-settings__pills">
             {model.durationOptions.map((durationSec) => (
               <OptionButton
+                ariaLabel={`${durationSec}秒`}
                 key={durationSec}
                 onClick={() => onChange({ ...settings, durationSec })}
                 selected={settings.durationSec === durationSec}
               >
-                {durationSec}秒
+                {durationSec}s
               </OptionButton>
             ))}
           </div>
         </SettingGroup>
       ) : null}
+
       {supportsAudio ? (
-        <SettingGroup label="生成音频">
-          <div className="canvas-generation-settings__row">
-            <OptionButton
+        <SettingGroup label="有声视频">
+          <div className="canvas-generation-settings__segmented">
+            <button
+              aria-pressed={settings.generateAudio}
+              className="canvas-generation-settings__segmented-btn"
+              data-selected={settings.generateAudio}
               onClick={() => onChange({ ...settings, generateAudio: true })}
-              selected={settings.generateAudio}
+              type="button"
             >
-              开启
-            </OptionButton>
-            <OptionButton
+              有声
+            </button>
+            <button
+              aria-pressed={!settings.generateAudio}
+              className="canvas-generation-settings__segmented-btn"
+              data-selected={!settings.generateAudio}
               onClick={() => onChange({ ...settings, generateAudio: false })}
-              selected={!settings.generateAudio}
+              type="button"
             >
-              关闭
-            </OptionButton>
+              无声
+            </button>
           </div>
         </SettingGroup>
       ) : null}

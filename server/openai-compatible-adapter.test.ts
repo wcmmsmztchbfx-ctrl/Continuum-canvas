@@ -76,7 +76,7 @@ describe('OpenAICompatibleAdapter', () => {
     expect(again.version).toBe(catalog.version)
   })
 
-  it('falls back to default models when /v1/models has no compatible models', async () => {
+  it('rejects when /v1/models has no compatible media models', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       data: [{ id: 'text-embedding-3-small', owned_by: 'openai' }],
     }))
@@ -86,10 +86,7 @@ describe('OpenAICompatibleAdapter', () => {
       fetcher,
       stagingDir: await tempDirectory(),
     })
-    const catalog = await adapter.syncCatalog()
-    expect(catalog.models.length).toBeGreaterThan(0)
-    expect(catalog.models.some((m) => m.mediaType === 'image')).toBe(true)
-    expect(catalog.models.some((m) => m.mediaType === 'video')).toBe(true)
+    await expect(adapter.syncCatalog()).rejects.toThrow('未能从该 OpenAI 兼容端点找到可用的生图或生视频模型')
   })
 
   it('maps rejected 4xx JSON to ProviderRequestRejectedError', async () => {

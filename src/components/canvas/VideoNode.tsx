@@ -168,6 +168,15 @@ function VideoNodeContent({
   const togglePlayback = () => {
     if (!hasVideo) return
     if (!playing) {
+      const video = videoRef.current
+      if (video) {
+        if (video.ended || (video.duration > 0 && Math.abs(video.currentTime - video.duration) < 0.15)) {
+          video.currentTime = 0
+          currentTimeRef.current = 0
+          if (playbackKey) videoPlaybackPositions.set(playbackKey, 0)
+          updateScrubberDom(0, duration)
+        }
+      }
       setPlaying(true)
     } else {
       const video = videoRef.current
@@ -180,14 +189,21 @@ function VideoNodeContent({
   }
 
   useEffect(() => {
-    if (playing && videoRef.current && videoRef.current.paused) {
-      try {
-        const res = videoRef.current.play()
-        if (res && typeof res.catch === 'function') {
-          res.catch(() => setPlaying(false))
+    if (playing && videoRef.current) {
+      const video = videoRef.current
+      if (video.ended || (video.duration > 0 && Math.abs(video.currentTime - video.duration) < 0.15)) {
+        video.currentTime = 0
+        currentTimeRef.current = 0
+      }
+      if (video.paused) {
+        try {
+          const res = video.play()
+          if (res && typeof res.catch === 'function') {
+            res.catch(() => setPlaying(false))
+          }
+        } catch {
+          setPlaying(false)
         }
-      } catch {
-        setPlaying(false)
       }
     }
   }, [playing, shouldMountVideo])
@@ -294,6 +310,13 @@ function VideoNodeContent({
               setPlaying(false)
               if (playbackKey) videoPlaybackPositions.set(playbackKey, 0)
               currentTimeRef.current = 0
+              if (videoRef.current) {
+                try {
+                  videoRef.current.currentTime = 0
+                } catch {
+                  // ignore
+                }
+              }
               updateScrubberDom(0, duration)
             }}
             onLoadedData={(event) => {

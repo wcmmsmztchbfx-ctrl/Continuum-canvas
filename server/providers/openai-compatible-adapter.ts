@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { GenerationRequest, ProviderCatalog } from '../../src/contracts/generation.ts'
 import type { ImageRequestMode } from '../../src/contracts/catalog.ts'
-import { createFallbackOpenAICatalog, mapOpenAICompatibleCatalog, VIDEO_MODEL_PATTERN } from '../catalog.ts'
+import { mapOpenAICompatibleCatalog, VIDEO_MODEL_PATTERN } from '../catalog.ts'
 import {
   ProviderRequestRejectedError,
   type LocalReference,
@@ -112,32 +112,21 @@ export class OpenAICompatibleAdapter {
   }
 
   async testConnection(signal?: AbortSignal): Promise<void> {
-    try {
-      await this.request('/models', {}, signal)
-    } catch (error) {
-      if (error instanceof ProviderRequestRejectedError) {
-        if (
-          error.providerCode === '401' ||
-          error.providerCode === 'invalid_api_key' ||
-          /invalid.*(api_key|key)|unauthorized|incorrect api key/i.test(error.message)
-        ) {
-          throw error
-        }
-        // When upstream API proxy rejects /models due to group restrictions (e.g. 403 image-4K) or 404,
-        // the host is reachable and the key is recognized by the gateway, so the connection is valid!
-        return
-      }
-      throw error
+    const payload = await this.request('/models', {}, signal)
+    if (!payload || (typeof payload === 'object' && !('data' in payload) && !Array.isArray(payload))) {
+      throw new ProviderRequestRejectedError('接口未返回有效的模型列表数据（可能不支持 OpenAI /models 接口）')
     }
   }
 
   async syncCatalog(signal?: AbortSignal): Promise<ProviderCatalog> {
-    try {
-      const payload = await this.request('/models', {}, signal)
-      return mapOpenAICompatibleCatalog(this.providerId, payload, this.now().toISOString())
-    } catch {
-      return createFallbackOpenAICatalog(this.providerId, this.now().toISOString())
+    const payload = await this.request('/models', {}, signal)
+    const catalog = mapOpenAICompatibleCatalog(this.providerId, payload, this.now().toISOString())
+    if (catalog.models.length === 0) {
+      throw new ProviderRequestRejectedError(
+        '未能从该 OpenAI 兼容端点找到可用的生图或生视频模型。请检查 Base URL 或服务商所开放的模型权限。',
+      )
     }
+    return catalog
   }
 
   async presignReference(reference: LocalReference, signal?: AbortSignal): Promise<PresignedUpload> {

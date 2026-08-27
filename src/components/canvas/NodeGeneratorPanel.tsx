@@ -145,6 +145,10 @@ function settingsEqual(
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
+function conciseModelName(model: CatalogModel): string {
+  return model.title ?? model.label ?? model.model
+}
+
 function modelTitle(model: CatalogModel): string {
   return model.title ?? model.label ?? model.model
 }
@@ -419,7 +423,6 @@ export function NodeGeneratorPanel({
   const [prompt, setPrompt] = useState(promptDraft ?? generation?.prompt ?? '')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
-  const [videoModeOpen, setVideoModeOpen] = useState(false)
   const [providerMenuOpen, setProviderMenuOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [resolvedCatalogErrorIdentity, setResolvedCatalogErrorIdentity] =
@@ -429,8 +432,6 @@ export function NodeGeneratorPanel({
   const [showCompletedStatus, setShowCompletedStatus] = useState(false)
   const modelTriggerRef = useRef<HTMLButtonElement | null>(null)
   const modelMenuRef = useRef<HTMLDivElement | null>(null)
-  const modeTriggerRef = useRef<HTMLButtonElement | null>(null)
-  const modeMenuRef = useRef<HTMLDivElement | null>(null)
   const providerTriggerRef = useRef<HTMLButtonElement | null>(null)
   const providerMenuRef = useRef<HTMLDivElement | null>(null)
   const settingsTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -439,7 +440,6 @@ export function NodeGeneratorPanel({
   const interactionHeld = useRef(false)
   const [interactionLockMessage, setInteractionLockMessage] = useState<string>()
   const modelInitialFocusRef = useRef<'first' | 'last'>('first')
-  const modeInitialFocusRef = useRef<'first' | 'last'>('first')
   const providerInitialFocusRef = useRef<'first' | 'last'>('first')
   const currentQuoteStateRef = useRef<{
     exactCredits: number
@@ -563,25 +563,20 @@ export function NodeGeneratorPanel({
   ])
 
   useEffect(() => {
-    if (!settingsOpen && !modelMenuOpen && !videoModeOpen && !providerMenuOpen) return
+    if (!settingsOpen && !modelMenuOpen && !providerMenuOpen) return
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       setSettingsOpen(false)
       setModelMenuOpen(false)
-      setVideoModeOpen(false)
       setProviderMenuOpen(false)
     }
     document.addEventListener('keydown', closeOnEscape)
     return () => document.removeEventListener('keydown', closeOnEscape)
-  }, [modelMenuOpen, providerMenuOpen, settingsOpen, videoModeOpen])
+  }, [modelMenuOpen, providerMenuOpen, settingsOpen])
 
   useEffect(() => {
     if (modelMenuOpen) focusMenuItem(modelMenuRef.current, modelInitialFocusRef.current)
   }, [modelMenuOpen])
-
-  useEffect(() => {
-    if (videoModeOpen) focusMenuItem(modeMenuRef.current, modeInitialFocusRef.current)
-  }, [videoModeOpen])
 
   useEffect(() => {
     if (providerMenuOpen) focusMenuItem(providerMenuRef.current, providerInitialFocusRef.current)
@@ -670,14 +665,15 @@ export function NodeGeneratorPanel({
     generation.outputAspectRatio !== resolvedSettings.aspectRatio
     ? `${resolvedSettings.aspectRatio}（实际 ${generation.outputAspectRatio}）`
     : resolvedSettings.aspectRatio
-  const settingsSummary =
+  const conciseModeLabel = selectedVideoMode?.label ?? (resolvedSettings.kind === 'video' ? '全能参考' : '')
+  const settingsCapsuleSummary =
     resolvedSettings.kind === 'image'
       ? `${displayedRatio} · ${resolvedSettings.quality} · ${resolvedSettings.count}张`
-      : `${displayedRatio} · ${resolvedSettings.resolution} · ${resolvedSettings.durationSec}s · ${resolvedSettings.count}个`
+      : `${conciseModeLabel} · ${displayedRatio} · ${resolvedSettings.resolution} · ${resolvedSettings.durationSec}s`
   const settingsLabel =
     resolvedSettings.kind === 'video'
-      ? `生成详情：${settingsSummary}，音频${resolvedSettings.generateAudio ? '开启' : '关闭'}`
-      : `生成详情：${settingsSummary}`
+      ? `生成详情：${settingsCapsuleSummary}，音频${resolvedSettings.generateAudio ? '开启' : '关闭'}`
+      : `生成详情：${settingsCapsuleSummary}`
   const placeholder =
     kind === 'image'
       ? '描述画面，输入 @ 可在关键位置引用图片'
@@ -1029,10 +1025,9 @@ export function NodeGeneratorPanel({
     if (!expanded) return
     const handleEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
-      if (modelMenuOpen || videoModeOpen || settingsOpen || providerMenuOpen) {
+      if (modelMenuOpen || settingsOpen || providerMenuOpen) {
         event.preventDefault()
         setModelMenuOpen(false)
-        setVideoModeOpen(false)
         setSettingsOpen(false)
         setProviderMenuOpen(false)
         return
@@ -1047,7 +1042,7 @@ export function NodeGeneratorPanel({
         ?.focus()
     })
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [closeExpanded, expanded, modelMenuOpen, providerMenuOpen, settingsOpen, videoModeOpen])
+  }, [closeExpanded, expanded, modelMenuOpen, providerMenuOpen, settingsOpen])
 
   const editor = (
     <section
@@ -1180,19 +1175,18 @@ export function NodeGeneratorPanel({
         ) : null}
 
         <div className="canvas-node-generator__footer">
-          {(providerState?.providers.length ?? 0) > 1 ? (
+          {providerState?.selectedProvider || (providerState?.providers.length ?? 0) > 0 ? (
             <>
               <div className="canvas-node-generator__menu-control">
                 <button
                   aria-expanded={providerMenuOpen}
                   aria-label="选择生成平台"
-                  className="canvas-node-generator__select"
+                  className="canvas-node-generator__select canvas-node-generator__provider-select"
                   data-active={providerMenuOpen}
                   disabled={providerState?.loading}
                   onClick={() => {
                     setProviderMenuOpen((open) => !open)
                     setModelMenuOpen(false)
-                    setVideoModeOpen(false)
                     setSettingsOpen(false)
                   }}
                   onKeyDown={(event) => {
@@ -1205,7 +1199,7 @@ export function NodeGeneratorPanel({
                   ref={providerTriggerRef}
                   type="button"
                 >
-                  <ServerCog size={14} strokeWidth={1.8} />
+                  <ServerCog size={13} strokeWidth={1.8} />
                   <span>{providerState?.selectedProvider?.name ?? '选择平台'}</span>
                   <ChevronDown size={11} />
                 </button>
@@ -1254,13 +1248,13 @@ export function NodeGeneratorPanel({
             <button
               aria-expanded={modelMenuOpen}
               aria-label={kind === 'image' ? '选择图片模型' : '选择视频模型'}
-              className="canvas-node-generator__select"
+              className="canvas-node-generator__select canvas-node-generator__model-select"
               data-active={modelMenuOpen}
-              disabled={models.length === 0}
+              disabled={models.length === 0 && (!providerState?.providers.length)}
               onClick={() => {
                 setModelMenuOpen((open) => !open)
-                setVideoModeOpen(false)
                 setSettingsOpen(false)
+                setProviderMenuOpen(false)
               }}
               onKeyDown={(event) => {
                 if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
@@ -1273,11 +1267,11 @@ export function NodeGeneratorPanel({
               type="button"
             >
               {kind === 'image' ? (
-                <WandSparkles size={14} strokeWidth={1.8} />
+                <WandSparkles size={13} strokeWidth={1.8} />
               ) : (
-                <Video size={14} strokeWidth={1.8} />
+                <Video size={13} strokeWidth={1.8} />
               )}
-              <span>{selectedModel ? modelTitle(selectedModel) : '等待模型目录'}</span>
+              <span>{selectedModel ? conciseModelName(selectedModel) : '等待模型目录'}</span>
               <ChevronDown size={11} />
             </button>
             {modelMenuOpen ? (
@@ -1323,86 +1317,25 @@ export function NodeGeneratorPanel({
               </FloatingChoiceMenu>
             ) : null}
           </div>
-          {kind === 'video' ? (
-            <>
-              <span className="canvas-node-generator__divider" />
-              <div className="canvas-node-generator__menu-control">
-                <button
-                  aria-expanded={videoModeOpen}
-                  aria-label={`视频生成模式：${selectedVideoMode?.label ?? '未配置'}`}
-                  className="canvas-node-generator__select"
-                  data-active={videoModeOpen}
-                  disabled={videoModes.length === 0}
-                  onClick={() => {
-                    setVideoModeOpen((open) => !open)
-                    setModelMenuOpen(false)
-                    setSettingsOpen(false)
-                  }}
-                  onKeyDown={(event) => {
-                    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
-                    event.preventDefault()
-                    modeInitialFocusRef.current =
-                      event.key === 'ArrowUp' || event.key === 'End' ? 'last' : 'first'
-                    setVideoModeOpen(true)
-                  }}
-                  ref={modeTriggerRef}
-                  type="button"
-                >
-                  <span>{selectedVideoMode?.label ?? '未配置'}</span>
-                  <ChevronDown size={11} />
-                </button>
-                {videoModeOpen ? (
-                  <FloatingChoiceMenu
-                    anchor={modeTriggerRef.current}
-                    ariaLabel="视频生成模式"
-                    className="canvas-node-generator__choice-menu canvas-node-generator__mode-menu"
-                    menuRef={modeMenuRef}
-                    onKeyDown={(event) => handleChoiceMenuKeyDown(
-                      event,
-                      () => setVideoModeOpen(false),
-                      modeTriggerRef.current,
-                    )}
-                    portalRoot={expanded ? expandedDialogRef.current : undefined}
-                  >
-                    {videoModes.map((mode) => (
-                      <button
-                        key={mode.value}
-                        onClick={() => {
-                          if (resolvedSettings.kind === 'video') {
-                            handleSettingsChange({ ...resolvedSettings, mode: mode.value })
-                          }
-                          setVideoModeOpen(false)
-                        }}
-                        role="menuitem"
-                        type="button"
-                      >
-                        <span>{mode.label}</span>
-                        {selectedVideoMode?.value === mode.value ? <Check aria-hidden="true" /> : null}
-                      </button>
-                    ))}
-                  </FloatingChoiceMenu>
-                ) : null}
-              </div>
-            </>
-          ) : null}
+
           <span className="canvas-node-generator__divider" />
+
           <div className="canvas-node-generator__settings-control">
             <button
               aria-expanded={settingsOpen}
               aria-label={settingsLabel}
-              className="canvas-node-generator__select"
+              className="canvas-node-generator__select canvas-node-generator__settings-capsule"
               data-active={settingsOpen}
               disabled={!selectedModel}
               onClick={() => {
                 setSettingsOpen((open) => !open)
                 setModelMenuOpen(false)
-                setVideoModeOpen(false)
               }}
               ref={settingsTriggerRef}
               type="button"
             >
-              <span>{settingsSummary}</span>
-              {resolvedSettings.kind === 'video' ? (
+              <span>{settingsCapsuleSummary}</span>
+              {resolvedSettings.kind === 'video' && modelCanGenerateAudio(selectedModel ?? { raw: {} }) ? (
                 <>
                   <span aria-hidden="true">·</span>
                   {resolvedSettings.generateAudio ? (

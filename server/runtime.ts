@@ -26,6 +26,7 @@ import {
 import { ProviderRegistry, type ProviderRecord } from './provider-registry.ts'
 import { AIStartLabAdapter } from './providers/aistartlab-adapter.ts'
 import { OpenAICompatibleAdapter } from './providers/openai-compatible-adapter.ts'
+import { MiniMaxAdapter } from './providers/minimax-adapter.ts'
 import {
   ProviderRequestRejectedError,
   type ProviderAdapter,
@@ -105,6 +106,14 @@ function defaultAdapterFactory(
       baseUrl: provider.baseUrl,
       stagingDir: transport.stagingDir,
       imageRequestMode: provider.imageRequestMode ?? 'auto',
+    })
+  }
+  if (provider.adapterType === 'minimax-video') {
+    return new MiniMaxAdapter({
+      apiKey,
+      providerId: provider.id,
+      baseUrl: provider.baseUrl,
+      stagingDir: transport.stagingDir,
     })
   }
   throw new ProviderUnavailableError('Provider adapter is not installed')
@@ -312,6 +321,10 @@ export async function createGatewayRuntime(options: {
       adapterFor,
       async updateProvider(record) {
         return trackOperation(async () => {
+          const previous = providers.getPublic(record.id)
+          if (previous && previous.adapterType !== record.adapterType) {
+            await catalogs.delete(record.id)
+          }
           await providers.upsert(record)
           const updated = providers.getPublic(record.id)
           if (!updated) throw new RuntimeNotFoundError('Provider not found')

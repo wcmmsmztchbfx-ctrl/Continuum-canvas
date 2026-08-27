@@ -202,10 +202,9 @@ describe('dynamic generation detail settings', () => {
     await user.click(within(modelMenu).getByRole('menuitem', { name: /Video Secondary/ }))
     expect(screen.getByRole('button', { name: '选择视频模型' })).toHaveTextContent('Video Secondary')
 
-    await user.click(screen.getByRole('button', { name: '视频生成模式：文生视频' }))
-    const modeMenu = screen.getByRole('menu', { name: '视频生成模式' })
-    expect(within(modeMenu).getAllByRole('menuitem')).toHaveLength(1)
-    expect(within(modeMenu).getByRole('menuitem', { name: '文生视频' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /生成详情/ }))
+    const settings = screen.getByRole('dialog', { name: '视频生成设置' })
+    expect(within(settings).getByRole('button', { name: '文生视频' })).toBeVisible()
     expect(onGenerate).not.toHaveBeenCalled()
   })
 
@@ -267,7 +266,7 @@ describe('dynamic generation detail settings', () => {
     )
 
     const details = await screen.findByRole('button', {
-      name: '生成详情：16:9 · 720P · 6s · 1个，音频关闭',
+      name: '生成详情：全能参考 · 16:9 · 720P · 6s，音频关闭',
     })
     await vi.waitFor(() => expect(onSettingsChange).toHaveBeenCalledWith(
       'video-1',
@@ -283,11 +282,10 @@ describe('dynamic generation detail settings', () => {
     await user.click(within(dialog).getByRole('button', { name: '21:9' }))
     await user.click(within(dialog).getByRole('button', { name: '1080P' }))
     await user.click(within(dialog).getByRole('button', { name: '12秒' }))
-    await user.click(within(dialog).getByRole('button', { name: '4个' }))
 
     expect(
       screen.getByRole('button', {
-        name: '生成详情：21:9 · 1080P · 12s · 4个，音频关闭',
+        name: '生成详情：全能参考 · 21:9 · 1080P · 12s，音频关闭',
       }),
     ).toBeVisible()
     expect(onSettingsChange).toHaveBeenLastCalledWith(
@@ -302,7 +300,7 @@ describe('dynamic generation detail settings', () => {
         aspectRatio: '21:9',
         durationSec: 12,
         generateAudio: false,
-        count: 4,
+        count: 1,
       }),
     )
   })

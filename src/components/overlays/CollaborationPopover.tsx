@@ -98,6 +98,7 @@ export function CollaborationPopover({
   const [busy, setBusy] = useState(false)
   const [modeTab, setModeTab] = useState<'lan' | 'remote'>('lan')
   const [activeLinkTab, setActiveLinkTab] = useState<'lan' | 'remote'>('lan')
+  const [lanOrigin, setLanOrigin] = useState<string | null>(null)
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatus>({
     enabled: false,
     mode: 'auto',
@@ -108,6 +109,20 @@ export function CollaborationPopover({
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
   usePopoverClose(open, onClose, surfaceRef)
+
+  useEffect(() => {
+    if (!open) return
+    let mounted = true
+    fetch('/api/network/lan-address')
+      .then((res) => res.json())
+      .then((data: { lanOrigin?: string }) => {
+        if (mounted && data.lanOrigin) setLanOrigin(data.lanOrigin)
+      })
+      .catch(() => {})
+    return () => {
+      mounted = false
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -228,7 +243,9 @@ export function CollaborationPopover({
   const effectiveOrigin =
     activeLinkTab === 'remote' && tunnelStatus.publicUrl
       ? tunnelStatus.publicUrl
-      : undefined
+      : activeLinkTab === 'lan' && lanOrigin
+        ? lanOrigin
+        : undefined
 
   return (
     <div className="overlay-backdrop" onClick={onClose} style={{ zIndex: 90 }}>
@@ -725,6 +742,31 @@ export function CollaborationPopover({
                       )}
                       <span>开启 Cloudflare 远程通道</span>
                     </button>
+                  </div>
+                ) : null}
+
+                {activeLinkTab === 'lan' ? (
+                  <div
+                    className="collab-tunnel-prompt"
+                    style={{
+                      borderLeft: '2px solid #10b981',
+                      background: 'rgba(16, 185, 129, 0.08)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span
+                        className="collab-tab-indicator is-online"
+                        style={{ display: 'inline-block', position: 'static' }}
+                      />
+                      <small style={{ color: '#34d399', fontWeight: 600 }}>
+                        局域网直连模式（同一 Wi-Fi 可用）
+                      </small>
+                    </div>
+                    <small style={{ color: '#9ca3af', marginTop: '2px' }}>
+                      {lanOrigin
+                        ? `局域网地址：${lanOrigin}`
+                        : '未检测到物理局域网网卡，若跨设备推荐使用【远程互联网链接】'}
+                    </small>
                   </div>
                 ) : null}
               </div>

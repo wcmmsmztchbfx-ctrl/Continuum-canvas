@@ -67,6 +67,14 @@ export class CatalogCache {
       : undefined
   }
 
+  async delete(providerId: string): Promise<void> {
+    if (!(providerId in this.catalogs)) return
+    const next = { ...this.catalogs }
+    delete next[providerId]
+    this.catalogs = next
+    await this.persist(next)
+  }
+
   async sync(providerId: string, loader: () => Promise<ProviderCatalog>): Promise<ProviderCatalog> {
     const cached = this.catalogs[providerId]
     let catalog: ProviderCatalog

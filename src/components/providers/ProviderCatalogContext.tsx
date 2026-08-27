@@ -65,6 +65,7 @@ export interface ProviderCatalogState {
   selectedProvider?: ProviderMetadata
   selectedProviderId?: string
   catalog?: ProviderCatalog
+  catalogs: Record<string, ProviderCatalog>
   catalogSyncing: boolean
   loading: boolean
   busyAction?: string
@@ -431,6 +432,7 @@ export function ProviderCatalogProvider({
       selectedProvider,
       selectedProviderId,
       catalog: selectedProviderId ? catalogs[selectedProviderId] : undefined,
+      catalogs,
       catalogSyncing: selectedProviderId
         ? syncingProviderIds.has(selectedProviderId)
         : false,

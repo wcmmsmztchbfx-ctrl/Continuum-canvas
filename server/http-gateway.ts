@@ -2,6 +2,7 @@ import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { BlockList, isIP } from 'node:net'
+import { networkInterfaces } from 'node:os'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { RemoteAssetTimeoutError, RemoteAssetValidationError } from './asset-store.ts'
@@ -448,19 +449,77 @@ export function isLoopbackRemoteAddress(address: string | undefined): boolean {
   return false
 }
 
+export function isPrivateLanRemoteAddress(address: string | undefined): boolean {
+  if (!address) return false
+  const normalized = normalizeHost(address)
+  const family = isIP(normalized)
+  if (family === 4) {
+    const octets = normalized.split('.').map(Number)
+    return octets[0] === 10 ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+      (octets[0] === 192 && octets[1] === 168) ||
+      (octets[0] === 169 && octets[1] === 254)
+  }
+  return family === 6 && (normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe8'))
+}
+
 export function isLoopbackHost(host: string): boolean {
   const normalized = normalizeHost(host)
   return normalized === 'localhost' || isLoopbackRemoteAddress(normalized)
 }
 
-function isLocalHost(request: IncomingMessage): boolean {
+export function isPrivateLanHost(host: string): boolean {
+  const normalized = normalizeHost(host)
+  return isPrivateLanRemoteAddress(normalized)
+}
+
+const VIRTUAL_ADAPTER = /(vmware|virtual|vethernet|hyper-v|wsl|docker|loopback|tunnel|vpn|tap|tun)/i
+
+export function selectPrivateLanAddress(): string | undefined {
+  const adapters = networkInterfaces()
+  const candidates = Object.entries(adapters).flatMap(([name, addresses = []]) =>
+    addresses
+      .filter((entry) => entry.family === 'IPv4' && !entry.internal && isPrivateLanRemoteAddress(entry.address))
+      .map((entry) => ({ name, address: entry.address })),
+  )
+  return candidates.find((entry) => !VIRTUAL_ADAPTER.test(entry.name))?.address
+    ?? candidates[0]?.address
+}
+
+export function isAllowedHost(
+  request: IncomingMessage,
+  dynamicAllowedOrigins: readonly string[] = [],
+  dynamicPublicOrigin?: string,
+): boolean {
   const host = request.headers.host
   if (!host || host.includes('@')) return false
+  let hostname: string
   try {
-    return isLoopbackHost(new URL(`http://${host}`).hostname)
+    hostname = new URL(`http://${host}`).hostname.toLowerCase()
   } catch {
     return false
   }
+  if (isLoopbackHost(hostname) || isPrivateLanHost(hostname) || hostname === '0.0.0.0') return true
+  if (dynamicPublicOrigin) {
+    try {
+      if (new URL(dynamicPublicOrigin).hostname.toLowerCase() === hostname) return true
+    } catch {}
+  }
+  for (const origin of dynamicAllowedOrigins) {
+    try {
+      if (new URL(origin).hostname.toLowerCase() === hostname) return true
+    } catch {}
+  }
+  return false
+}
+
+export function isAllowedRemoteAddress(
+  address: string | undefined,
+  hasPublicOrigin: boolean,
+  localHostOnly: boolean,
+): boolean {
+  if (!localHostOnly || hasPublicOrigin) return true
+  return isLoopbackRemoteAddress(address) || isPrivateLanRemoteAddress(address)
 }
 
 function hasLoopbackBrowserOrigin(request: IncomingMessage): boolean {
@@ -471,7 +530,7 @@ function hasLoopbackBrowserOrigin(request: IncomingMessage): boolean {
     return (
       (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
       !parsed.username && !parsed.password &&
-      isLoopbackHost(parsed.hostname)
+      (isLoopbackHost(parsed.hostname) || isPrivateLanHost(parsed.hostname))
     )
   } catch {
     return false
@@ -492,21 +551,33 @@ function assertAllowedOrigin(
   request: IncomingMessage,
   configured: readonly string[] = [],
   allowRequestHost = false,
+  dynamicPublicOrigin?: string,
 ): void {
   const origin = request.headers.origin
   if (origin === undefined) return
   if (Array.isArray(origin)) throw new ApiError(403, 'origin_not_allowed', 'Request Origin is not allowed')
   const host = request.headers.host
   const values = configured.map((value) => value.toLowerCase())
+  if (dynamicPublicOrigin) values.push(dynamicPublicOrigin.toLowerCase())
   if (allowRequestHost) {
+    if (host) {
+      values.push(`http://${host.toLowerCase()}`, `https://${host.toLowerCase()}`)
+    }
     values.push(
-      host ? `http://${host.toLowerCase()}` : '',
       'http://127.0.0.1:4173',
       'http://localhost:4173',
     )
   }
   const allowed = new Set(values)
-  if (!allowed.has(origin.toLowerCase())) throw new ApiError(403, 'origin_not_allowed', 'Request Origin is not allowed')
+  if (!allowed.has(origin.toLowerCase())) {
+    try {
+      const parsedOrigin = new URL(origin)
+      if (isLoopbackHost(parsedOrigin.hostname) || isPrivateLanHost(parsedOrigin.hostname)) {
+        return
+      }
+    } catch {}
+    throw new ApiError(403, 'origin_not_allowed', 'Request Origin is not allowed')
+  }
 }
 
 function classifyApiPath(pathname: string): { reserved: boolean; encoded: boolean } {
@@ -818,6 +889,15 @@ async function routeApi(
       roomId: memberMatch[1], sessionToken, memberId: memberMatch[2],
     })
     sendJson(response, 200, { removed: true })
+    return true
+  }
+  if (method === 'GET' && path === '/api/network/lan-address') {
+    const lanIp = selectPrivateLanAddress()
+    sendJson(response, 200, {
+      lanIp: lanIp ?? null,
+      port: frontendPort,
+      lanOrigin: lanIp ? `http://${lanIp}:${frontendPort}` : null,
+    })
     return true
   }
   if (method === 'GET' && path === '/api/collaboration/tunnel') {
@@ -1467,10 +1547,10 @@ export async function startGateway(options: {
     response.once('close', abortIncompleteResponse)
     const signal = AbortSignal.any([runtime.signal, clientAbort.signal])
     try {
-      if (localHostOnly && !isLoopbackRemoteAddress(request.socket.remoteAddress)) {
+      if (localHostOnly && !isAllowedRemoteAddress(request.socket.remoteAddress, Boolean(dynamicPublicOrigin), localHostOnly)) {
         throw new ApiError(403, 'remote_not_allowed', 'Remote address is not allowed')
       }
-      if (localHostOnly && !isLocalHost(request)) {
+      if (localHostOnly && !isAllowedHost(request, dynamicAllowedOrigins, dynamicPublicOrigin)) {
         throw new ApiError(400, 'invalid_host', 'Request Host is not allowed')
       }
       const rawPath = (request.url ?? '/').split('?', 1)[0]
@@ -1486,7 +1566,7 @@ export async function startGateway(options: {
           request.method === 'POST' || request.method === 'PUT' ||
           request.method === 'PATCH' || request.method === 'DELETE'
         ) {
-          assertAllowedOrigin(request, dynamicAllowedOrigins, localHostOnly)
+          assertAllowedOrigin(request, dynamicAllowedOrigins, localHostOnly, dynamicPublicOrigin)
         }
         const loopbackBrowserOrigin = hasLoopbackBrowserOrigin(request)
         const frontendPort = options.distDir
@@ -1532,7 +1612,8 @@ export async function startGateway(options: {
     heartbeatMs: options.collaborationHeartbeatMs,
     validateRequest: (request) => {
       if (!localHostOnly) return true
-      return isLoopbackRemoteAddress(request.socket.remoteAddress) && isLocalHost(request)
+      const remoteAllowed = isAllowedRemoteAddress(request.socket.remoteAddress, Boolean(dynamicPublicOrigin), localHostOnly)
+      return remoteAllowed && isAllowedHost(request, dynamicAllowedOrigins, dynamicPublicOrigin)
     },
     allowRequestHostOrigin: localHostOnly,
   })
