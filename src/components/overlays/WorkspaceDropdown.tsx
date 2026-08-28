@@ -42,7 +42,7 @@ function workspaceItems(
     {
       action: 'settings',
       icon: Settings,
-      label: `${noun}设置`,
+      label: '系统设置',
       separatorBefore: true,
     },
   ]

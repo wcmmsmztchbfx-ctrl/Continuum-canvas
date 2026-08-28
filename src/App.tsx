@@ -87,7 +87,7 @@ type Popup =
   | 'collaboration'
   | 'help'
   | null
-type Dialog = 'publish' | 'shortcuts' | 'delete' | 'rename' | null
+type Dialog = 'publish' | 'shortcuts' | 'delete' | 'rename' | 'settings' | null
 type ContextMenu = 'blank' | 'node' | null
 
 const sidePanelKinds: ReadonlyArray<SidePanelKind> = [
@@ -708,8 +708,7 @@ export default function App({
       }
     }
     if (action === 'settings') {
-      if (!capabilities.canPublish) return
-      setDialog('publish')
+      setDialog('settings')
       return
     }
     if (action === 'rename') {
@@ -1175,9 +1174,9 @@ export default function App({
           <button
             aria-label="设置"
             className="app-layer-sidebar__rail-btn"
-            onClick={() => setDialog('shortcuts')}
+            onClick={() => setDialog('settings')}
             style={{ marginTop: 'auto' }}
-            title="设置与快捷键"
+            title="系统设置"
             type="button"
           >
             <Settings size={18} />

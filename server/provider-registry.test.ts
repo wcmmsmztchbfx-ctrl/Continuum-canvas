@@ -275,4 +275,21 @@ describe('ProviderRegistry', () => {
     const registry = await ProviderRegistry.open({ dataDir, env: {} })
     expect(registry.getPublic('legacy')?.imageRequestMode).toBe('auto')
   })
+
+  it('supports deleting a provider and preserving deletion across restarts', async () => {
+    const dataDir = await tempDirectory()
+    const env: Record<string, string> = { API_PROVIDER_OPENAI_KEY: 'sk-delete-me' }
+    const registry = await ProviderRegistry.open({ dataDir, env })
+
+    expect(registry.getPublic('openai')).toBeDefined()
+    const deleted = await registry.delete('openai')
+    expect(deleted).toBe(true)
+    expect(registry.getPublic('openai')).toBeUndefined()
+    expect(registry.getSecret('openai')).toBeUndefined()
+
+    // Reopen registry from the same dataDir: should NOT resurrect deleted preset
+    const reopened = await ProviderRegistry.open({ dataDir, env })
+    expect(reopened.getPublic('openai')).toBeUndefined()
+  })
 })
+

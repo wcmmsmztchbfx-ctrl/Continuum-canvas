@@ -15,6 +15,7 @@ import {
   deleteCanvasThumbnail,
   loadCanvasThumbnail,
 } from '../../persistence/projectRepository'
+import { SettingsModal } from '../overlays/SettingsModal'
 
 const ProviderDrawer = lazy(() =>
   import('../providers/ProviderDrawer').then((module) => ({
@@ -49,6 +50,7 @@ export function WorkspaceHome({
   const [manifest, setManifest] = useState<WorkspaceManifestV1 | null>(null)
   const [editing, setEditing] = useState<EditingItem>(null)
   const [providerDrawerOpen, setProviderDrawerOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [createHandled, setCreateHandled] = useState(false)
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({})
@@ -372,6 +374,7 @@ export function WorkspaceHome({
             reportError(error)
           }
         }}
+        onOpenSettings={() => setSettingsOpen(true)}
         onViewportChange={(viewport) => {
           void repository.updateViewport(viewport).catch(reportError)
         }}
@@ -382,6 +385,11 @@ export function WorkspaceHome({
           <ProviderDrawer onClose={() => setProviderDrawerOpen(false)} open />
         </Suspense>
       ) : null}
+      <SettingsModal
+        onClose={() => setSettingsOpen(false)}
+        onNotify={(msg) => setMessage(msg)}
+        open={settingsOpen}
+      />
       {message ? (
         <div className="workspace-home-message" role="alert">
           <span>{message}</span>

@@ -57,6 +57,10 @@ export interface ProviderGateway {
     providerId: string,
     options?: GatewayRequestOptions,
   ) => Promise<ProviderMetadata>
+  deleteProvider: (
+    providerId: string,
+    options?: GatewayRequestOptions,
+  ) => Promise<{ ok: boolean }>
 }
 
 export interface ProviderCatalogState {
@@ -83,6 +87,7 @@ export interface ProviderCatalogState {
     providerId: string,
     update: ProviderUpdate,
   ) => Promise<ProviderMetadata | undefined>
+  deleteProvider: (providerId: string) => Promise<boolean>
   getProviderSecret: (providerId: string) => Promise<string | undefined>
   setProviderSecret: (
     providerId: string,
@@ -421,6 +426,29 @@ export function ProviderCatalogProvider({
     [gateway, rememberProvider, withAction],
   )
 
+  const deleteProvider = useCallback(
+    async (providerId: string) => {
+      if (!apiManagementAllowedRef.current) return false
+      const res = await withAction(`delete:${providerId}`, (signal) =>
+        gateway.deleteProvider(providerId, { signal }),
+      )
+      if (res?.ok) {
+        setProviders((current) => current.filter((p) => p.id !== providerId))
+        setCatalogs((current) => {
+          const next = { ...current }
+          delete next[providerId]
+          return next
+        })
+        if (selectedProviderId === providerId) {
+          setSelectedProviderId(undefined)
+        }
+        return true
+      }
+      return false
+    },
+    [gateway, selectedProviderId, withAction],
+  )
+
   const preferredProvider = providers.find((provider) => provider.preferred)
   const selectedProvider = providers.find(
     (provider) => provider.id === selectedProviderId,
@@ -447,6 +475,7 @@ export function ProviderCatalogProvider({
       syncProvider,
       testProvider,
       saveProvider,
+      deleteProvider,
       getProviderSecret,
       setProviderSecret,
       clearProviderSecret,
@@ -468,6 +497,7 @@ export function ProviderCatalogProvider({
       syncProvider,
       testProvider,
       saveProvider,
+      deleteProvider,
       setProviderSecret,
       clearProviderSecret,
     ],

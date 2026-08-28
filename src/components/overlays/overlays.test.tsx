@@ -75,7 +75,7 @@ describe('controlled overlay visibility and actions', () => {
     expect(screen.getByRole('menuitem', { name: '重命名项目' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '复制项目' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '删除项目' })).toBeVisible()
-    expect(screen.getByRole('menuitem', { name: '项目设置' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: '系统设置' })).toBeVisible()
   })
 
   it('reports workspace actions and requests close', () => {
@@ -112,7 +112,7 @@ describe('controlled overlay visibility and actions', () => {
     expect(screen.getByRole('menuitem', { name: '重命名画布' })).toBeVisible()
     expect(screen.queryByRole('menuitem', { name: '复制画布' })).toBeNull()
     expect(screen.queryByRole('menuitem', { name: '移入回收站' })).toBeNull()
-    expect(screen.queryByRole('menuitem', { name: '画布设置' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '系统设置' })).toBeNull()
   })
 
   it('lists node creation types and reports the selected kind', () => {

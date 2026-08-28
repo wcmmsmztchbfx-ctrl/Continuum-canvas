@@ -15,6 +15,13 @@ export const GENERATION_ADAPTER_TYPES: ReadonlySet<string> = new Set([
   'aistartlab-openapi',
   'openai-compatible',
   'minimax-video',
+  'runninghub-api',
+  'volcengine-ark',
+  'modelscope-api',
+  'jimeng-cli',
+  'dashscope-api',
+  'kling-api',
+  'comfyui-direct',
 ])
 
 // Request shape variants accepted by OpenAI-compatible platforms. `auto`

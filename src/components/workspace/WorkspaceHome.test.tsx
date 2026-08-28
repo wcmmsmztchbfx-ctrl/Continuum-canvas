@@ -197,22 +197,30 @@ describe('workspace home view', () => {
     expect(onOpenCanvas).toHaveBeenCalledTimes(2)
   })
 
-  it('exposes new canvas and API actions without a project action', () => {
+  it('exposes new canvas and bottom-left rail navigation actions', () => {
     const onCreateCanvas = vi.fn()
     const onApiIntegration = vi.fn()
+    const onOpenSettings = vi.fn()
     render(
       <WorkspaceHomeView
         manifest={manifest}
         onApiIntegration={onApiIntegration}
         onCreateCanvas={onCreateCanvas}
+        onOpenSettings={onOpenSettings}
       />,
     )
 
     fireEvent.click(screen.getAllByRole('button', { name: '新建画布' })[0]!)
-    fireEvent.click(screen.getByRole('button', { name: 'API 接入' }))
+    fireEvent.click(screen.getByRole('button', { name: 'API 设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '系统设置' }))
+
+    const githubLink = screen.getByRole('link', { name: 'GitHub 项目主页' })
+    expect(githubLink).toHaveAttribute('href', 'https://github.com/wcmmsmztchbfx-ctrl/Continuum-canvas')
+    expect(githubLink).toHaveAttribute('target', '_blank')
 
     expect(screen.queryByRole('button', { name: '新建项目' })).toBeNull()
     expect(onCreateCanvas).toHaveBeenCalledOnce()
     expect(onApiIntegration).toHaveBeenCalledOnce()
+    expect(onOpenSettings).toHaveBeenCalledOnce()
   })
 })

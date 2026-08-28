@@ -20,6 +20,9 @@
   padding: 18px 12px;
   background: #181818;
   border-right: 1px solid #2d2d2d;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 .workspace-home__brand,
@@ -42,7 +45,90 @@
 .workspace-home__rail nav button { gap: 10px; width: 100%; height: 38px; padding: 0 10px; color: #aaa; font-size: 13px; background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
 .workspace-home__rail nav button:hover { color: #ececec; background: #232323; }
 .workspace-home__rail nav button[aria-current='page'] { color: #fff; background: #303030; box-shadow: inset 2px 0 #86cbd2; }
-.workspace-home__summary { position: absolute; right: 20px; bottom: 18px; left: 20px; color: #777; font-size: 11px; }
+
+.workspace-home__rail-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid #282828;
+}
+
+.workspace-home__pill-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 17px;
+  border: 1px solid #333333;
+  background: #202020;
+  color: #b5b5b5;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 120ms ease;
+  box-sizing: border-box;
+}
+
+.workspace-home__pill-btn:hover {
+  background: #2b2b2b;
+  color: #ffffff;
+  border-color: #444444;
+}
+
+.workspace-home__pill-btn svg {
+  width: 14px;
+  height: 14px;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.workspace-home__pill-btn--github {
+  border-color: rgba(134, 203, 210, 0.35);
+  color: #86cbd2;
+  background: rgba(134, 203, 210, 0.07);
+}
+
+.workspace-home__pill-btn--github:hover {
+  background: rgba(134, 203, 210, 0.15);
+  border-color: #86cbd2;
+  color: #ffffff;
+}
+
+.workspace-home__badge {
+  position: absolute;
+  top: -5px;
+  right: -2px;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  background: #86cbd2;
+  color: #111111;
+  border-radius: 8px;
+  line-height: 13px;
+  box-shadow: 0 0 8px rgba(134, 203, 210, 0.35);
+}
+
+.workspace-home__pill-btn--version {
+  height: 28px;
+  border-color: #282828;
+  background: transparent;
+  color: #6e6e6e;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.workspace-home__pill-btn--version:hover {
+  background: #1c1c1c;
+  border-color: #353535;
+  color: #a0a0a0;
+}
 
 .workspace-home__topbar { position: absolute; z-index: 5; top: 0; right: 0; left: var(--workspace-rail); display: flex; align-items: center; justify-content: space-between; height: var(--workspace-topbar); padding: 0 20px; background: #141414; border-bottom: 1px solid #2d2d2d; }
 .workspace-home__search { position: relative; display: flex; gap: 8px; align-items: center; width: min(460px, 45vw); min-width: 240px; height: 38px; padding: 0 12px; color: #818181; background: #202020; border: 1px solid #353535; border-radius: 7px; }

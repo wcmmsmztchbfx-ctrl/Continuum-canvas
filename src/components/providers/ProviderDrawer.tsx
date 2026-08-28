@@ -55,6 +55,48 @@ export const MEDIA_PROVIDER_PRESETS = [
     baseUrl: OFFICIAL_AISTARTLAB_BASE_URL,
   },
   {
+    id: 'runninghub',
+    name: 'RunningHub (云端 ComfyUI & AI 应用)',
+    adapterType: 'runninghub-api',
+    baseUrl: 'https://www.runninghub.cn',
+  },
+  {
+    id: 'volcengine',
+    name: '火山引擎 / 字节方舟 (Doubao & Seedance)',
+    adapterType: 'volcengine-ark',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+  },
+  {
+    id: 'dashscope',
+    name: '通义万相 2.1 (阿里 DashScope)',
+    adapterType: 'dashscope-api',
+    baseUrl: 'https://dashscope.aliyuncs.com/api/v1',
+  },
+  {
+    id: 'kling',
+    name: '快手可灵 (Kling AI 官方)',
+    adapterType: 'kling-api',
+    baseUrl: 'https://api.klingai.com/v1',
+  },
+  {
+    id: 'modelscope',
+    name: 'ModelScope (魔搭社区免费生图)',
+    adapterType: 'modelscope-api',
+    baseUrl: 'https://api-inference.modelscope.cn/v1',
+  },
+  {
+    id: 'jimeng',
+    name: '即梦 CLI (Dreamina 会员/积分)',
+    adapterType: 'jimeng-cli',
+    baseUrl: 'http://127.0.0.1:4173/cli',
+  },
+  {
+    id: 'comfyui',
+    name: '本地 / 局域网 ComfyUI (8188)',
+    adapterType: 'comfyui-direct',
+    baseUrl: 'http://127.0.0.1:8188',
+  },
+  {
     id: 'minimax',
     name: 'MiniMax 官方视频 (MiniMax-H3)',
     adapterType: 'minimax-video',
@@ -468,6 +510,33 @@ export function ProviderDrawer({
     }
   }
 
+  const handleDeleteMediaProvider = async (targetId?: string) => {
+    const id = targetId || selectedId
+    if (!id || readOnly) return
+    const provider = state.providers.find((p) => p.id === id)
+    const providerName = provider?.name || id
+    if (!window.confirm(`确定要删除生图/视频供应商配置 [${providerName}] 吗？`)) return
+    try {
+      const ok = await state.deleteProvider(id)
+      if (ok) {
+        onNotify?.(`供应商 [${providerName}] 已删除`, 'info')
+        if (selectedId === id) {
+          const remaining = state.providers.filter((p) => p.id !== id)
+          if (remaining.length > 0) {
+            chooseProvider(remaining[0]!)
+          } else {
+            setSelectedId(undefined)
+            setDraft({ ...emptyDraft, adapterType: 'openai-compatible' })
+            setAdding(true)
+            setSecret('')
+          }
+        }
+      }
+    } catch (err: unknown) {
+      onNotify?.(`删除失败: ${err instanceof Error ? err.message : '未知错误'}`, 'error')
+    }
+  }
+
   // Agent LLM Save, Test, Clear & Delete
   const selectedAgent = useMemo(
     () => agentProviders.find((p) => p.id === selectedAgentId),
@@ -608,15 +677,19 @@ export function ProviderDrawer({
     }
   }
 
-  const handleDeleteAgentProvider = async () => {
-    const targetId = agentDraft.id || selectedAgentId
+  const handleDeleteAgentProvider = async (targetCustomId?: string) => {
+    const targetId = targetCustomId || agentDraft.id || selectedAgentId
     if (!targetId) return
-    if (!window.confirm(`确定要删除大模型配置 [${agentDraft.name || targetId}] 吗？`)) return
+    const found = agentProviders.find((p) => p.id === targetId)
+    const displayName = found?.name || agentDraft.name || targetId
+    if (!window.confirm(`确定要删除大模型配置 [${displayName}] 吗？`)) return
     try {
       const res = await fetch(`/api/agent/providers/${encodeURIComponent(targetId)}`, { method: 'DELETE' })
       if (res.ok) {
         onNotify?.('大模型配置已删除', 'info')
-        setSelectedAgentId('')
+        if (selectedAgentId === targetId || !targetCustomId) {
+          setSelectedAgentId('')
+        }
         await loadAgentProviders()
         window.dispatchEvent(new CustomEvent('agent-providers-changed'))
       }
@@ -720,23 +793,41 @@ export function ProviderDrawer({
                 新增供应商
               </button>
               {state.providers.map((provider) => (
-                <button
-                  aria-label={provider.name}
-                  aria-current={!adding && selectedId === provider.id}
-                  className="provider-list-item"
+                <div
+                  className={`provider-list-item-wrapper ${!adding && selectedId === provider.id ? 'is-selected' : ''}`}
                   key={provider.id}
-                  onClick={() => chooseProvider(provider)}
-                  type="button"
                 >
-                  <span>{provider.name.slice(0, 1).toUpperCase()}</span>
-                  <div>
-                    <strong>{provider.name}</strong>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <small>{provider.available ? '可生成' : provider.secretConfigured ? '已配密钥' : '未配置'}</small>
+                  <button
+                    aria-label={provider.name}
+                    aria-current={!adding && selectedId === provider.id}
+                    className="provider-list-item"
+                    onClick={() => chooseProvider(provider)}
+                    type="button"
+                  >
+                    <span>{provider.name.slice(0, 1).toUpperCase()}</span>
+                    <div>
+                      <strong>{provider.name}</strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <small>{provider.available ? '可生成' : provider.secretConfigured ? '已配密钥' : '未配置'}</small>
+                      </div>
                     </div>
-                  </div>
-                  {provider.preferred ? <Check aria-label="首选供应商" /> : null}
-                </button>
+                    {provider.preferred ? <Check aria-label="首选供应商" /> : null}
+                  </button>
+                  {!readOnly ? (
+                    <button
+                      aria-label={`删除 ${provider.name}`}
+                      className="provider-list-item__delete-btn"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void handleDeleteMediaProvider(provider.id)
+                      }}
+                      title={`删除 ${provider.name}`}
+                      type="button"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  ) : null}
+                </div>
               ))}
             </aside>
 
@@ -836,14 +927,35 @@ export function ProviderDrawer({
                         baseUrl:
                           event.target.value === 'aistartlab-openapi'
                             ? OFFICIAL_AISTARTLAB_BASE_URL
-                            : event.target.value === 'minimax-video' && (!current.baseUrl || current.baseUrl.includes('aistarslab'))
-                              ? 'https://api.minimaxi.com'
-                              : current.baseUrl,
+                            : event.target.value === 'runninghub-api' && (!current.baseUrl || current.baseUrl.includes('aistarslab'))
+                              ? 'https://www.runninghub.cn'
+                              : event.target.value === 'volcengine-ark' && (!current.baseUrl || current.baseUrl.includes('aistarslab'))
+                                ? 'https://ark.cn-beijing.volces.com/api/v3'
+                                : event.target.value === 'dashscope-api' && (!current.baseUrl || current.baseUrl.includes('aistarslab'))
+                                  ? 'https://dashscope.aliyuncs.com/api/v1'
+                                  : event.target.value === 'kling-api' && (!current.baseUrl || current.baseUrl.includes('aistarslab'))
+                                    ? 'https://api.klingai.com/v1'
+                                    : event.target.value === 'modelscope-api' && (!current.baseUrl || current.baseUrl.includes('aistarslab'))
+                                      ? 'https://api-inference.modelscope.cn/v1'
+                                      : event.target.value === 'jimeng-cli' && (!current.baseUrl || current.baseUrl.includes('aistarslab'))
+                                        ? 'http://127.0.0.1:4173/cli'
+                                        : event.target.value === 'comfyui-direct' && (!current.baseUrl || current.baseUrl.includes('aistarslab'))
+                                          ? 'http://127.0.0.1:8188'
+                                          : event.target.value === 'minimax-video' && (!current.baseUrl || current.baseUrl.includes('aistarslab'))
+                                            ? 'https://api.minimaxi.com'
+                                            : current.baseUrl,
                       }))
                     }
                     value={draft.adapterType}
                   >
                     <option value="aistartlab-openapi">AIStartLab 官方 OpenAPI</option>
+                    <option value="runninghub-api">RunningHub 官方 (云端 ComfyUI & AI 应用)</option>
+                    <option value="volcengine-ark">火山引擎 / 字节方舟 (Doubao & Seedance)</option>
+                    <option value="dashscope-api">通义万相 2.1 (阿里 DashScope)</option>
+                    <option value="kling-api">快手可灵 (Kling AI 官方)</option>
+                    <option value="modelscope-api">ModelScope (魔搭社区免费生图)</option>
+                    <option value="jimeng-cli">即梦 CLI (Dreamina 会员/积分)</option>
+                    <option value="comfyui-direct">本地 / 局域网 ComfyUI (8188)</option>
                     <option value="minimax-video">MiniMax 官方视频 (MiniMax-H3)</option>
                     <option value="openai-compatible">OpenAI 兼容</option>
                     <option value="custom-compatible">自定义（暂不支持）</option>
@@ -990,6 +1102,18 @@ export function ProviderDrawer({
                     </button>
                   </>
                 ) : null}
+                {!adding && selected ? (
+                  <button
+                    className="overlay-text-button"
+                    disabled={readOnly || Boolean(state.busyAction)}
+                    onClick={() => void handleDeleteMediaProvider(selectedId)}
+                    style={{ color: '#ef4444' }}
+                    type="button"
+                  >
+                    <Trash2 size={14} />
+                    删除供应商
+                  </button>
+                ) : null}
               </div>
 
               {testFeedback ? (
@@ -1052,24 +1176,43 @@ export function ProviderDrawer({
               </button>
 
               {agentProviders.map((item) => (
-                <button
-                  aria-current={!agentAdding && selectedAgentId === item.id ? 'true' : undefined}
-                  className="provider-list-item"
+                <div
+                  className={`provider-list-item-wrapper ${!agentAdding && selectedAgentId === item.id ? 'is-selected' : ''}`}
                   key={item.id}
-                  onClick={() => handleSelectAgent(item)}
-                  type="button"
                 >
-                  <span>{item.name.slice(0, 1)}</span>
-                  <div>
-                    <strong>{item.name}</strong>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <small style={{ color: item.secretConfigured ? '#34d399' : '#7e7e7e' }}>
-                        {item.secretConfigured ? '已配置密钥' : '未配置'}
-                      </small>
+                  <button
+                    aria-label={item.name}
+                    aria-current={!agentAdding && selectedAgentId === item.id ? 'true' : undefined}
+                    className="provider-list-item"
+                    onClick={() => handleSelectAgent(item)}
+                    type="button"
+                  >
+                    <span>{item.name.slice(0, 1)}</span>
+                    <div>
+                      <strong>{item.name}</strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <small style={{ color: item.secretConfigured ? '#34d399' : '#7e7e7e' }}>
+                          {item.secretConfigured ? '已配置密钥' : '未配置'}
+                        </small>
+                      </div>
                     </div>
-                  </div>
-                  {item.preferred ? <Check aria-label="首选大模型" /> : null}
-                </button>
+                    {item.preferred ? <Check aria-label="首选大模型" /> : null}
+                  </button>
+                  {!readOnly ? (
+                    <button
+                      aria-label={`删除 ${item.name}`}
+                      className="provider-list-item__delete-btn"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void handleDeleteAgentProvider(item.id)
+                      }}
+                      title={`删除 ${item.name}`}
+                      type="button"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  ) : null}
+                </div>
               ))}
             </aside>
 
@@ -1269,7 +1412,7 @@ export function ProviderDrawer({
                   <button
                     className="overlay-text-button"
                     disabled={readOnly}
-                    onClick={handleDeleteAgentProvider}
+                    onClick={() => void handleDeleteAgentProvider()}
                     style={{ color: '#ef4444' }}
                     type="button"
                   >

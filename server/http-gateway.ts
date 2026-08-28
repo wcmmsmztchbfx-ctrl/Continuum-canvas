@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { readdir, stat, unlink } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { BlockList, isIP } from 'node:net'
 import { networkInterfaces } from 'node:os'
@@ -547,6 +547,34 @@ export function formatGatewayOrigin(host: string, port: number): string {
   return `http://${normalized}:${port}`
 }
 
+async function calculateDirStats(dirPath: string): Promise<{ bytes: number; count: number }> {
+  let bytes = 0
+  let count = 0
+  try {
+    const entries = await readdir(dirPath, { withFileTypes: true })
+    for (const entry of entries) {
+      const fullPath = join(dirPath, entry.name)
+      if (entry.isFile()) {
+        const s = await stat(fullPath)
+        bytes += s.size
+        count += 1
+      } else if (entry.isDirectory()) {
+        const sub = await calculateDirStats(fullPath)
+        bytes += sub.bytes
+        count += sub.count
+      }
+    }
+  } catch {}
+  return { bytes, count }
+}
+
+function formatStorageBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
 function assertAllowedOrigin(
   request: IncomingMessage,
   configured: readonly string[] = [],
@@ -900,6 +928,56 @@ async function routeApi(
     })
     return true
   }
+  if (method === 'GET' && path === '/api/system/storage-info') {
+    const stagingDir = join(runtime.dataDir, 'staging')
+    const assetsDir = join(runtime.dataDir, 'assets')
+    const stagingStats = await calculateDirStats(stagingDir)
+    const assetsStats = await calculateDirStats(assetsDir)
+    const totalBytes = stagingStats.bytes + assetsStats.bytes
+    const totalFiles = stagingStats.count + assetsStats.count
+    sendJson(response, 200, {
+      storagePath: runtime.dataDir,
+      stagingBytes: stagingStats.bytes,
+      assetsBytes: assetsStats.bytes,
+      totalCacheBytes: totalBytes,
+      totalCacheFormatted: formatStorageBytes(totalBytes),
+      fileCount: totalFiles,
+    })
+    return true
+  }
+  if (method === 'POST' && path === '/api/system/clear-cache') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const stagingDir = join(runtime.dataDir, 'staging')
+    let freedBytes = 0
+    try {
+      const entries = await readdir(stagingDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.isFile()) {
+          const filePath = join(stagingDir, entry.name)
+          try {
+            const s = await stat(filePath)
+            freedBytes += s.size
+            await unlink(filePath)
+          } catch {}
+        }
+      }
+    } catch {}
+    sendJson(response, 200, {
+      success: true,
+      freedBytes,
+      freedFormatted: formatStorageBytes(freedBytes),
+    })
+    return true
+  }
+  if (method === 'GET' && path === '/api/system/version') {
+    sendJson(response, 200, {
+      version: '1.2.0',
+      name: 'Continuum Canvas',
+      nodeVersion: process.version,
+      uptimeSeconds: Math.floor(process.uptime()),
+    })
+    return true
+  }
   if (method === 'GET' && path === '/api/collaboration/tunnel') {
     sendJson(response, 200, runtime.tunnel.getStatus())
     return true
@@ -944,6 +1022,12 @@ async function routeApi(
     authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
     const provider = await runtime.updateProvider(providerInput(providerMatch[1], await readJson(request)))
     sendJson(response, 200, { provider })
+    return true
+  }
+  if (providerMatch && method === 'DELETE') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const deleted = await runtime.deleteProvider(providerMatch[1])
+    sendJson(response, 200, { ok: deleted })
     return true
   }
   const secretMatch = /^\/api\/providers\/([a-z][a-z0-9-]{0,47})\/secret$/.exec(path)

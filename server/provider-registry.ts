@@ -77,7 +77,13 @@ function parseProviderRecord(value: unknown, rejectUnknown: boolean): ProviderRe
   } catch {
     return undefined
   }
-  if (parsedUrl.protocol !== 'https:' || parsedUrl.username || parsedUrl.password) return undefined
+  const isLocalHttp = parsedUrl.protocol === 'http:' && (
+    parsedUrl.hostname === '127.0.0.1' ||
+    parsedUrl.hostname === 'localhost' ||
+    parsedUrl.hostname.startsWith('192.168.') ||
+    parsedUrl.hostname.startsWith('10.')
+  )
+  if ((parsedUrl.protocol !== 'https:' && !isLocalHttp) || parsedUrl.username || parsedUrl.password) return undefined
   const normalizedBaseUrl = parsedUrl.href.replace(/\/$/, '')
   if (
     record.adapterType === 'aistartlab-openapi' &&
@@ -138,6 +144,7 @@ export class ProviderRegistry {
     await mkdir(options.dataDir, { recursive: true })
     const filePath = join(options.dataDir, 'providers.json')
     let records: ProviderRecord[]
+    let fileExists = true
     try {
       const parsed = JSON.parse(await readFile(filePath, 'utf8'))
       records = Array.isArray(parsed)
@@ -149,11 +156,11 @@ export class ProviderRegistry {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       records = []
+      fileExists = false
     }
-    for (const preset of PRESETS) {
-      if (!records.some((record) => record.id === preset.id)) {
-        // aistartlab 保持插入首位（既有行为），其余预置平台追加在末尾
-        records[preset.id === 'aistartlab' ? 'unshift' : 'push']({ ...preset })
+    if (!fileExists && records.length === 0) {
+      for (const preset of PRESETS) {
+        records.push({ ...preset })
       }
     }
     const registry = new ProviderRegistry(filePath, options.env ?? process.env, records, options.envFile)
@@ -187,6 +194,22 @@ export class ProviderRegistry {
     if (index === -1) this.records.push({ ...record })
     else this.records[index] = { ...record }
     await this.persist()
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const index = this.records.findIndex((candidate) => candidate.id === id)
+    if (index === -1) return false
+    const [removed] = this.records.splice(index, 1)
+    if (removed) {
+      const secretEnvName = deriveSecretEnvName(removed.id)
+      delete this.env[secretEnvName]
+      await this.persistEnvSecret(secretEnvName)
+      if (removed.preferred && this.records.length > 0) {
+        this.records[0]!.preferred = true
+      }
+    }
+    await this.persist()
+    return true
   }
 
   async setSecret(id: string, secret: string): Promise<void> {

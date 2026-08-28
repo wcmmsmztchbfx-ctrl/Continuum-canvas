@@ -8,6 +8,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Settings,
   Star,
   Trash2,
 } from 'lucide-react'
@@ -34,6 +35,7 @@ export interface WorkspaceHomeViewProps {
   editingItem?: { kind: 'project' | 'canvas'; id: string }
   manifest: WorkspaceManifestV1
   onApiIntegration?: () => void
+  onOpenSettings?: () => void
   onCreateCanvas?: (position: Point) => void
   onCreateProject?: (position: Point) => void
   onCancelRename?: () => void
@@ -239,6 +241,25 @@ function CanvasCard({
   )
 }
 
+function GithubIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height={size}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      width={size}
+    >
+      <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
+      <path d="M9 18c-4.51 2-5-2-7-2" />
+    </svg>
+  )
+}
+
 export function WorkspaceHomeView(props: WorkspaceHomeViewProps) {
   const { manifest } = props
   const [filter, setFilter] = useState<WorkspaceFilter>('all')
@@ -297,8 +318,40 @@ export function WorkspaceHomeView(props: WorkspaceHomeViewProps) {
             </button>
           ))}
         </nav>
-        <div className="workspace-home__summary">
-          <span>{manifest.canvases.filter((item) => !item.deletedAt).length} 个画布</span>
+
+        <div className="workspace-home__rail-footer">
+          <button
+            aria-label="系统设置"
+            className="workspace-home__pill-btn"
+            onClick={props.onOpenSettings}
+            type="button"
+          >
+            <Settings size={14} />
+            <span>更多设置</span>
+          </button>
+
+          <a
+            aria-label="GitHub 项目主页"
+            className="workspace-home__pill-btn workspace-home__pill-btn--github"
+            href="https://github.com/wcmmsmztchbfx-ctrl/Continuum-canvas"
+            rel="noreferrer"
+            target="_blank"
+          >
+            <GithubIcon size={14} />
+            <span>项目主页</span>
+            <span className="workspace-home__badge">NEW</span>
+          </a>
+
+          <button
+            aria-label="检查更新"
+            className="workspace-home__pill-btn workspace-home__pill-btn--version"
+            onClick={props.onOpenSettings}
+            title="当前版本 v1.2.0 (点击查看详情)"
+            type="button"
+          >
+            <RotateCcw size={12} />
+            <span>v1.2.0 (最新)</span>
+          </button>
         </div>
       </aside>
 
@@ -340,7 +393,7 @@ export function WorkspaceHomeView(props: WorkspaceHomeViewProps) {
           </button>
           <button onClick={props.onApiIntegration} type="button">
             <Cable aria-hidden="true" />
-            API 接入
+            API 设置
           </button>
         </div>
       </header>

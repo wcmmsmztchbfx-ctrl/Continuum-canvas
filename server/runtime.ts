@@ -27,6 +27,13 @@ import { ProviderRegistry, type ProviderRecord } from './provider-registry.ts'
 import { AIStartLabAdapter } from './providers/aistartlab-adapter.ts'
 import { OpenAICompatibleAdapter } from './providers/openai-compatible-adapter.ts'
 import { MiniMaxAdapter } from './providers/minimax-adapter.ts'
+import { RunningHubAdapter } from './providers/runninghub-adapter.ts'
+import { VolcengineAdapter } from './providers/volcengine-adapter.ts'
+import { ModelScopeAdapter } from './providers/modelscope-adapter.ts'
+import { JimengAdapter } from './providers/jimeng-adapter.ts'
+import { DashScopeAdapter } from './providers/dashscope-adapter.ts'
+import { KlingAdapter } from './providers/kling-adapter.ts'
+import { ComfyUIAdapter } from './providers/comfyui-adapter.ts'
 import {
   ProviderRequestRejectedError,
   type ProviderAdapter,
@@ -116,6 +123,62 @@ function defaultAdapterFactory(
       stagingDir: transport.stagingDir,
     })
   }
+  if (provider.adapterType === 'runninghub-api') {
+    return new RunningHubAdapter({
+      apiKey,
+      providerId: provider.id,
+      baseUrl: provider.baseUrl,
+      stagingDir: transport.stagingDir,
+    })
+  }
+  if (provider.adapterType === 'volcengine-ark') {
+    return new VolcengineAdapter({
+      apiKey,
+      providerId: provider.id,
+      baseUrl: provider.baseUrl,
+      stagingDir: transport.stagingDir,
+    })
+  }
+  if (provider.adapterType === 'modelscope-api') {
+    return new ModelScopeAdapter({
+      apiKey,
+      providerId: provider.id,
+      baseUrl: provider.baseUrl,
+      stagingDir: transport.stagingDir,
+    })
+  }
+  if (provider.adapterType === 'jimeng-cli') {
+    return new JimengAdapter({
+      apiKey,
+      providerId: provider.id,
+      baseUrl: provider.baseUrl,
+      stagingDir: transport.stagingDir,
+    })
+  }
+  if (provider.adapterType === 'dashscope-api') {
+    return new DashScopeAdapter({
+      apiKey,
+      providerId: provider.id,
+      baseUrl: provider.baseUrl,
+      stagingDir: transport.stagingDir,
+    })
+  }
+  if (provider.adapterType === 'kling-api') {
+    return new KlingAdapter({
+      apiKey,
+      providerId: provider.id,
+      baseUrl: provider.baseUrl,
+      stagingDir: transport.stagingDir,
+    })
+  }
+  if (provider.adapterType === 'comfyui-direct') {
+    return new ComfyUIAdapter({
+      apiKey,
+      providerId: provider.id,
+      baseUrl: provider.baseUrl,
+      stagingDir: transport.stagingDir,
+    })
+  }
   throw new ProviderUnavailableError('Provider adapter is not installed')
 }
 
@@ -154,6 +217,7 @@ export interface GatewayRuntime {
   getProviderSecret(providerId: string): Promise<string | undefined>
   setProviderSecret(providerId: string, apiKey: string): Promise<ProviderMetadata>
   deleteProviderSecret(providerId: string): Promise<ProviderMetadata>
+  deleteProvider(providerId: string): Promise<boolean>
   testProvider(providerId: string): Promise<ProviderMetadata>
   syncProvider(providerId: string): Promise<ProviderCatalog>
   submit(
@@ -352,6 +416,11 @@ export async function createGatewayRuntime(options: {
           const updated = providers.getPublic(providerId)
           if (!updated) throw new RuntimeNotFoundError('Provider not found')
           return updated
+        })
+      },
+      async deleteProvider(providerId) {
+        return trackOperation(async () => {
+          return providers.delete(providerId)
         })
       },
       async testProvider(providerId) {

@@ -100,6 +100,7 @@ function gateway(): ProviderGateway {
       maskedSecret: undefined,
       available: false,
     }),
+    deleteProvider: vi.fn().mockResolvedValue({ ok: true }),
   }
 }
 
@@ -322,6 +323,13 @@ describe('provider management UI', () => {
     const adapter = screen.getByLabelText('适配器') as HTMLSelectElement
     expect(Array.from(adapter.options).map((option) => option.value)).toEqual([
       'aistartlab-openapi',
+      'runninghub-api',
+      'volcengine-ark',
+      'dashscope-api',
+      'kling-api',
+      'modelscope-api',
+      'jimeng-cli',
+      'comfyui-direct',
       'minimax-video',
       'openai-compatible',
       'custom-compatible',
@@ -504,7 +512,7 @@ describe('provider management UI', () => {
     expect(await screen.findByRole('button', { name: '新增大模型' })).toBeInTheDocument()
 
     // Click OpenAI in left list
-    const openaiItem = screen.getByRole('button', { name: /OpenAI 官方/ })
+    const openaiItem = screen.getByRole('button', { name: /^OpenAI 官方$/ })
     await user.click(openaiItem)
 
     expect(screen.getByLabelText('供应商名称')).toHaveValue('OpenAI 官方')
@@ -516,7 +524,7 @@ describe('provider management UI', () => {
     await user.type(keyInput, 'sk-test-key')
 
     // Click Save
-    const saveBtn = screen.getByRole('button', { name: /保存供应商/ })
+    const saveBtn = screen.getByRole('button', { name: /^保存供应商$/ })
     await user.click(saveBtn)
 
     await waitFor(() => {
@@ -531,5 +539,29 @@ describe('provider management UI', () => {
 
     globalThis.fetch = originalFetch
   })
+
+  it('deletes a media provider after user confirmation', async () => {
+    const user = userEvent.setup()
+    const mockGateway = gateway()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(
+      <ProviderCatalogProvider gateway={mockGateway}>
+        <ProviderDrawer open onClose={() => {}} />
+      </ProviderCatalogProvider>,
+    )
+
+    // Select OpenAI provider
+    const openaiBtn = await screen.findByRole('button', { name: /^OpenAI 官方$/ })
+    await user.click(openaiBtn)
+
+    // Click delete provider button
+    const deleteBtn = screen.getByRole('button', { name: /^删除供应商$/ })
+    await user.click(deleteBtn)
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('OpenAI 官方'))
+    expect(mockGateway.deleteProvider).toHaveBeenCalledWith('openai', expect.anything())
+  })
 })
+
 

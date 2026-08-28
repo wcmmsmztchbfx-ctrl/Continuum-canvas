@@ -81,4 +81,15 @@ describe('workspace thumbnail integration', () => {
 
     await waitFor(() => expect(thumbnailMocks.delete).toHaveBeenCalledWith('canvas-a'))
   })
+
+  it('opens SettingsModal when clicking 更多设置 from rail footer', async () => {
+    thumbnailMocks.load.mockResolvedValue(undefined)
+    render(<WorkspaceHome repository={repository()} />)
+    await screen.findByTestId('workspace-home')
+
+    expect(screen.queryByRole('dialog', { name: '系统设置' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '系统设置' }))
+
+    expect(await screen.findByRole('dialog', { name: '系统设置' })).toBeInTheDocument()
+  })
 })

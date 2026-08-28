@@ -472,6 +472,20 @@ export class GatewayClient {
     return response.provider
   }
 
+  async deleteProvider(
+    providerId: string,
+    options?: GatewayRequestOptions,
+  ): Promise<{ ok: boolean }> {
+    await this.ensureSensitiveAccess(options)
+    const response = await this.request<{ ok: boolean }>(
+      `/api/providers/${encodeURIComponent(providerId)}`,
+      { method: 'DELETE' },
+      options,
+    )
+    if (typeof response?.ok !== 'boolean') invalidResponse('Gateway returned an invalid response')
+    return response
+  }
+
   async setProviderSecret(
     providerId: string,
     apiKey: string,

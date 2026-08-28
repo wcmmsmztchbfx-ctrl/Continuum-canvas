@@ -1043,6 +1043,20 @@ describe('HTTP gateway', () => {
     })
   })
 
+  it('supports deleting a provider and its configured secret', async () => {
+    const gateway = await start()
+    const deleteRes = await fetch(`${gateway.origin}/api/providers/openai`, {
+      method: 'DELETE',
+      headers: adminHeaders(gateway),
+    })
+    expect(deleteRes.status).toBe(200)
+    expect(await json(deleteRes)).toEqual({ ok: true })
+
+    const listRes = await fetch(`${gateway.origin}/api/providers`)
+    const { providers } = await json(listRes)
+    expect(providers.some((p: { id: string }) => p.id === 'openai')).toBe(false)
+  })
+
   it('releases the data lock on shutdown and serves SPA fallback only outside /api', async () => {
     const dataDir = await tempDirectory()
     const distDir = join(dataDir, 'dist')

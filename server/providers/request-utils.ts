@@ -9,10 +9,11 @@ export function dataRecord(payload: unknown): Record<string, unknown> {
   return isRecord(payload.data) ? payload.data : payload
 }
 
-export function normalizedBaseUrl(value: string): string {
+export function normalizedBaseUrl(value: string, allowHttp = false): string {
   const url = new URL(value)
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
-    throw new Error('Provider base URL must be HTTPS without credentials, query, or fragment')
+  const isLocal = url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname.startsWith('192.168.') || url.hostname.startsWith('10.')
+  if ((url.protocol !== 'https:' && (!allowHttp && !isLocal)) || url.username || url.password || url.search || url.hash) {
+    throw new Error('Provider base URL must be HTTPS (or local HTTP) without credentials, query, or fragment')
   }
   return url.href.replace(/\/$/, '')
 }

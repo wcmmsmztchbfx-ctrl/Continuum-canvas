@@ -33,6 +33,7 @@ import {
 } from './index'
 import { GenerationHistoryModal } from './GenerationHistoryModal'
 import { AssetManagerModal } from './AssetManagerModal'
+import { SettingsModal } from './SettingsModal'
 
 const ProviderDrawer = lazy(() =>
   import('../providers/ProviderDrawer').then((m) => ({
@@ -41,7 +42,7 @@ const ProviderDrawer = lazy(() =>
 )
 
 export type AppPopup = 'workspace' | 'add' | 'api-integration' | 'collaboration' | 'help' | null
-export type AppDialog = 'publish' | 'shortcuts' | 'delete' | 'rename' | null
+export type AppDialog = 'publish' | 'shortcuts' | 'delete' | 'rename' | 'settings' | null
 export type AppContextMenu = 'blank' | 'node' | null
 
 export interface AppOverlaysProps {
@@ -414,6 +415,11 @@ export function AppOverlays({
         }}
         open={dialog === 'delete'}
         title={canvasId ? '将画布移入回收站？' : '删除当前项目？'}
+      />
+      <SettingsModal
+        onClose={() => setDialog(null)}
+        onNotify={(message, tone) => notify(message, tone)}
+        open={dialog === 'settings'}
       />
 
       <BlankContextMenu
