@@ -539,7 +539,7 @@ describe('CanvasWorkspace', () => {
     expect(props.onlyRenderVisibleElements).toBe(false)
     expect(props.selectionOnDrag).toBe(true)
     expect(props.multiSelectionKeyCode).toEqual(['Shift', 'Meta', 'Control'])
-    expect(props.deleteKeyCode).toEqual(['Backspace', 'Delete'])
+    expect(props.deleteKeyCode).toBeNull()
   })
 
   it('switches between selection, pan, and connection interactions', () => {

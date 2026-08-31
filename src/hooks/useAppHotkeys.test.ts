@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { renderHook } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { cleanup, renderHook } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 import { canvasStore } from '../store/canvas-store'
 import { useAppHotkeys } from './useAppHotkeys'
@@ -43,6 +43,10 @@ describe('useAppHotkeys', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     canvasStore.getState().restore(JSON.stringify(initialSnapshot))
+  })
+
+  afterEach(() => {
+    cleanup()
   })
 
   it('switches tool with V and B keys', () => {
@@ -178,7 +182,162 @@ describe('useAppHotkeys', () => {
       new KeyboardEvent('keydown', { key: 'b', bubbles: true }),
     )
     expect(setActiveTool).not.toHaveBeenCalled()
+    input.remove()
+  })
 
-    document.body.removeChild(input)
+  it('switches tool with F, R, T, U and ignores P', () => {
+    const onAddNode = vi.fn()
+    renderHook(() =>
+      useAppHotkeys({
+        hydrated: true,
+        collaborationControllerRef: controllerRef,
+        setActiveTool,
+        performUndo,
+        performRedo,
+        copySelectedNodes,
+        withBulkLease,
+        notify,
+        onAddNode,
+      }),
+    )
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f' }))
+    expect(setActiveTool).toHaveBeenCalledWith('frame')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'r' }))
+    expect(setActiveTool).toHaveBeenCalledWith('shape')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 't' }))
+    expect(setActiveTool).toHaveBeenCalledWith('text')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'u' }))
+    expect(onAddNode).toHaveBeenCalledWith('upload')
+
+    // P (Pen) is deliberately excluded
+    setActiveTool.mockClear()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }))
+    expect(setActiveTool).not.toHaveBeenCalled()
+  })
+
+  it('triggers redo with Ctrl+Y', () => {
+    renderHook(() =>
+      useAppHotkeys({
+        hydrated: true,
+        collaborationControllerRef: controllerRef,
+        setActiveTool,
+        performUndo,
+        performRedo,
+        copySelectedNodes,
+        withBulkLease,
+        notify,
+      }),
+    )
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'y', ctrlKey: true }),
+    )
+    expect(performRedo).toHaveBeenCalled()
+  })
+
+  it('toggles layers sidebar with Ctrl+\\', () => {
+    const toggleLayers = vi.fn()
+    renderHook(() =>
+      useAppHotkeys({
+        hydrated: true,
+        collaborationControllerRef: controllerRef,
+        setActiveTool,
+        performUndo,
+        performRedo,
+        copySelectedNodes,
+        withBulkLease,
+        notify,
+        toggleLayers,
+      }),
+    )
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: '\\', ctrlKey: true }),
+    )
+    expect(toggleLayers).toHaveBeenCalled()
+  })
+
+  it('fits canvas view with Shift+1', () => {
+    const fitView = vi.fn()
+    renderHook(() =>
+      useAppHotkeys({
+        hydrated: true,
+        collaborationControllerRef: controllerRef,
+        setActiveTool,
+        performUndo,
+        performRedo,
+        copySelectedNodes,
+        withBulkLease,
+        notify,
+        fitView,
+      }),
+    )
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: '1', shiftKey: true }),
+    )
+    expect(fitView).toHaveBeenCalled()
+  })
+
+  it('nudges selected nodes with arrow keys by 1px and Shift+arrows by 10px', () => {
+    canvasStore.getState().selectNode('node-1')
+    const initialPos = canvasStore.getState().snapshot.nodes.find((n) => n.id === 'node-1')!.position
+
+    renderHook(() =>
+      useAppHotkeys({
+        hydrated: true,
+        collaborationControllerRef: controllerRef,
+        setActiveTool,
+        performUndo,
+        performRedo,
+        copySelectedNodes,
+        withBulkLease,
+        notify,
+      }),
+    )
+
+    // ArrowRight (1px)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
+    expect(
+      canvasStore.getState().snapshot.nodes.find((n) => n.id === 'node-1')!.position.x,
+    ).toBe(initialPos.x + 1)
+
+    // Shift + ArrowDown (10px)
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', shiftKey: true }),
+    )
+    expect(
+      canvasStore.getState().snapshot.nodes.find((n) => n.id === 'node-1')!.position.y,
+    ).toBe(initialPos.y + 10)
+  })
+
+  it('ignores shortcuts when modal is open or IME is composing', () => {
+    const toggleLayers = vi.fn()
+    renderHook(() =>
+      useAppHotkeys({
+        hydrated: true,
+        modalOpen: true,
+        collaborationControllerRef: controllerRef,
+        setActiveTool,
+        performUndo,
+        performRedo,
+        copySelectedNodes,
+        withBulkLease,
+        notify,
+        toggleLayers,
+      }),
+    )
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }))
+    expect(setActiveTool).not.toHaveBeenCalled()
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: '\\', ctrlKey: true }),
+    )
+    expect(toggleLayers).not.toHaveBeenCalled()
   })
 })

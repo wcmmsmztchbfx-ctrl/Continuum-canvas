@@ -472,6 +472,7 @@ export default function App({
 
   useAppHotkeys({
     hydrated,
+    modalOpen: Boolean(dialog || historyOpen || assetManagerOpen),
     collaborationControllerRef,
     setActiveTool,
     performUndo,
@@ -479,6 +480,9 @@ export default function App({
     copySelectedNodes,
     withBulkLease,
     notify,
+    toggleLayers: () => persistPreferences({ layersOpen: !preferences.layersOpen }),
+    fitView: () => setFitViewRequest((c) => c + 1),
+    onAddNode: (kind) => handleAddNode(kind),
   })
 
   useEffect(() => {

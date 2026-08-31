@@ -189,7 +189,6 @@ const canvasEdgeTypes = {
 
 const defaultEdgeOptions = { type: 'canvas' as const }
 const multiSelectionKeys = ['Shift', 'Meta', 'Control']
-const deleteKeys = ['Backspace', 'Delete']
 const canvasSnapGrid: [number, number] = [12, 12]
 
 interface PendingConnectedNode {
@@ -2609,6 +2608,13 @@ export function CanvasWorkspace({
           })
         }}
         onPaneClick={(event) => {
+          if (
+            document.activeElement instanceof HTMLElement &&
+            document.activeElement !== document.body &&
+            !document.activeElement.closest('.react-flow')
+          ) {
+            document.activeElement.blur()
+          }
           cancelPendingConnection()
           setReferencePickTargetId(null)
           if (activeTool === 'brush') {
@@ -2637,7 +2643,7 @@ export function CanvasWorkspace({
         zoomOnPinch
         zoomOnDoubleClick={false}
         multiSelectionKeyCode={multiSelectionKeys}
-        deleteKeyCode={isSelectMode && !readOnly ? deleteKeys : null}
+        deleteKeyCode={null}
         snapToGrid={false}
         snapGrid={canvasSnapGrid}
         isValidConnection={(connection) => Boolean(connection.source && connection.target && connection.source !== connection.target)}
