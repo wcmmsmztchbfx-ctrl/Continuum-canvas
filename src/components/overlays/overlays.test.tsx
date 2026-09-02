@@ -755,9 +755,9 @@ describe('overlay visual contract', () => {
 
     const css = readFileSync(cssPath, 'utf8')
 
-    expect(css).toContain('--overlay-canvas: #141414;')
-    expect(css).toContain('--overlay-surface: #262626;')
-    expect(css).toContain('--overlay-border: #363636;')
+    expect(css).toMatch(/--overlay-canvas:\s*(var\(--canvas-bg-canvas\)|#141414);/)
+    expect(css).toMatch(/--overlay-surface:\s*(var\(--canvas-bg-surface\)|#262626);/)
+    expect(css).toMatch(/--overlay-border:\s*(var\(--canvas-border-default\)|#363636);/)
     expect(css).toMatch(/\.overlay-menu\s*\{[^}]*width:\s*196px/s)
     expect(css).toMatch(/\.overlay-side-panel--agent\s*\{[^}]*width:\s*400px/s)
     expect(css).toMatch(

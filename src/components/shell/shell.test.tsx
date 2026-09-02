@@ -169,7 +169,7 @@ describe('shell controls', () => {
 
 describe('reference geometry and styling', () => {
   it('uses the sampled canvas color and the supplied global font stack', () => {
-    expect(shellCss()).toContain('--shell-canvas: #141414;')
+    expect(shellCss()).toMatch(/--shell-canvas:\s*(var\(--canvas-bg-canvas\)|#141414);/)
     expect(shellCss()).toContain(
       `--shell-font: -apple-system, BlinkMacSystemFont, "PingFang SC", Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";`,
     )

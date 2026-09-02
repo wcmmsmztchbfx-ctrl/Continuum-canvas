@@ -1,17 +1,17 @@
 :root {
-  --overlay-canvas: #141414;
-  --overlay-surface: #262626;
-  --overlay-surface-raised: #2d2d2d;
-  --overlay-hover: #363636;
-  --overlay-border: #363636;
-  --overlay-border-strong: #484848;
-  --overlay-text: #f4f4f4;
-  --overlay-muted: #a0a0a0;
-  --overlay-faint: #707070;
-  --overlay-accent: #22d3e3;
-  --overlay-danger: #ff6b6b;
-  --overlay-success: #5bd69a;
-  --overlay-warning: #f4c764;
+  --overlay-canvas: var(--canvas-bg-canvas);
+  --overlay-surface: var(--canvas-bg-surface);
+  --overlay-surface-raised: var(--canvas-bg-elevated);
+  --overlay-hover: var(--canvas-bg-hover);
+  --overlay-border: var(--canvas-border-default);
+  --overlay-border-strong: var(--canvas-border-strong);
+  --overlay-text: var(--canvas-text-primary);
+  --overlay-muted: var(--canvas-text-secondary);
+  --overlay-faint: var(--canvas-text-muted);
+  --overlay-accent: var(--canvas-accent-primary);
+  --overlay-danger: var(--canvas-status-danger);
+  --overlay-success: var(--canvas-status-success);
+  --overlay-warning: var(--canvas-status-warning);
   --overlay-font: -apple-system, BlinkMacSystemFont, "PingFang SC", Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 }
 
@@ -2566,7 +2566,7 @@
   }
 }
 
-/* --- Settings Modal Styles (Pixel-Accurate Minimal Precision Dark Theme) --- */
+/* --- Settings Modal Styles (Pixel-Accurate Precision Studio Dark Theme) --- */
 .canvas-settings-dialog {
   position: fixed;
   top: 50%;
@@ -2575,16 +2575,16 @@
   width: min(600px, calc(100vw - 32px));
   max-width: 600px;
   height: min(620px, calc(100vh - 80px));
-  background: #2c2c2c;
-  border: 1px solid #3c3c3c;
-  border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+  background: var(--canvas-bg-surface);
+  border: 1px solid var(--canvas-border-strong);
+  border-radius: var(--canvas-radius-xl);
+  box-shadow: var(--canvas-shadow-modal);
   overflow: hidden;
   z-index: 80;
   display: flex;
   flex-direction: column;
   font-family: var(--overlay-font);
-  color: #ffffff;
+  color: var(--canvas-text-primary);
   outline: none;
 }
 
@@ -2595,8 +2595,8 @@
   height: 48px;
   min-height: 48px;
   padding: 0 16px 0 20px;
-  border-bottom: 1px solid #383838;
-  background: #2c2c2c;
+  border-bottom: 1px solid var(--canvas-border-default);
+  background: var(--canvas-bg-surface);
 }
 
 .canvas-settings__tabs {
@@ -2609,21 +2609,22 @@
   padding: 5px 12px;
   font-size: 12px;
   font-weight: 500;
-  color: #8a8a8a;
+  color: var(--canvas-text-secondary);
   border: 0;
   background: transparent;
-  border-radius: 6px;
+  border-radius: var(--canvas-radius-sm);
   cursor: pointer;
-  transition: all 100ms ease;
+  transition: all var(--canvas-transition-fast);
 }
 
 .canvas-settings__tab:hover {
-  color: #d0d0d0;
+  color: var(--canvas-text-primary);
+  background: var(--canvas-bg-hover);
 }
 
 .canvas-settings__tab--active {
-  color: #ffffff;
-  background: #444444;
+  color: var(--canvas-text-primary);
+  background: var(--canvas-bg-elevated);
   font-weight: 600;
 }
 
@@ -2634,15 +2635,15 @@
   height: 28px;
   border: 0;
   background: transparent;
-  color: #8a8a8a;
-  border-radius: 4px;
+  color: var(--canvas-text-secondary);
+  border-radius: var(--canvas-radius-sm);
   cursor: pointer;
-  transition: all 100ms ease;
+  transition: all var(--canvas-transition-fast);
 }
 
 .canvas-settings__close:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--canvas-text-primary);
+  background: var(--canvas-bg-hover);
 }
 
 .canvas-settings__body {
@@ -2651,7 +2652,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  background: #2c2c2c;
+  background: var(--canvas-bg-surface);
 }
 
 .canvas-settings__content {
@@ -2669,14 +2670,14 @@
   margin: 0 0 6px 0;
   font-size: 14px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--canvas-text-primary);
   letter-spacing: -0.01em;
 }
 
 .canvas-settings__section-subtitle {
   margin: 0 0 14px 0;
   font-size: 12px;
-  color: #8a8a8a;
+  color: var(--canvas-text-secondary);
   line-height: 1.5;
 }
 
@@ -2691,52 +2692,52 @@
   flex: 1;
   height: 30px;
   padding: 0 10px;
-  background: #1e1e1e;
-  border: 1px solid #444444;
-  border-radius: 4px;
-  color: #ffffff;
+  background: var(--canvas-bg-input);
+  border: 1px solid var(--canvas-border-default);
+  border-radius: var(--canvas-radius-sm);
+  color: var(--canvas-text-primary);
   font-size: 12px;
   outline: none;
-  transition: border-color 100ms ease;
+  transition: border-color var(--canvas-transition-fast);
 }
 
 .canvas-settings__input:focus {
-  border-color: #18a0fb;
+  border-color: var(--canvas-border-focus);
 }
 
 .canvas-settings__btn {
   height: 30px;
   padding: 0 12px;
-  border-radius: 4px;
+  border-radius: var(--canvas-radius-sm);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: all 100ms ease;
+  transition: all var(--canvas-transition-fast);
 }
 
 .canvas-settings__btn--primary {
-  background: #18a0fb;
+  background: var(--canvas-accent-primary);
   color: #ffffff;
-  border-color: #18a0fb;
+  border-color: var(--canvas-accent-primary);
   font-weight: 600;
 }
 
 .canvas-settings__btn--primary:hover {
-  background: #0d8de3;
-  border-color: #0d8de3;
+  background: var(--canvas-accent-hover);
+  border-color: var(--canvas-accent-hover);
 }
 
 .canvas-settings__btn--ghost {
   background: transparent;
-  color: #999999;
-  border-color: #444444;
+  color: var(--canvas-text-secondary);
+  border-color: var(--canvas-border-default);
 }
 
 .canvas-settings__btn--ghost:hover {
-  color: #ffffff;
-  border-color: #666666;
-  background: rgba(255, 255, 255, 0.04);
+  color: var(--canvas-text-primary);
+  border-color: var(--canvas-border-strong);
+  background: var(--canvas-bg-hover);
 }
 
 .canvas-settings__checkbox-row {
@@ -2750,31 +2751,31 @@
 .canvas-settings__checkbox {
   width: 14px;
   height: 14px;
-  border-radius: 3px;
-  border: 1.5px solid #666666;
+  border-radius: var(--canvas-radius-xs);
+  border: 1.5px solid var(--canvas-text-muted);
   background: transparent;
   display: grid;
   place-items: center;
   flex-shrink: 0;
   color: #ffffff;
-  transition: all 100ms ease;
+  transition: all var(--canvas-transition-fast);
 }
 
 .canvas-settings__checkbox--checked {
-  background: #18a0fb;
-  border-color: #18a0fb;
+  background: var(--canvas-accent-primary);
+  border-color: var(--canvas-accent-primary);
 }
 
 .canvas-settings__checkbox-label {
   font-size: 13px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--canvas-text-primary);
 }
 
 .canvas-settings__hint {
   margin: 4px 0 0 24px;
   font-size: 12px;
-  color: #8a8a8a;
+  color: var(--canvas-text-muted);
   line-height: 1.5;
 }
 
@@ -2793,12 +2794,12 @@
 }
 
 .canvas-settings__sublabel {
-  color: #8a8a8a;
+  color: var(--canvas-text-secondary);
   min-width: 90px;
 }
 
 .canvas-settings__subvalue {
-  color: #d0d0d0;
+  color: var(--canvas-text-primary);
   font-family: monospace;
   font-size: 11px;
 }
@@ -2810,7 +2811,7 @@
   padding: 0;
   background: transparent;
   border: 0;
-  color: #18a0fb;
+  color: var(--canvas-text-brand);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -2818,7 +2819,7 @@
 }
 
 .canvas-settings__link:hover {
-  color: #55b7ff;
+  color: var(--canvas-primitive-blue-400);
   text-decoration: underline;
 }
 
@@ -2839,25 +2840,25 @@
 .canvas-settings__radio {
   width: 14px;
   height: 14px;
-  border-radius: 50%;
-  border: 1.5px solid #666666;
+  border-radius: var(--canvas-radius-full);
+  border: 1.5px solid var(--canvas-text-muted);
   background: transparent;
   display: grid;
   place-items: center;
   margin-top: 2px;
   flex-shrink: 0;
-  transition: border-color 100ms ease;
+  transition: border-color var(--canvas-transition-fast);
 }
 
 .canvas-settings__radio--checked {
-  border-color: #18a0fb;
+  border-color: var(--canvas-accent-primary);
 }
 
 .canvas-settings__radio-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
-  background: #18a0fb;
+  border-radius: var(--canvas-radius-full);
+  background: var(--canvas-accent-primary);
 }
 
 .canvas-settings__radio-content {
@@ -2868,12 +2869,12 @@
 .canvas-settings__radio-title {
   font-size: 13px;
   font-weight: 500;
-  color: #ffffff;
+  color: var(--canvas-text-primary);
 }
 
 .canvas-settings__radio-desc {
   font-size: 12px;
-  color: #8a8a8a;
+  color: var(--canvas-text-secondary);
   line-height: 1.4;
   margin-top: 2px;
 }

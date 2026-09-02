@@ -1,12 +1,12 @@
 :root {
-  --shell-canvas: #141414;
-  --shell-control: rgba(38, 38, 38, 0.8);
-  --shell-control-solid: #262626;
-  --shell-control-active: rgb(54, 54, 54);
-  --shell-border: #363636;
-  --shell-text: #f4f4f4;
-  --shell-muted: rgb(145, 145, 145);
-  --shell-accent: #22d3e3;
+  --shell-canvas: var(--canvas-bg-canvas);
+  --shell-control: rgba(31, 31, 35, 0.85);
+  --shell-control-solid: var(--canvas-bg-surface);
+  --shell-control-active: var(--canvas-bg-elevated);
+  --shell-border: var(--canvas-border-default);
+  --shell-text: var(--canvas-text-primary);
+  --shell-muted: var(--canvas-text-secondary);
+  --shell-accent: var(--canvas-accent-primary);
   --shell-font: -apple-system, BlinkMacSystemFont, "PingFang SC", Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 }
 
