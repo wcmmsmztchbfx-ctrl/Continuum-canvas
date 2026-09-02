@@ -41,6 +41,9 @@ export function SettingsModal({
   const [appMode, setAppMode] = useState<'host' | 'solo'>(() => {
     return (localStorage.getItem('continuum_app_mode') as 'host' | 'solo') || 'solo'
   })
+  const [allowLanApiManagement, setAllowLanApiManagement] = useState<boolean>(() => {
+    return localStorage.getItem('continuum_allow_lan_api') !== 'false'
+  })
   const [autoOpenBrowser, setAutoOpenBrowser] = useState<boolean>(() => {
     return localStorage.getItem('continuum_auto_open_browser') !== 'false'
   })
@@ -56,6 +59,16 @@ export function SettingsModal({
   useEffect(() => {
     if (!open) return
     setEditingPath(localStorage.getItem('continuum_custom_output_path') || './outputs')
+
+    fetch('/api/system/settings')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && typeof data.allowLanApiManagement === 'boolean') {
+          setAllowLanApiManagement(data.allowLanApiManagement)
+          localStorage.setItem('continuum_allow_lan_api', String(data.allowLanApiManagement))
+        }
+      })
+      .catch(() => {})
 
     fetch('/api/system/storage-info')
       .then((res) => (res.ok ? res.json() : null))
@@ -99,6 +112,23 @@ export function SettingsModal({
         ? '已切换为主机模式：进入画布将自动开启多人协作'
         : '已切换为个人模式：进入画布无需输入昵称，不开启多人协作',
       'success',
+    )
+  }
+
+  const handleAllowLanApiToggle = () => {
+    const next = !allowLanApiManagement
+    setAllowLanApiManagement(next)
+    localStorage.setItem('continuum_allow_lan_api', String(next))
+    fetch('/api/system/settings', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ allowLanApiManagement: next }),
+    }).catch(() => {})
+    onNotify?.(
+      next
+        ? '已开启：主机模式下允许局域网成员配置与保存 API Key'
+        : '已关闭：仅限本机可配置与保存 API Key',
+      'info',
     )
   }
 
@@ -367,6 +397,25 @@ export function SettingsModal({
                     </div>
                   </div>
                 </div>
+
+                <div
+                  className="canvas-settings__checkbox-row"
+                  onClick={handleAllowLanApiToggle}
+                  style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}
+                >
+                  <span
+                    aria-checked={allowLanApiManagement}
+                    className={`canvas-settings__checkbox ${allowLanApiManagement ? 'canvas-settings__checkbox--checked' : ''}`}
+                    role="switch"
+                    tabIndex={0}
+                  >
+                    {allowLanApiManagement && <Check size={11} strokeWidth={3} />}
+                  </span>
+                  <span className="canvas-settings__checkbox-label">主机模式下允许局域网成员配置与保存 API Key</span>
+                </div>
+                <p className="canvas-settings__hint">
+                  开启后，局域网内的所有协作者均可在供应商管理中配置生图/视频模型及 Agent 大模型的 API Key 与接口参数。
+                </p>
               </div>
 
               <div className="canvas-settings__section">

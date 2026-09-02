@@ -1,10 +1,11 @@
 import { createReadStream } from 'node:fs'
-import { readdir, stat, unlink } from 'node:fs/promises'
+import { readFile, readdir, stat, unlink } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { BlockList, isIP } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
+import { atomicWriteJson } from './atomic-json.ts'
 import { RemoteAssetTimeoutError, RemoteAssetValidationError } from './asset-store.ts'
 import { resolveCollaborationNetworkConfig, type GatewayEnvironment } from './config.ts'
 import type { ProviderRecord } from './provider-registry.ts'
@@ -192,18 +193,29 @@ function collaborationCookie(roomId: string, token: string, secure: boolean, cle
   ].join('; ')
 }
 
+function isAuthorizedAdminAddress(
+  address: string | undefined,
+  localAdminAllowed: boolean,
+  allowLanApi: boolean,
+): boolean {
+  if (isLoopbackRemoteAddress(address)) return localAdminAllowed
+  if (isPrivateLanRemoteAddress(address)) return allowLanApi
+  return false
+}
+
 function authorizeSensitiveRequest(
   request: IncomingMessage,
   runtime: GatewayRuntime,
   localAdmin: LocalAdminService,
   localAdminAllowed: boolean,
   requiredRole: 'owner' | 'editor',
+  allowLanApi: boolean = false,
 ): { kind: 'local-admin' } | { kind: 'collaboration'; roomId: string; session: ReturnType<GatewayRuntime['collaboration']['authorizeSession']> } {
   const cookieRooms = collaborationRoomIdsFromCookieHeader(request.headers.cookie)
   const header = request.headers['x-collaboration-room']
   const roomId = typeof header === 'string' ? header : ''
   if (header === undefined) {
-    if (localAdminAllowed && isLoopbackRemoteAddress(request.socket.remoteAddress)) {
+    if (isAuthorizedAdminAddress(request.socket.remoteAddress, localAdminAllowed, allowLanApi)) {
       localAdmin.authorize(localAdminTokenFromCookie(request.headers.cookie))
       return { kind: 'local-admin' }
     }
@@ -217,6 +229,9 @@ function authorizeSensitiveRequest(
     sessionToken: collaborationSessionToken(request, roomId),
   })
   if (requiredRole === 'owner' && session.role !== 'owner') {
+    if (allowLanApi && (isLoopbackRemoteAddress(request.socket.remoteAddress) || isPrivateLanRemoteAddress(request.socket.remoteAddress))) {
+      return { kind: 'collaboration', roomId, session }
+    }
     throw new CollaborationAuthorizationError('Only owners can manage providers')
   }
   if (requiredRole === 'editor' && session.role === 'viewer') {
@@ -230,8 +245,9 @@ function authorizeProviderWrite(
   runtime: GatewayRuntime,
   localAdmin: LocalAdminService,
   localAdminAllowed: boolean,
+  allowLanApi: boolean = false,
 ): void {
-  authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'owner')
+  authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'owner', allowLanApi)
 }
 
 const ACTIVE_GENERATION_STATUSES = new Set(['queued', 'uploading', 'submitted', 'running', 'downloading'])
@@ -452,6 +468,9 @@ export function isLoopbackRemoteAddress(address: string | undefined): boolean {
 export function isPrivateLanRemoteAddress(address: string | undefined): boolean {
   if (!address) return false
   const normalized = normalizeHost(address)
+  if (normalized.startsWith('::ffff:')) {
+    return isPrivateLanRemoteAddress(normalized.slice(7))
+  }
   const family = isIP(normalized)
   if (family === 4) {
     const octets = normalized.split('.').map(Number)
@@ -764,6 +783,10 @@ async function serveStatic(
   return true
 }
 
+interface SystemSettingsState {
+  allowLanApiManagement: boolean
+}
+
 async function routeApi(
   runtime: GatewayRuntime,
   localAdmin: LocalAdminService,
@@ -776,6 +799,7 @@ async function routeApi(
   localAdminAllowed: boolean,
   localAdminRecoveryAllowed: boolean,
   frontendPort: number = 4173,
+  systemSettings: SystemSettingsState = { allowLanApiManagement: false },
 ): Promise<boolean> {
   const method = request.method ?? 'GET'
   const path = url.pathname
@@ -785,7 +809,7 @@ async function routeApi(
     return true
   }
   if (method === 'POST' && path === '/api/local-admin/session') {
-    if (!localAdminAllowed || !isLoopbackRemoteAddress(request.socket.remoteAddress)) {
+    if (!isAuthorizedAdminAddress(request.socket.remoteAddress, localAdminAllowed, systemSettings.allowLanApiManagement)) {
       throw new LocalAdminAuthorizationError('Local administrator registration is unavailable')
     }
     await rejectUnexpectedBody(request)
@@ -946,7 +970,7 @@ async function routeApi(
     return true
   }
   if (method === 'POST' && path === '/api/system/clear-cache') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const stagingDir = join(runtime.dataDir, 'staging')
     let freedBytes = 0
     try {
@@ -978,12 +1002,30 @@ async function routeApi(
     })
     return true
   }
+  if (method === 'GET' && path === '/api/system/settings') {
+    sendJson(response, 200, { allowLanApiManagement: systemSettings.allowLanApiManagement })
+    return true
+  }
+  if (method === 'POST' && path === '/api/system/settings') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    const body = record(await readJson(request))
+    if (typeof body.allowLanApiManagement === 'boolean') {
+      systemSettings.allowLanApiManagement = body.allowLanApiManagement
+      const settingsPath = join(runtime.dataDir, 'system-settings.json')
+      await atomicWriteJson(settingsPath, {
+        allowLanApiManagement: systemSettings.allowLanApiManagement,
+        updatedAt: new Date().toISOString(),
+      }).catch(() => {})
+    }
+    sendJson(response, 200, { ok: true, allowLanApiManagement: systemSettings.allowLanApiManagement })
+    return true
+  }
   if (method === 'GET' && path === '/api/collaboration/tunnel') {
     sendJson(response, 200, runtime.tunnel.getStatus())
     return true
   }
   if (method === 'POST' && path === '/api/collaboration/tunnel/start') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const body = await readOptionalJson(request)
     const mode = body?.mode === 'custom' ? 'custom' : 'auto'
     if (mode === 'custom') {
@@ -999,13 +1041,13 @@ async function routeApi(
     return true
   }
   if (method === 'POST' && path === '/api/collaboration/tunnel/stop') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const status = await runtime.tunnel.stopTunnel()
     sendJson(response, 200, status)
     return true
   }
   if (method === 'PUT' && path === '/api/collaboration/tunnel/custom-url') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const body = record(await readJson(request))
     const customUrl = typeof body.customUrl === 'string' ? body.customUrl : undefined
     const status = await runtime.tunnel.setCustomUrl(customUrl)
@@ -1019,26 +1061,26 @@ async function routeApi(
 
   const providerMatch = /^\/api\/providers\/([a-z][a-z0-9-]{0,47})$/.exec(path)
   if (providerMatch && method === 'PUT') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const provider = await runtime.updateProvider(providerInput(providerMatch[1], await readJson(request)))
     sendJson(response, 200, { provider })
     return true
   }
   if (providerMatch && method === 'DELETE') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const deleted = await runtime.deleteProvider(providerMatch[1])
     sendJson(response, 200, { ok: deleted })
     return true
   }
   const secretMatch = /^\/api\/providers\/([a-z][a-z0-9-]{0,47})\/secret$/.exec(path)
   if (secretMatch && method === 'GET') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const secret = await runtime.getProviderSecret(secretMatch[1])
     sendJson(response, 200, { apiKey: secret ?? '' })
     return true
   }
   if (secretMatch && method === 'PUT') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const body = record(await readJson(request))
     strictKeys(body, ['apiKey'])
     if (typeof body.apiKey !== 'string' || !body.apiKey.trim() || body.apiKey.length > 16_384) {
@@ -1048,20 +1090,20 @@ async function routeApi(
     return true
   }
   if (secretMatch && method === 'DELETE') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     sendJson(response, 200, await runtime.deleteProviderSecret(secretMatch[1]))
     return true
   }
   const testMatch = /^\/api\/providers\/([a-z][a-z0-9-]{0,47})\/test$/.exec(path)
   if (testMatch && method === 'POST') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     await rejectUnexpectedBody(request)
     sendJson(response, 200, { ok: true, provider: await runtime.testProvider(testMatch[1]) })
     return true
   }
   const syncMatch = /^\/api\/providers\/([a-z][a-z0-9-]{0,47})\/sync$/.exec(path)
   if (syncMatch && method === 'POST') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     await rejectUnexpectedBody(request)
     sendJson(response, 200, { catalog: await runtime.syncProvider(syncMatch[1]) })
     return true
@@ -1075,7 +1117,7 @@ async function routeApi(
   }
 
   if (method === 'POST' && path === '/api/agent/providers') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const body = record(await readJson(request))
     const id = typeof body.id === 'string' ? body.id : ''
     const name = typeof body.name === 'string' ? body.name : ''
@@ -1100,7 +1142,7 @@ async function routeApi(
 
   const agentProviderPreferredMatch = path.match(/^\/api\/agent\/providers\/([^/]+)\/preferred$/)
   if (method === 'POST' && agentProviderPreferredMatch) {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const targetId = decodeURIComponent(agentProviderPreferredMatch[1]!)
     const updated = await runtime.agentConfig.setPreferred(targetId)
     if (!updated) {
@@ -1113,7 +1155,7 @@ async function routeApi(
 
   const agentProviderSecretMatch = path.match(/^\/api\/agent\/providers\/([^/]+)\/secret$/)
   if (method === 'GET' && agentProviderSecretMatch) {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const targetId = decodeURIComponent(agentProviderSecretMatch[1]!)
     const secret = runtime.agentConfig.getSecret(targetId)
     sendJson(response, 200, { secret: secret || '' })
@@ -1121,7 +1163,7 @@ async function routeApi(
   }
 
   if (method === 'POST' && agentProviderSecretMatch) {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const targetId = decodeURIComponent(agentProviderSecretMatch[1]!)
     const body = record(await readJson(request))
     const secret = typeof body.secret === 'string' ? body.secret : ''
@@ -1132,7 +1174,7 @@ async function routeApi(
   }
 
   if (method === 'DELETE' && agentProviderSecretMatch) {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const targetId = decodeURIComponent(agentProviderSecretMatch[1]!)
     await runtime.agentConfig.deleteSecret(targetId)
     const updated = runtime.agentConfig.getPublic(targetId)
@@ -1142,7 +1184,7 @@ async function routeApi(
 
   const agentProviderItemMatch = path.match(/^\/api\/agent\/providers\/([^/]+)$/)
   if (method === 'DELETE' && agentProviderItemMatch) {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const targetId = decodeURIComponent(agentProviderItemMatch[1]!)
     const deleted = await runtime.agentConfig.delete(targetId)
     sendJson(response, 200, { ok: deleted })
@@ -1150,7 +1192,7 @@ async function routeApi(
   }
 
   if (method === 'POST' && path === '/api/agent/test') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const body = record(await readJson(request))
     const result = await runtime.agentConfig.testConnection({
       baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : '',
@@ -1196,7 +1238,7 @@ async function routeApi(
   }
 
   if (method === 'POST' && path === '/api/agent/chat') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const body = record(await readJson(request))
     const messages = Array.isArray(body.messages) ? body.messages : []
     const tools = Array.isArray(body.tools) ? body.tools : undefined
@@ -1455,7 +1497,7 @@ async function routeApi(
     return true
   }
   if (canvasAgentChatMatch && method === 'PUT') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const canvasId = canvasAgentChatMatch[1]
     const body = await readJson(request) as { messages?: unknown[] }
     const messages = Array.isArray(body?.messages) ? body.messages : []
@@ -1464,7 +1506,7 @@ async function routeApi(
     return true
   }
   if (canvasAgentChatMatch && method === 'DELETE') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
     const canvasId = canvasAgentChatMatch[1]
     await runtime.canvases.clearAgentChat(canvasId)
     sendJson(response, 200, { ok: true })
@@ -1617,6 +1659,17 @@ export async function startGateway(options: {
     if (mapped.status === 409) throw mapped
     throw error
   }
+  const systemSettings: SystemSettingsState = {
+    allowLanApiManagement: options.allowInsecureLan ?? (process.env.CANVAS_ALLOW_INSECURE_LAN?.toLowerCase() === 'true'),
+  }
+  const systemSettingsPath = join(runtime.dataDir, 'system-settings.json')
+  try {
+    const rawSettings = await readFile(systemSettingsPath, 'utf8')
+    const parsed = JSON.parse(rawSettings)
+    if (typeof parsed?.allowLanApiManagement === 'boolean') {
+      systemSettings.allowLanApiManagement = parsed.allowLanApiManagement
+    }
+  } catch {}
   const server = createServer(async (request, response) => {
     const clientAbort = new AbortController()
     const abortClient = () => {
@@ -1666,8 +1719,9 @@ export async function startGateway(options: {
           signal,
           (dynamicPublicOrigin ?? publicOrigin)?.toLowerCase().startsWith('https://') ?? false,
           (localHostOnly && isLoopbackHost(host)) || loopbackBrowserOrigin,
-          loopbackBrowserOrigin,
+          loopbackBrowserOrigin || (systemSettings.allowLanApiManagement && isPrivateLanRemoteAddress(request.socket.remoteAddress)),
           frontendPort,
+          systemSettings,
         )
         return
       }
