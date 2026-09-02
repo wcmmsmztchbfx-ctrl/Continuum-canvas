@@ -430,7 +430,7 @@ export class GatewayClient {
         { method: 'POST' },
         options,
       ).then((response) => {
-        if (response.ok !== true || typeof response.created !== 'boolean') invalidResponse('Gateway returned an invalid local administrator session')
+        if (response.ok !== true) invalidResponse('Gateway returned an invalid local administrator session')
         this.localAdminSessionReady = true
       }).finally(() => { this.localAdminSessionFlight = undefined })
     }
@@ -670,6 +670,7 @@ export class GatewayClient {
     input: { projectId: string; canvasId: string; assetIds: string[] },
     options?: GatewayRequestOptions,
   ): Promise<{ canvasId: string; assetCount: number }> {
+    await this.ensureSensitiveAccess(options)
     const response = await this.request<{ canvasId: string; assetCount: number }>(
       `/api/canvas-asset-references/${encodeURIComponent(input.canvasId)}`,
       {
@@ -708,6 +709,7 @@ export class GatewayClient {
     canvasId: string,
     options?: GatewayRequestOptions,
   ): Promise<{ canvasId: string; deletedAssetIds: string[] }> {
+    await this.ensureSensitiveAccess(options)
     const search = new URLSearchParams({ projectId })
     const response = await this.request<{
       canvasId: string

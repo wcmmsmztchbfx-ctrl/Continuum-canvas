@@ -10,20 +10,20 @@
 }
 
 .generation-history-modal {
-  --generation-history-border: #3b3d40;
-  --generation-history-muted: #92969c;
+  --generation-history-border: var(--canvas-border-default);
+  --generation-history-muted: var(--canvas-text-secondary);
   --generation-history-tile-size: 144px;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   width: min(1280px, calc(100vw - 64px));
   height: min(760px, calc(100vh - 64px));
   overflow: hidden;
-  color: #f2f2f2;
-  background: #242526;
-  border: 1px solid var(--generation-history-border);
-  border-radius: 8px;
-  box-shadow: 0 24px 70px rgb(0 0 0 / 55%);
-  font-family: "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  color: var(--canvas-text-primary);
+  background: var(--canvas-bg-surface);
+  border: 1px solid var(--canvas-border-strong);
+  border-radius: var(--canvas-radius-lg);
+  box-shadow: var(--canvas-shadow-modal);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 .generation-history-modal button,
@@ -39,7 +39,7 @@
 .generation-history-modal button:focus-visible,
 .generation-history-modal a:focus-visible,
 .generation-history-modal input:focus-visible {
-  outline: 2px solid #d7b56d;
+  outline: 2px solid var(--canvas-border-focus);
   outline-offset: 2px;
 }
 
@@ -54,7 +54,7 @@
 .generation-history-modal__header {
   min-height: 58px;
   padding: 0 16px 0 18px;
-  border-bottom: 1px solid #343639;
+  border-bottom: 1px solid var(--canvas-border-default);
 }
 
 .generation-history-modal__header > div:first-child {

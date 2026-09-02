@@ -1,0 +1,109 @@
+/**
+ * Continuum Canvas Design System Tokens
+ * Standard 3-Tier Design Token Architecture (Primitives -> Semantics -> Component Styles)
+ * Aligned with Figma UI3 & GitHub Primer specifications.
+ */
+
+:root {
+  /* ==========================================================================
+     Layer 1: Primitives (Base Color Palette)
+     ========================================================================== */
+
+  /* Neutral Zinc Scale */
+  --canvas-primitive-zinc-950: #09090b;
+  --canvas-primitive-zinc-900: #121214;
+  --canvas-primitive-zinc-850: #161619;
+  --canvas-primitive-zinc-800: #1f1f23;
+  --canvas-primitive-zinc-750: #28282d;
+  --canvas-primitive-zinc-700: #323238;
+  --canvas-primitive-zinc-600: #52525b;
+  --canvas-primitive-zinc-500: #71717a;
+  --canvas-primitive-zinc-400: #a1a1aa;
+  --canvas-primitive-zinc-300: #d4d4d8;
+  --canvas-primitive-zinc-200: #e4e4e7;
+  --canvas-primitive-zinc-100: #f4f4f5;
+  --canvas-primitive-zinc-50:  #fafafa;
+
+  /* Brand Blue (Figma Classic Technology Blue) */
+  --canvas-primitive-blue-400: #38bdf8;
+  --canvas-primitive-blue-500: #0d99ff;
+  --canvas-primitive-blue-600: #007be5;
+  --canvas-primitive-blue-700: #0060b8;
+
+  /* Agent / AI Purple */
+  --canvas-primitive-purple-400: #a78bfa;
+  --canvas-primitive-purple-500: #8b5cf6;
+  --canvas-primitive-purple-600: #7c3aed;
+  --canvas-primitive-purple-700: #6d28d9;
+
+  /* Semantic Status Primitives */
+  --canvas-primitive-green-500: #10b981;
+  --canvas-primitive-green-600: #059669;
+  --canvas-primitive-amber-500: #f59e0b;
+  --canvas-primitive-amber-600: #d97706;
+  --canvas-primitive-red-500:   #ef4444;
+  --canvas-primitive-red-600:   #dc2626;
+
+  /* ==========================================================================
+     Layer 2: Semantic Tokens (System Role Variables)
+     ========================================================================== */
+
+  /* Background Elevations */
+  --canvas-bg-canvas:   var(--canvas-primitive-zinc-900); /* #121214 - Infinite Canvas Background */
+  --canvas-bg-base:     var(--canvas-primitive-zinc-850); /* #161619 - App Shell & Sidebars */
+  --canvas-bg-surface:  var(--canvas-primitive-zinc-800); /* #1f1f23 - Floating Panels, Cards, Modals */
+  --canvas-bg-elevated: var(--canvas-primitive-zinc-750); /* #28282d - Dropdowns, Popovers, Tooltips */
+  --canvas-bg-input:    var(--canvas-primitive-zinc-900); /* #121214 - Inputs, Selects, Textareas */
+  --canvas-bg-hover:    rgba(255, 255, 255, 0.05);       /* Hover highlight overlay */
+  --canvas-bg-active:   rgba(255, 255, 255, 0.09);       /* Active / pressed overlay */
+  --canvas-bg-selected: rgba(13, 153, 255, 0.14);        /* Selected item highlight */
+
+  /* Borders & Dividers */
+  --canvas-border-subtle:  rgba(255, 255, 255, 0.06);   /* Light inner dividers */
+  --canvas-border-default: rgba(255, 255, 255, 0.10);   /* Standard panel & card borders */
+  --canvas-border-strong:  rgba(255, 255, 255, 0.18);   /* Emphasized modal & input borders */
+  --canvas-border-focus:   var(--canvas-primitive-blue-500); /* Focus ring / Selection border */
+
+  /* Typography & Icons */
+  --canvas-text-primary:   var(--canvas-primitive-zinc-100); /* #f4f4f5 - High contrast titles & text */
+  --canvas-text-secondary: var(--canvas-primitive-zinc-400); /* #a1a1aa - Subtitles & field labels */
+  --canvas-text-muted:     var(--canvas-primitive-zinc-500); /* #71717a - Hints, badges, placeholders */
+  --canvas-text-disabled:  rgba(255, 255, 255, 0.25);        /* Disabled text */
+  --canvas-text-brand:     var(--canvas-primitive-blue-500); /* #0d99ff - Interactive links & brand text */
+
+  /* Brand Accents */
+  --canvas-accent-primary:       var(--canvas-primitive-blue-500); /* #0d99ff */
+  --canvas-accent-hover:         var(--canvas-primitive-blue-600); /* #007be5 */
+  --canvas-accent-subtle:        rgba(13, 153, 255, 0.12);
+  --canvas-accent-purple:        var(--canvas-primitive-purple-500); /* #8b5cf6 - AI/Agent Accent */
+  --canvas-accent-purple-hover:  var(--canvas-primitive-purple-600);
+  --canvas-accent-purple-subtle: rgba(139, 92, 246, 0.12);
+
+  /* Status Colors */
+  --canvas-status-success:        var(--canvas-primitive-green-500); /* #10b981 */
+  --canvas-status-success-subtle: rgba(16, 185, 129, 0.12);
+  --canvas-status-warning:        var(--canvas-primitive-amber-500); /* #f59e0b */
+  --canvas-status-warning-subtle: rgba(245, 158, 11, 0.12);
+  --canvas-status-danger:         var(--canvas-primitive-red-500);   /* #ef4444 */
+  --canvas-status-danger-subtle:  rgba(239, 68, 68, 0.12);
+
+  /* Corner Radii */
+  --canvas-radius-xs:   3px;
+  --canvas-radius-sm:   5px;
+  --canvas-radius-md:   8px;
+  --canvas-radius-lg:   12px;
+  --canvas-radius-xl:   16px;
+  --canvas-radius-full: 9999px;
+
+  /* Shadows */
+  --canvas-shadow-sm:     0 1px 3px rgba(0, 0, 0, 0.3);
+  --canvas-shadow-md:     0 4px 12px rgba(0, 0, 0, 0.35);
+  --canvas-shadow-panel:  0 8px 32px rgba(0, 0, 0, 0.45);
+  --canvas-shadow-modal:  0 20px 60px rgba(0, 0, 0, 0.65);
+  --canvas-shadow-glow:   0 0 16px rgba(13, 153, 255, 0.35);
+
+  /* Animation & Transitions */
+  --canvas-transition-fast:   120ms cubic-bezier(0.16, 1, 0.3, 1);
+  --canvas-transition-normal: 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  --canvas-transition-slow:   320ms cubic-bezier(0.16, 1, 0.3, 1);
+}

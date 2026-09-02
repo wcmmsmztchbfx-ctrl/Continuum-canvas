@@ -1,6 +1,7 @@
 import type {
   CollaborationInvite,
   CollaborationRole,
+  CollaborationScopeStatus,
   CollaborationRoom,
   CollaborationSession,
   CreateCollaborationInviteResponse,
@@ -305,6 +306,29 @@ export class CollaborationClient {
     return payload as unknown as EnableCollaborationRoomResponse
   }
 
+  async getCollaborationScope(
+    projectId: string,
+    canvasId: string,
+    options?: CollaborationRequestOptions,
+  ): Promise<CollaborationScopeStatus> {
+    assertIdentifier(projectId, IDENTIFIER, 'projectId')
+    assertIdentifier(canvasId, IDENTIFIER, 'canvasId')
+    const payload = await this.request(
+      `/api/collaboration/scope?projectId=${encodeURIComponent(projectId)}&canvasId=${encodeURIComponent(canvasId)}`,
+      {},
+      options,
+    )
+    if (
+      payload.projectId !== projectId || payload.canvasId !== canvasId ||
+      (payload.mode !== 'solo' && payload.mode !== 'host') ||
+      typeof payload.active !== 'boolean' ||
+      (payload.roomId !== undefined && (typeof payload.roomId !== 'string' || !ROOM_IDENTIFIER.test(payload.roomId)))
+    ) {
+      failInvalidResponse('Collaboration gateway returned an invalid scope status')
+    }
+    return payload as unknown as CollaborationScopeStatus
+  }
+
   async getRoom(roomId: string, options?: CollaborationRequestOptions): Promise<CollaborationRoom> {
     assertIdentifier(roomId, ROOM_IDENTIFIER, 'roomId')
     const payload = await this.request(`/api/collaboration/rooms/${encodeURIComponent(roomId)}`, {}, options)
@@ -329,6 +353,30 @@ export class CollaborationClient {
       room: payload.room,
       session: payload.session,
     }
+  }
+
+  async joinOpenRoom(
+    input: { roomId: string; displayName: string },
+    options?: CollaborationRequestOptions,
+  ): Promise<CollaborationSession> {
+    assertIdentifier(input.roomId, ROOM_IDENTIFIER, 'roomId')
+    const displayName = normalizedDisplayName(input.displayName)
+    const payload = await this.request(
+      `/api/collaboration/rooms/${encodeURIComponent(input.roomId)}/open-session`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomId: input.roomId,
+          deviceId: this.deviceId(),
+          displayName,
+        }),
+      },
+      options,
+    )
+    if (!isSession(payload.session)) failInvalidResponse('Collaboration gateway returned an invalid session')
+    setCollaborationDisplayName(this.storage, displayName)
+    return payload.session
   }
 
   async createInvite(

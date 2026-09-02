@@ -731,6 +731,20 @@ export class CollaborationService {
     return { room: publicRoom(metadata), session: sessionFor(metadata, member), sessionToken, recoverySecret }
   }
 
+  getActiveRoomForScope(projectId: string, canvasId: string): PublicCollaborationRoom | undefined {
+    assertIdentifier(projectId, 'projectId', SCOPE_ID)
+    assertIdentifier(canvasId, 'canvasId', SCOPE_ID)
+    const roomId = this.activeRoomIdsByScope.get(collaborationScope(projectId, canvasId))
+    if (!roomId) return undefined
+    const room = this.rooms.get(roomId)
+    if (!room || !room.metadata.enabled) return undefined
+    return publicRoom(room.metadata)
+  }
+
+  hasActiveRooms(): boolean {
+    return this.activeRoomIdsByScope.size > 0
+  }
+
   getRoomStatus(roomId: string, sessionToken: string): PublicCollaborationRoom {
     const room = this.room(roomId)
     this.authorizeSession({ roomId, sessionToken })
@@ -862,6 +876,68 @@ export class CollaborationService {
         member.removedAt = undefined
         member.displayName = input.displayName.trim()
         if (member.role !== 'owner') member.role = recovery ? 'owner' : (invite as StoredInvite).role
+      }
+      if (revokedSessionIds.size > 0) {
+        metadata.sessions = metadata.sessions.filter((session) =>
+          !revokedSessionIds.has(session.id),
+        )
+      }
+      const sessionToken = this.secret()
+      metadata.sessions.push({
+        id: this.id(), memberId: member.id, tokenDigest: digest(sessionToken), createdAt: this.timestamp(),
+      })
+      return { session: sessionFor(metadata, member), sessionToken }
+    })
+  }
+
+  async openSession(input: {
+    roomId: string
+    deviceId: string
+    displayName: string
+  }): Promise<{ session: CollaborationSession; sessionToken: string }> {
+    assertIdentifier(input.roomId, 'roomId', ROOM_ID)
+    assertIdentifier(input.deviceId, 'deviceId', DEVICE_ID)
+    assertDisplayName(input.displayName)
+    const room = this.room(input.roomId)
+    this.assertWritable(room)
+    return this.mutateMetadata(room, (metadata) => {
+      let member = metadata.members.find((candidate) => candidate.deviceId === input.deviceId)
+      if (
+        (!member || member.removedAt) &&
+        metadata.members.filter((candidate) => !candidate.removedAt).length >= MAX_ACTIVE_MEMBERS
+      ) {
+        throw new CollaborationLimitError('Collaboration member limit reached')
+      }
+      const memberSessions = member
+        ? metadata.sessions.filter((session) => session.memberId === member?.id)
+        : []
+      if (memberSessions.filter((session) => !session.revokedAt).length >= MAX_ACTIVE_SESSIONS_PER_MEMBER) {
+        throw new CollaborationConflictError('Collaboration session limit reached')
+      }
+      const recordsToRemove = Math.max(
+        0,
+        memberSessions.length - (MAX_SESSION_RECORDS_PER_MEMBER - 1),
+      )
+      const revokedSessionIds = new Set(memberSessions
+        .filter((session) => session.revokedAt)
+        .sort((left, right) =>
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+        )
+        .slice(0, recordsToRemove)
+        .map((session) => session.id))
+      if (revokedSessionIds.size < recordsToRemove) {
+        throw new CollaborationConflictError('Collaboration session limit reached')
+      }
+      if (!member) {
+        member = {
+          id: this.id(), deviceId: input.deviceId, displayName: input.displayName.trim(),
+          role: 'editor', createdAt: this.timestamp(),
+        }
+        metadata.members.push(member)
+      } else {
+        member.removedAt = undefined
+        member.displayName = input.displayName.trim()
+        if (member.role !== 'owner') member.role = 'editor'
       }
       if (revokedSessionIds.size > 0) {
         metadata.sessions = metadata.sessions.filter((session) =>

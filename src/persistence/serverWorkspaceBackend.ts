@@ -10,11 +10,33 @@ export interface ServerWorkspaceBackendOptions {
   fallbackBackend?: WorkspaceStorageBackend
 }
 
+function collaborationRoomFromLocation(): string | undefined {
+  try {
+    const roomId = new URL(globalThis.location.href).searchParams.get('collabRoom') ?? undefined
+    return roomId && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(roomId) ? roomId : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function createServerWorkspaceBackend(
   options: ServerWorkspaceBackendOptions = {},
 ): WorkspaceStorageBackend {
   const fallback = options.fallbackBackend ?? createIndexedDbWorkspaceBackend()
   const baseUrl = options.baseUrl ?? ''
+  let localAdminReady = false
+  let localAdminFlight: Promise<void> | undefined
+
+  const ensureLocalAdminSession = async (): Promise<void> => {
+    if (localAdminReady) return
+    localAdminFlight ??= fetch(`${baseUrl}/api/local-admin/session`, { method: 'POST' })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Local administrator session failed with status ${response.status}`)
+        localAdminReady = true
+      })
+      .finally(() => { localAdminFlight = undefined })
+    return localAdminFlight
+  }
 
   return {
     async initializeFromLegacy(create: (legacyProjects: readonly string[]) => WorkspaceInitialization): Promise<void> {
@@ -78,15 +100,19 @@ export function createServerWorkspaceBackend(
       await fallback.commit(commit).catch(() => {})
 
       try {
+        const headers = new Headers({ 'content-type': 'application/json' })
+        const roomId = collaborationRoomFromLocation()
+        if (!roomId) await ensureLocalAdminSession()
+        if (roomId) headers.set('x-collaboration-room', roomId)
         const response = await fetch(`${baseUrl}/api/workspace/commit`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers,
           body: JSON.stringify(commit),
         })
         if (!response.ok) {
           throw new Error(`Server commit failed with status ${response.status}`)
         }
-      } catch (error) {
+      } catch {
         // If server is temporarily unreachable, local fallback already recorded it
       }
     },

@@ -1107,7 +1107,7 @@ export function ProviderDrawer({
                     className="overlay-text-button"
                     disabled={readOnly || Boolean(state.busyAction)}
                     onClick={() => void handleDeleteMediaProvider(selectedId)}
-                    style={{ color: '#ef4444' }}
+                    style={{ color: 'var(--canvas-status-danger)' }}
                     type="button"
                   >
                     <Trash2 size={14} />
@@ -1191,7 +1191,7 @@ export function ProviderDrawer({
                     <div>
                       <strong>{item.name}</strong>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <small style={{ color: item.secretConfigured ? '#34d399' : '#7e7e7e' }}>
+                        <small style={{ color: item.secretConfigured ? 'var(--canvas-status-success)' : 'var(--canvas-text-muted)' }}>
                           {item.secretConfigured ? '已配置密钥' : '未配置'}
                         </small>
                       </div>
@@ -1413,7 +1413,7 @@ export function ProviderDrawer({
                     className="overlay-text-button"
                     disabled={readOnly}
                     onClick={() => void handleDeleteAgentProvider()}
-                    style={{ color: '#ef4444' }}
+                    style={{ color: 'var(--canvas-status-danger)' }}
                     type="button"
                   >
                     <Trash2 size={14} />

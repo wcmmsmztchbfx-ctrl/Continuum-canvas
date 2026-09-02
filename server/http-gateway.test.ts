@@ -248,7 +248,7 @@ describe('HTTP gateway', () => {
       references: [{ alias: 1, assetId: taskAsset.id, mediaType: 'image' }],
     }))
     const sync = await fetch(`${gateway.origin}/api/canvas-asset-references/canvas-cleanup`, {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
+      method: 'PUT', headers: adminHeaders(gateway, { 'content-type': 'application/json' }),
       body: JSON.stringify({ projectId: 'project-alpha', assetIds: [orphan.id, history.asset.id, taskAsset.id] }),
     })
     expect(await json(sync)).toEqual({ canvasId: 'canvas-cleanup', assetCount: 3 })
@@ -261,14 +261,14 @@ describe('HTTP gateway', () => {
 
     const blocked = await fetch(
       `${gateway.origin}/api/canvas-asset-references/canvas-cleanup?projectId=project-alpha`,
-      { method: 'DELETE' },
+      { method: 'DELETE', headers: adminHeaders(gateway) },
     )
     expect(blocked.status).toBe(409)
 
     await gateway.runtime.jobs.update(activity.jobs[0].id, { status: 'failed' })
     const released = await json(await fetch(
       `${gateway.origin}/api/canvas-asset-references/canvas-cleanup?projectId=project-alpha`,
-      { method: 'DELETE' },
+      { method: 'DELETE', headers: adminHeaders(gateway) },
     ))
     expect(released).toEqual({ canvasId: 'canvas-cleanup', deletedAssetIds: [orphan.id] })
     expect(gateway.runtime.assets.get(orphan.id)).toBeUndefined()
@@ -283,7 +283,7 @@ describe('HTTP gateway', () => {
       `${gateway.origin}/api/canvas-asset-references/${encodeURIComponent(canvasId)}`,
       {
         method: 'PUT',
-        headers: { 'content-type': 'application/json' },
+        headers: adminHeaders(gateway, { 'content-type': 'application/json' }),
         body: JSON.stringify({ projectId: 'project-alpha', assetIds: [] }),
       },
     )
@@ -1288,7 +1288,7 @@ describe('HTTP gateway', () => {
 
     const saveRes = await fetch(`${gateway.origin}/api/canvases/default-project`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: adminHeaders(gateway, { 'content-type': 'application/json' }),
       body: JSON.stringify(canvasPayload),
     })
     expect(saveRes.status).toBe(200)
@@ -1313,7 +1313,7 @@ describe('HTTP gateway', () => {
 
     const commitRes = await fetch(`${gateway.origin}/api/workspace/commit`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: adminHeaders(gateway, { 'content-type': 'application/json' }),
       body: JSON.stringify({ manifest }),
     })
     expect(commitRes.status).toBe(200)

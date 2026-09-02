@@ -16,20 +16,20 @@
 }
 
 .asset-manager-modal {
-  --asset-border: rgba(255, 255, 255, 0.09);
-  --asset-muted: #8e9298;
-  --asset-bg-card: #1c1d1e;
-  --asset-primary: #0d99ff;
+  --asset-border: var(--canvas-border-default);
+  --asset-muted: var(--canvas-text-secondary);
+  --asset-bg-card: var(--canvas-bg-surface);
+  --asset-primary: var(--canvas-accent-primary);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   width: min(1200px, calc(100vw - 48px));
   height: min(780px, calc(100vh - 48px));
   overflow: hidden;
-  color: #f0f0f0;
-  background: #222325;
-  border: 1px solid var(--asset-border);
-  border-radius: 10px;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.65);
+  color: var(--canvas-text-primary);
+  background: var(--canvas-bg-surface);
+  border: 1px solid var(--canvas-border-strong);
+  border-radius: var(--canvas-radius-lg);
+  box-shadow: var(--canvas-shadow-modal);
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
   user-select: none;
 }

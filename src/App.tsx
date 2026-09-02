@@ -270,6 +270,36 @@ export default function App({
     providerCatalog,
     notify,
   })
+  const [hostPromptDismissed, setHostPromptDismissed] = useState(false)
+  const [appMode, setAppMode] = useState<'host' | 'solo'>('solo')
+  const [appModeLoaded, setAppModeLoaded] = useState(false)
+  useEffect(() => {
+    let disposed = false
+    void fetch('/api/system/settings')
+      .then((response) => (response.ok ? response.json() as Promise<{ operationMode?: unknown }> : undefined))
+      .then((data) => {
+        if (disposed) return
+        const mode = data?.operationMode === 'host' ? 'host' : 'solo'
+        setAppMode(mode)
+        setAppModeLoaded(true)
+        localStorage.setItem('continuum_app_mode', mode)
+      })
+      .catch(() => {
+        if (!disposed) setAppModeLoaded(true)
+      })
+    return () => { disposed = true }
+  }, [])
+  const isHostMode = appModeLoaded && appMode === 'host'
+  const hostPromptOpen = Boolean(
+    isHostMode &&
+    !hostPromptDismissed &&
+    hydrated &&
+    loadedCanvasId === canvasId &&
+    collaborationState.status === 'inactive' &&
+    !collaborationState.session &&
+    !collaborationState.pendingInvite &&
+    !collaborationState.pendingHostJoin
+  )
   const [fitViewRequest, setFitViewRequest] = useState(0)
   const [focusNodeRequest, setFocusNodeRequest] = useState<{ id: string; nonce: number }>()
   const [layoutPreviewOpen, setLayoutPreviewOpen] = useState(false)
@@ -1583,6 +1613,10 @@ export default function App({
         workspaceRepository={workspaceRepository}
         onNavigateCanvas={onNavigateCanvas}
         onNavigateWorkspace={onNavigateWorkspace}
+        hostPromptOpen={hostPromptOpen}
+        onDismissHostPrompt={() => setHostPromptDismissed(true)}
+        appMode={appMode}
+        onAppModeChange={setAppMode}
         notify={notify}
         runMockAction={runMockAction}
         restoreProjectFrom={restoreProjectFrom}

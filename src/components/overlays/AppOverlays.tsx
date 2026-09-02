@@ -100,6 +100,10 @@ export interface AppOverlaysProps {
   notify: (message: string, tone?: 'info' | 'success' | 'error' | 'warning') => void
   runMockAction: (task: Promise<unknown>, successMessage: string) => void
   restoreProjectFrom: (task: Promise<ProjectSnapshot>, successMessage?: string) => void
+  hostPromptOpen?: boolean
+  onDismissHostPrompt?: () => void
+  appMode?: 'host' | 'solo'
+  onAppModeChange?: (mode: 'host' | 'solo') => void
 }
 
 export function AppOverlays({
@@ -151,6 +155,10 @@ export function AppOverlays({
   notify,
   runMockAction,
   restoreProjectFrom,
+  hostPromptOpen,
+  onDismissHostPrompt,
+  appMode,
+  onAppModeChange,
 }: AppOverlaysProps) {
   return (
     <>
@@ -222,15 +230,35 @@ export function AppOverlays({
         state={collaborationState}
       />
       <CollaborationNicknameDialog
-        defaultName={collaborationState.pendingInvite?.suggestedName}
-        onCancel={() => {
-          collaborationControllerRef.current?.dismissPendingInvite()
-          notify('邀请链接会保留，刷新页面后仍可加入', 'warning')
-        }}
-        onSubmit={(displayName) =>
-          collaborationAction((controller) => controller.joinPendingInvite(displayName))
+        defaultName={
+          collaborationState.pendingInvite?.suggestedName ||
+          collaborationState.pendingHostJoin?.suggestedName ||
+          (typeof window !== 'undefined'
+            ? localStorage.getItem('libtv-collaboration-display-name') || ''
+            : '')
         }
-        open={Boolean(collaborationState.pendingInvite)}
+        onCancel={() => {
+          if (collaborationState.pendingInvite) {
+            collaborationControllerRef.current?.dismissPendingInvite()
+            notify('邀请链接会保留，刷新页面后仍可加入', 'warning')
+          } else if (collaborationState.pendingHostJoin) {
+            collaborationControllerRef.current?.dismissPendingHostJoin()
+            notify('已取消加入当前主机协作画布', 'warning')
+          } else {
+            onDismissHostPrompt?.()
+          }
+        }}
+        onSubmit={(displayName) => {
+          if (collaborationState.pendingInvite) {
+            collaborationAction((controller) => controller.joinPendingInvite(displayName))
+          } else if (collaborationState.pendingHostJoin) {
+            collaborationAction((controller) => controller.joinPendingHost(displayName))
+          } else {
+            onDismissHostPrompt?.()
+            collaborationAction((controller) => controller.enable(displayName))
+          }
+        }}
+        open={Boolean(collaborationState.pendingInvite) || Boolean(collaborationState.pendingHostJoin) || Boolean(hostPromptOpen)}
       />
       <HelpPopover
         onAction={handleHelpAction}
@@ -417,6 +445,8 @@ export function AppOverlays({
         title={canvasId ? '将画布移入回收站？' : '删除当前项目？'}
       />
       <SettingsModal
+        appMode={appMode}
+        onAppModeChange={onAppModeChange}
         onClose={() => setDialog(null)}
         onNotify={(message, tone) => notify(message, tone)}
         open={dialog === 'settings'}

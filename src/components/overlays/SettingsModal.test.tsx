@@ -48,13 +48,59 @@ describe('SettingsModal', () => {
     expect(notify).toHaveBeenCalledWith('Switched to English', 'success')
   })
 
+  it('switches between host mode and solo mode and persists to localStorage', async () => {
+    const notify = vi.fn()
+    render(<SettingsModal open onClose={vi.fn()} onNotify={notify} />)
+
+    fireEvent.click(screen.getByRole('tab', { name: /启动与通用/ }))
+    const hostOption = screen.getByText('主机模式 (多人协作)')
+    fireEvent.click(hostOption)
+
+    expect(localStorage.getItem('continuum_app_mode')).toBe('host')
+    expect(notify).toHaveBeenCalledWith('已切换为主机模式：进入画布将自动开启多人协作', 'success')
+
+    const soloOption = screen.getByText('个人模式 (单人创作)')
+    fireEvent.click(soloOption)
+
+    expect(localStorage.getItem('continuum_app_mode')).toBe('solo')
+    expect(notify).toHaveBeenCalledWith('已切换为个人模式：进入画布无需输入昵称，不开启多人协作', 'success')
+  })
+
+  it('toggles allow LAN API management setting', async () => {
+    const notify = vi.fn()
+    global.fetch = vi.fn().mockImplementation((url, options) => {
+      if (options?.method === 'POST' && String(url).includes('/settings')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ok: true, allowLanApiManagement: false }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ allowLanApiManagement: true }),
+      })
+    })
+
+    render(<SettingsModal open onClose={vi.fn()} onNotify={notify} />)
+
+    fireEvent.click(screen.getByRole('tab', { name: /启动与通用/ }))
+    const switches = screen.getAllByRole('switch')
+    // First switch is LAN API management, second is auto open browser
+    const lanSwitch = switches[0]
+    fireEvent.click(lanSwitch)
+
+    expect(localStorage.getItem('continuum_allow_lan_api')).toBe('false')
+    expect(notify).toHaveBeenCalledWith('已关闭：仅限本机可配置与保存 API Key', 'info')
+  })
+
   it('toggles auto open browser setting', async () => {
     const notify = vi.fn()
     render(<SettingsModal open onClose={vi.fn()} onNotify={notify} />)
 
     fireEvent.click(screen.getByRole('tab', { name: /启动与通用/ }))
-    const toggle = screen.getByRole('switch')
-    fireEvent.click(toggle)
+    const switches = screen.getAllByRole('switch')
+    const autoOpenSwitch = switches[1]
+    fireEvent.click(autoOpenSwitch)
 
     expect(localStorage.getItem('continuum_auto_open_browser')).toBe('false')
     expect(notify).toHaveBeenCalledWith('已关闭启动自动打开浏览器', 'info')

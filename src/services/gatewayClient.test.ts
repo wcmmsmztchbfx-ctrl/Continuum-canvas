@@ -113,6 +113,7 @@ describe('GatewayClient', () => {
 
   it('syncs canvas asset references and validates the redacted activity response', async () => {
     const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ ok: true, created: true }))
       .mockResolvedValueOnce(Response.json({ canvasId: 'canvas-a', assetCount: 2 }))
       .mockResolvedValueOnce(Response.json({
         active: true,

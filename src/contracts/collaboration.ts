@@ -10,6 +10,16 @@ export const COLLABORATION_MAX_CLIENT_MESSAGE_BYTES = COLLABORATION_MAX_SERVER_M
 
 export type CollaborationRole = 'owner' | 'editor' | 'viewer'
 
+export type CollaborationOperationMode = 'solo' | 'host'
+
+export interface CollaborationScopeStatus {
+  projectId: string
+  canvasId: string
+  mode: CollaborationOperationMode
+  active: boolean
+  roomId?: string
+}
+
 export interface TunnelStatus {
   enabled: boolean
   mode: 'auto' | 'custom'

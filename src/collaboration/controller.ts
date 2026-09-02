@@ -48,6 +48,7 @@ export interface CollaborationControllerState {
   room?: CollaborationRoom
   session?: CollaborationSession
   pendingInvite?: { roomId: string; suggestedName?: string }
+  pendingHostJoin?: { roomId: string; suggestedName?: string }
   conflictRoomId?: string
   recoverySecret?: string
   authenticatedPendingResume?: string
@@ -98,11 +99,13 @@ export interface CollaborationSessionHandle {
 
 export interface CollaborationClientHandle {
   enableRoom: CollaborationClient['enableRoom']
+  getCollaborationScope?: CollaborationClient['getCollaborationScope']
   resumeRoom: CollaborationClient['resumeRoom']
   getRoom: CollaborationClient['getRoom']
   createInvite: CollaborationClient['createInvite']
   revokeInvite: CollaborationClient['revokeInvite']
   joinRoom: CollaborationClient['joinRoom']
+  joinOpenRoom?: CollaborationClient['joinOpenRoom']
   joinFromInviteFragment: CollaborationClient['joinFromInviteFragment']
   setMemberRole: CollaborationClient['setMemberRole']
   removeMember: CollaborationClient['removeMember']
@@ -349,7 +352,37 @@ export class CanvasCollaborationController {
 
   initializeFromLocation(): Promise<void> {
     const roomId = roomIdFromLocation(this.location)
-    if (!roomId || this.disposed || this.canvasSession) return Promise.resolve()
+    if (this.disposed || this.canvasSession) return Promise.resolve()
+    if (!roomId && !this.client.getCollaborationScope) return Promise.resolve()
+    if (!roomId) {
+      return this.runOperation('discover', async (epoch, signal) => {
+        const scope = await this.client.getCollaborationScope?.(this.options.projectId, this.options.canvasId, { signal })
+        if (!scope || !this.isCurrent(epoch) || scope.mode !== 'host' || !scope.active || !scope.roomId) return
+        let suggestedName: string | undefined
+        try {
+          const storage = this.options.storage ?? globalThis.localStorage
+          suggestedName = getCollaborationDisplayName(storage)
+        } catch {
+          suggestedName = undefined
+        }
+        try {
+          const context = await this.client.resumeRoom(scope.roomId, { signal })
+          this.assertCurrent(epoch)
+          this.assertScope(context.session)
+          const baseline = this.connectionBaseline ?? this.currentSnapshot()
+          this.connectionBaseline = baseline
+          this.replaceRoomInUrl(scope.roomId)
+          await this.attach(context.room, context.session, epoch, baseline)
+        } catch (error) {
+          if (!this.isCurrent(epoch)) return
+          if (error instanceof CollaborationClientError && error.code === 'collaboration_forbidden') {
+            this.patch({ pendingHostJoin: { roomId: scope.roomId, suggestedName }, status: 'inactive', error: undefined })
+            return
+          }
+          throw error
+        }
+      })
+    }
     if (hasInvite(this.location)) {
       let suggestedName: string | undefined
       try {
@@ -454,6 +487,31 @@ export class CanvasCollaborationController {
   dismissConflict(): void {
     if (this.state.conflictRoomId) {
       this.patch({ conflictRoomId: undefined, error: undefined })
+    }
+  }
+
+  joinPendingHost(displayName: string): Promise<void> {
+    const pending = this.state.pendingHostJoin
+    const joinOpenRoom = this.client.joinOpenRoom
+    if (!pending || !joinOpenRoom) return Promise.resolve()
+    return this.runOperation('join-open', async (epoch, signal) => {
+      this.patch({ status: 'connecting', error: undefined })
+      const baseline = this.connectionBaseline ?? this.currentSnapshot()
+      this.connectionBaseline = baseline
+      const session = await joinOpenRoom({ roomId: pending.roomId, displayName }, { signal })
+      this.assertCurrent(epoch)
+      this.assertScope(session)
+      const room = await this.client.getRoom(pending.roomId, { signal })
+      this.assertCurrent(epoch)
+      this.replaceRoomInUrl(pending.roomId)
+      this.patch({ pendingHostJoin: undefined })
+      await this.attach(room, session, epoch, baseline)
+    })
+  }
+
+  dismissPendingHostJoin(): void {
+    if (this.state.pendingHostJoin) {
+      this.patch({ pendingHostJoin: undefined, status: 'inactive', error: undefined })
     }
   }
 
