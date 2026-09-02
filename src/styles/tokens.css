@@ -1,7 +1,9 @@
 /**
  * Continuum Canvas Design System Tokens
  * Standard 3-Tier Design Token Architecture (Primitives -> Semantics -> Component Styles)
- * Aligned with Figma UI3 & GitHub Primer specifications.
+ * Typography role names and metrics are adapted from the non-official Figma-inspired
+ * DESIGN.md reference used by this project. We intentionally do not ship Figma's
+ * proprietary fonts, logos, or icon artwork.
  */
 
 :root {
@@ -66,10 +68,15 @@
 
   /* Typography & Icons */
   --canvas-text-primary:   var(--canvas-primitive-zinc-100); /* #f4f4f5 - High contrast titles & text */
+  --canvas-text-primary-strong: var(--canvas-primitive-zinc-50);
   --canvas-text-secondary: var(--canvas-primitive-zinc-400); /* #a1a1aa - Subtitles & field labels */
   --canvas-text-muted:     var(--canvas-primitive-zinc-500); /* #71717a - Hints, badges, placeholders */
   --canvas-text-disabled:  rgba(255, 255, 255, 0.25);        /* Disabled text */
   --canvas-text-brand:     var(--canvas-primitive-blue-500); /* #0d99ff - Interactive links & brand text */
+  --canvas-text-support:   #a9d7ff;                           /* Support/collaboration emphasis */
+  --canvas-text-success:   #a6dfc0;
+  --canvas-text-warning:   #edcb83;
+  --canvas-text-danger:    #ffaaa5;
 
   /* Brand Accents */
   --canvas-accent-primary:       var(--canvas-primitive-blue-500); /* #0d99ff */
@@ -78,6 +85,14 @@
   --canvas-accent-purple:        var(--canvas-primitive-purple-500); /* #8b5cf6 - AI/Agent Accent */
   --canvas-accent-purple-hover:  var(--canvas-primitive-purple-600);
   --canvas-accent-purple-subtle: rgba(139, 92, 246, 0.12);
+  --canvas-accent-pink:           #ec4899;
+
+  /* Secondary support accent used by the workspace rail and collaboration UI. */
+  --canvas-accent-support:        #86cbd2;
+  --canvas-accent-support-hover:  #a9d7da;
+  --canvas-accent-support-subtle: rgba(134, 203, 210, 0.07);
+  --canvas-accent-support-muted:  rgba(134, 203, 210, 0.15);
+  --canvas-text-on-accent:        #111111;
 
   /* Status Colors */
   --canvas-status-success:        var(--canvas-primitive-green-500); /* #10b981 */
@@ -86,6 +101,66 @@
   --canvas-status-warning-subtle: rgba(245, 158, 11, 0.12);
   --canvas-status-danger:         var(--canvas-primitive-red-500);   /* #ef4444 */
   --canvas-status-danger-subtle:  rgba(239, 68, 68, 0.12);
+
+  /* Shared translucent surfaces. Keeping opacity in semantic roles prevents
+     individual components from inventing slightly different dark overlays. */
+  --canvas-surface-control:       rgba(38, 38, 38, 0.8);
+  --canvas-surface-control-strong: rgba(30, 30, 30, 0.94);
+  --canvas-surface-glass:         rgba(18, 20, 24, 0.85);
+  --canvas-surface-deep:           #171819;
+  --canvas-surface-raised:         #2c2d30;
+  --canvas-bg-contrast:           var(--canvas-primitive-zinc-100);
+  --canvas-bg-control:            var(--canvas-primitive-zinc-800);
+  --canvas-bg-control-hover:      var(--canvas-primitive-zinc-700);
+  --canvas-border-control:        var(--canvas-border-default);
+  --canvas-border-control-muted:  #454545;
+  --canvas-border-control-strong: #555555;
+  --canvas-avatar-fallback:       #475569;
+  --canvas-edge-default:          #86909c;
+  --canvas-edge-reference:        #72878b;
+  --canvas-edge-output:            #708078;
+  --canvas-edge-linked:            #c0c8d0;
+  --canvas-overlay-black-18:      rgba(0, 0, 0, 0.18);
+  --canvas-overlay-black-20:      rgba(0, 0, 0, 0.2);
+  --canvas-overlay-black-22:      rgba(0, 0, 0, 0.22);
+  --canvas-overlay-black-25:      rgba(0, 0, 0, 0.25);
+  --canvas-overlay-black-30:      rgba(0, 0, 0, 0.3);
+  --canvas-overlay-black-34:      rgba(0, 0, 0, 0.34);
+  --canvas-overlay-black-35:      rgba(0, 0, 0, 0.35);
+  --canvas-overlay-black-38:      rgba(0, 0, 0, 0.38);
+  --canvas-overlay-black-40:      rgba(0, 0, 0, 0.4);
+  --canvas-overlay-black-42:      rgba(0, 0, 0, 0.42);
+  --canvas-overlay-black-46:      rgba(0, 0, 0, 0.46);
+  --canvas-overlay-black-45:      rgba(0, 0, 0, 0.45);
+  --canvas-overlay-black-50:      rgba(0, 0, 0, 0.5);
+  --canvas-overlay-black-52:      rgba(0, 0, 0, 0.52);
+  --canvas-overlay-black-55:      rgba(0, 0, 0, 0.55);
+  --canvas-overlay-black-56:      rgba(0, 0, 0, 0.56);
+  --canvas-overlay-black-64:      rgba(0, 0, 0, 0.64);
+  --canvas-overlay-black-65:      rgba(0, 0, 0, 0.65);
+  --canvas-overlay-black-60:      rgba(0, 0, 0, 0.6);
+  --canvas-overlay-black-70:      rgba(0, 0, 0, 0.7);
+  --canvas-overlay-black-72:      rgba(0, 0, 0, 0.72);
+  --canvas-overlay-black-80:      rgba(0, 0, 0, 0.8);
+  --canvas-overlay-black-90:      rgba(0, 0, 0, 0.9);
+  --canvas-overlay-white-02:      rgba(255, 255, 255, 0.02);
+  --canvas-overlay-white-03:      rgba(255, 255, 255, 0.03);
+  --canvas-overlay-white-04:      rgba(255, 255, 255, 0.04);
+  --canvas-overlay-white-05:      rgba(255, 255, 255, 0.05);
+  --canvas-overlay-white-06:      rgba(255, 255, 255, 0.06);
+  --canvas-overlay-white-07:      rgba(255, 255, 255, 0.07);
+  --canvas-overlay-white-08:      rgba(255, 255, 255, 0.08);
+  --canvas-overlay-white-10:      rgba(255, 255, 255, 0.1);
+  --canvas-overlay-white-12:      rgba(255, 255, 255, 0.12);
+  --canvas-overlay-white-15:      rgba(255, 255, 255, 0.15);
+  --canvas-overlay-white-18:      rgba(255, 255, 255, 0.18);
+  --canvas-overlay-white-20:      rgba(255, 255, 255, 0.2);
+  --canvas-overlay-white-24:      rgba(255, 255, 255, 0.24);
+  --canvas-overlay-white-25:      rgba(255, 255, 255, 0.25);
+  --canvas-overlay-white-30:      rgba(255, 255, 255, 0.3);
+  --canvas-overlay-white-35:      rgba(255, 255, 255, 0.35);
+  --canvas-overlay-white-40:      rgba(255, 255, 255, 0.4);
+  --canvas-overlay-white-045:     rgba(255, 255, 255, 0.045);
 
   /* Corner Radii */
   --canvas-radius-xs:   3px;
@@ -106,4 +181,98 @@
   --canvas-transition-fast:   120ms cubic-bezier(0.16, 1, 0.3, 1);
   --canvas-transition-normal: 200ms cubic-bezier(0.16, 1, 0.3, 1);
   --canvas-transition-slow:   320ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ==========================================================================
+     Layer 3: Component-facing typography and icon roles
+
+     The reference uses figmaSans/figmaMono. Those are proprietary names, so the
+     implementation uses an OS-native/CJK stack and a system monospace fallback
+     while retaining the documented optical metrics (size, weight, leading and
+     tracking). `font-weight` values below are valid variable-font axis values;
+     browsers clamp them gracefully when a fallback is not variable.
+     ========================================================================== */
+
+  --canvas-font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", Inter,
+    "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --canvas-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  --canvas-font-feature-default: "kern" 1;
+  --canvas-font-synthesis: none;
+
+  --canvas-type-display-xl-size: 86px;
+  --canvas-type-display-xl-weight: 340;
+  --canvas-type-display-xl-leading: 1;
+  --canvas-type-display-xl-tracking: -1.72px;
+
+  --canvas-type-display-lg-size: 64px;
+  --canvas-type-display-lg-weight: 340;
+  --canvas-type-display-lg-leading: 1.1;
+  --canvas-type-display-lg-tracking: -0.96px;
+
+  --canvas-type-headline-size: 26px;
+  --canvas-type-headline-weight: 540;
+  --canvas-type-headline-leading: 1.35;
+  --canvas-type-headline-tracking: -0.26px;
+
+  --canvas-type-subhead-size: 26px;
+  --canvas-type-subhead-weight: 340;
+  --canvas-type-subhead-leading: 1.35;
+  --canvas-type-subhead-tracking: -0.26px;
+
+  --canvas-type-card-title-size: 24px;
+  --canvas-type-card-title-weight: 700;
+  --canvas-type-card-title-leading: 1.45;
+  --canvas-type-card-title-tracking: 0;
+
+  --canvas-type-body-lg-size: 20px;
+  --canvas-type-body-lg-weight: 330;
+  --canvas-type-body-lg-leading: 1.4;
+  --canvas-type-body-lg-tracking: -0.14px;
+
+  --canvas-type-body-size: 18px;
+  --canvas-type-body-weight: 320;
+  --canvas-type-body-leading: 1.45;
+  --canvas-type-body-tracking: -0.26px;
+
+  --canvas-type-body-sm-size: 16px;
+  --canvas-type-body-sm-weight: 330;
+  --canvas-type-body-sm-leading: 1.45;
+  --canvas-type-body-sm-tracking: -0.14px;
+
+  --canvas-type-link-size: 20px;
+  --canvas-type-link-weight: 480;
+  --canvas-type-link-leading: 1.4;
+  --canvas-type-link-tracking: -0.1px;
+
+  --canvas-type-button-size: 20px;
+  --canvas-type-button-weight: 480;
+  --canvas-type-button-leading: 1.4;
+  --canvas-type-button-tracking: -0.1px;
+
+  --canvas-type-eyebrow-size: 18px;
+  --canvas-type-eyebrow-weight: 400;
+  --canvas-type-eyebrow-leading: 1.3;
+  --canvas-type-eyebrow-tracking: 0.54px;
+
+  --canvas-type-caption-size: 12px;
+  --canvas-type-caption-weight: 400;
+  --canvas-type-caption-leading: 1;
+  --canvas-type-caption-tracking: 0.6px;
+
+  /* Independent SVG/Lucide icon contract. The referenced document specifies
+     circular 40px icon buttons but does not define path geometry or stroke.
+     These values are our own implementation choices, not copied Figma artwork. */
+  --canvas-icon-size-xs: 12px;
+  --canvas-icon-size-sm: 14px;
+  --canvas-icon-size-md: 16px;
+  --canvas-icon-size-lg: 20px;
+  --canvas-icon-size-xl: 24px;
+  --canvas-icon-button-size: 40px;
+  --canvas-icon-stroke-width: 1.75;
+  --canvas-icon-stroke-width-strong: 2.25;
+  --canvas-icon-color: var(--canvas-text-secondary);
+  --canvas-icon-color-muted: var(--canvas-text-muted);
+  --canvas-icon-color-active: var(--canvas-accent-primary);
+  --canvas-icon-color-on-accent: var(--canvas-bg-canvas);
+  --canvas-focus-outline: 2px dashed var(--canvas-border-focus);
 }

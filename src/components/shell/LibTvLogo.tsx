@@ -4,7 +4,7 @@ interface LibTvLogoProps {
   strokeWidth?: number
 }
 
-export function LibTvLogo({ size = 20, className = '', strokeWidth = 1.8 }: LibTvLogoProps) {
+export function LibTvLogo({ size = 20, className = '', strokeWidth = 1.75 }: LibTvLogoProps) {
   return (
     <svg
       aria-hidden="true"

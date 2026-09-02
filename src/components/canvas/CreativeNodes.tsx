@@ -99,7 +99,7 @@ function resizer(id: string, data: CanvasFlowNode['data'], selected: boolean) {
     const source = event.sourceEvent
     return { ctrlKey: source instanceof MouseEvent ? source.ctrlKey : false, altKey: source instanceof MouseEvent ? source.altKey : false }
   }
-  return <NodeResizer color="#0d99ff" handleClassName="creative-resize-handle" isVisible={selected} keepAspectRatio={false} lineClassName="creative-resize-line" minHeight={16} minWidth={16} onResizeEnd={(_event, geometry) => { const finalGeometry = latest ?? geometry; latest = undefined; data.onCreativeChange?.(id, { size: { width: finalGeometry.width, height: finalGeometry.height }, position: { x: finalGeometry.x, y: finalGeometry.y } }) }} shouldResize={(event, geometry) => { latest = data.onCreativeResizeSnap?.(id, geometry, modifiers(event)) ?? geometry; Object.assign(geometry, latest); return true }} />
+  return <NodeResizer color="var(--canvas-accent-primary)" handleClassName="creative-resize-handle" isVisible={selected} keepAspectRatio={false} lineClassName="creative-resize-line" minHeight={16} minWidth={16} onResizeEnd={(_event, geometry) => { const finalGeometry = latest ?? geometry; latest = undefined; data.onCreativeChange?.(id, { size: { width: finalGeometry.width, height: finalGeometry.height }, position: { x: finalGeometry.x, y: finalGeometry.y } }) }} shouldResize={(event, geometry) => { latest = data.onCreativeResizeSnap?.(id, geometry, modifiers(event)) ?? geometry; Object.assign(geometry, latest); return true }} />
 }
 
 function FrameNodeContent({ id, data, selected }: NodeProps<CanvasFlowNode>) {
@@ -147,7 +147,7 @@ function PathNodeContent({ data, selected }: NodeProps<CanvasFlowNode>) {
   const node = data.node as PathModel | undefined
   if (!node || node.type !== 'path') return null
   return <div className="canvas-creative-node">
-    <NodeResizer color="#0d99ff" isVisible={selected} minHeight={16} minWidth={16} />
+    <NodeResizer color="var(--canvas-accent-primary)" isVisible={selected} minHeight={16} minWidth={16} />
     <svg aria-label={data.name} preserveAspectRatio="none" viewBox={`0 0 ${node.size.width} ${node.size.height}`}><path d={pathData(node)} fill={node.data.closed ? node.data.fill : 'none'} opacity={node.data.opacity} stroke={node.data.stroke} strokeLinecap="round" strokeLinejoin="round" strokeWidth={node.data.strokeWidth} /></svg>
   </div>
 }

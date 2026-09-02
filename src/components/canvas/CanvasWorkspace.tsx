@@ -2323,9 +2323,9 @@ export function CanvasWorkspace({
           <MiniMap
             ariaLabel="画布小地图"
             className="canvas-minimap"
-            maskColor="rgba(12, 12, 12, 0.68)"
-            nodeColor="#5c5c5c"
-            nodeStrokeColor="#8b8b8b"
+            maskColor="var(--canvas-overlay-black-70)"
+            nodeColor="var(--canvas-bg-elevated)"
+            nodeStrokeColor="var(--canvas-text-muted)"
             pannable
             zoomable
           />

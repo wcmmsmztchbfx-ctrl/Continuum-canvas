@@ -270,7 +270,7 @@ export function AssetsSidebarPanel({
                       src={asset.posterUrl || asset.thumbnailUrl || asset.url}
                     />
                   ) : (
-                    <FileAudio size={24} style={{ color: '#0d99ff' }} />
+                    <FileAudio size={24} style={{ color: 'var(--canvas-accent-primary)' }} />
                   )}
 
                   <span className="sidebar-asset-card__badge">

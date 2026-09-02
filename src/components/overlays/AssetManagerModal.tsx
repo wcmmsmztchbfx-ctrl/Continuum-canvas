@@ -441,7 +441,7 @@ export function AssetManagerModal({
                           src={asset.posterUrl || asset.thumbnailUrl || asset.url}
                         />
                       ) : (
-                        <FileAudio size={36} style={{ color: '#0d99ff' }} />
+                        <FileAudio size={36} style={{ color: 'var(--canvas-accent-primary)' }} />
                       )}
 
                       {/* Type Badge */}

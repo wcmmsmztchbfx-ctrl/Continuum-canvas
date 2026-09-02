@@ -321,7 +321,7 @@ export function CollaborationPopover({
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span className="floating-collab-pulse" />
-                  <strong style={{ fontSize: '13px', color: '#f3f4f6' }}>
+                  <strong style={{ fontSize: '13px', color: 'var(--canvas-text-primary)' }}>
                     已有正在进行的协作房间
                   </strong>
                 </div>
@@ -329,12 +329,12 @@ export function CollaborationPopover({
                   style={{
                     margin: 0,
                     fontSize: '12px',
-                    color: '#9ca3af',
+                    color: 'var(--canvas-text-muted)',
                     lineHeight: 1.5,
                   }}
                 >
                   您当前在【
-                  <strong style={{ color: '#f9fafb' }}>
+                  <strong style={{ color: 'var(--canvas-text-primary)' }}>
                     {activeCollab.canvasName}
                   </strong>
                   】中已有正在进行的协作房间。系统暂不支持同时发起多个协作房间。
@@ -461,7 +461,7 @@ export function CollaborationPopover({
                             title="复制远程公网地址"
                           >
                             {copiedKey === 'tunnelUrl' ? (
-                              <Check size={14} color="#10b981" />
+                              <Check size={14} color="var(--canvas-status-success)" />
                             ) : (
                               <Copy size={14} />
                             )}
@@ -690,7 +690,7 @@ export function CollaborationPopover({
                   type="button"
                 >
                   {copiedKey === 'recoverySecret' ? (
-                    <Check size={14} color="#10b981" />
+                    <Check size={14} color="var(--canvas-status-success)" />
                   ) : (
                     <Copy aria-hidden="true" />
                   )}
@@ -749,8 +749,8 @@ export function CollaborationPopover({
                   <div
                     className="collab-tunnel-prompt"
                     style={{
-                      borderLeft: '2px solid #10b981',
-                      background: 'rgba(16, 185, 129, 0.08)',
+                      borderLeft: '2px solid var(--canvas-status-success)',
+                      background: 'var(--canvas-status-success-subtle)',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -758,11 +758,11 @@ export function CollaborationPopover({
                         className="collab-tab-indicator is-online"
                         style={{ display: 'inline-block', position: 'static' }}
                       />
-                      <small style={{ color: '#34d399', fontWeight: 600 }}>
+                      <small style={{ color: 'var(--canvas-status-success)', fontWeight: 600 }}>
                         局域网直连模式（同一 Wi-Fi 可用）
                       </small>
                     </div>
-                    <small style={{ color: '#9ca3af', marginTop: '2px' }}>
+                    <small style={{ color: 'var(--canvas-text-muted)', marginTop: '2px' }}>
                       {lanOrigin
                         ? `局域网地址：${lanOrigin}`
                         : '未检测到物理局域网网卡，若跨设备推荐使用【远程互联网链接】'}
@@ -828,7 +828,7 @@ export function CollaborationPopover({
                         type="button"
                       >
                         {copiedKey === invite.id ? (
-                          <Check size={14} color="#10b981" />
+                          <Check size={14} color="var(--canvas-status-success)" />
                         ) : (
                           <Copy aria-hidden="true" />
                         )}

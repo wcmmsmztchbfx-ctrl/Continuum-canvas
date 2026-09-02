@@ -449,7 +449,7 @@ export function SettingsModal({
                 <div
                   className="canvas-settings__checkbox-row"
                   onClick={handleAllowLanApiToggle}
-                  style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}
+                  style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px solid var(--canvas-overlay-white-08)' }}
                 >
                   <span
                     aria-checked={allowLanApiManagement}
@@ -524,7 +524,7 @@ export function SettingsModal({
                   </div>
                   <div className="canvas-settings__subitem">
                     <span className="canvas-settings__sublabel">本地服务网关</span>
-                    <span className="canvas-settings__subvalue" style={{ color: '#18a0fb' }}>
+                    <span className="canvas-settings__subvalue" style={{ color: 'var(--canvas-accent-primary)' }}>
                       http://127.0.0.1:4173 (连接正常)
                     </span>
                   </div>

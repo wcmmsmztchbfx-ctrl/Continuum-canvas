@@ -62,7 +62,7 @@ function VideoNodeContent({
     if (sliderRef.current) {
       sliderRef.current.max = String(max)
       sliderRef.current.value = String(val)
-      sliderRef.current.style.background = `linear-gradient(to right, #0d99ff 0%, #0d99ff ${pct}%, rgba(255, 255, 255, 0.24) ${pct}%, rgba(255, 255, 255, 0.24) 100%)`
+      sliderRef.current.style.background = `linear-gradient(to right, var(--canvas-accent-primary) 0%, var(--canvas-accent-primary) ${pct}%, var(--canvas-overlay-white-24) ${pct}%, var(--canvas-overlay-white-24) 100%)`
     }
     if (timeDisplayRef.current) {
       timeDisplayRef.current.textContent = `${formatVideoTime(time)} / ${formatVideoTime(vDur)}`

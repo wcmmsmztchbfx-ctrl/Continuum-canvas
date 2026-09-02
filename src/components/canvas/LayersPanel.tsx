@@ -184,7 +184,7 @@ export function LayersPanel(props: LayersPanelProps) {
                       <path
                         d={getPathSvg(node)}
                         fill={node.data.fill && node.data.fill !== 'transparent' ? node.data.fill : 'none'}
-                        stroke={node.data.stroke || '#ffffff'}
+                        stroke={node.data.stroke || 'var(--canvas-text-primary)'}
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={Math.max(4, (node.data.strokeWidth ?? 1) * 2)}
@@ -198,8 +198,8 @@ export function LayersPanel(props: LayersPanelProps) {
                     className="layers-panel__thumb-shape-inner"
                     style={{
                       borderRadius: (node.data as { kind?: string }).kind === 'ellipse' ? '50%' : `${Math.min(4, (node.data as { radius?: number }).radius ?? 2)}px`,
-                      background: (node.data as { fill?: string }).fill || 'rgba(255,255,255,0.25)',
-                      border: `${Math.max(1, Math.min(2, (node.data as { strokeWidth?: number }).strokeWidth ?? 1))}px solid ${(node.data as { stroke?: string }).stroke || 'rgba(255,255,255,0.4)'}`,
+                      background: (node.data as { fill?: string }).fill || 'var(--canvas-overlay-white-25)',
+                      border: `${Math.max(1, Math.min(2, (node.data as { strokeWidth?: number }).strokeWidth ?? 1))}px solid ${(node.data as { stroke?: string }).stroke || 'var(--canvas-overlay-white-40)'}`,
                       opacity: (node.data as { opacity?: number }).opacity ?? 1,
                     }}
                   />
@@ -209,8 +209,8 @@ export function LayersPanel(props: LayersPanelProps) {
                   <span
                     className="layers-panel__thumb-frame-inner"
                     style={{
-                      background: (node.data as { fill?: string }).fill && (node.data as { fill?: string }).fill !== 'transparent' ? (node.data as { fill?: string }).fill : 'rgba(255,255,255,0.06)',
-                      borderColor: (node.data as { stroke?: string }).stroke && (node.data as { stroke?: string }).stroke !== 'transparent' ? (node.data as { stroke?: string }).stroke : 'rgba(255,255,255,0.3)',
+                      background: (node.data as { fill?: string }).fill && (node.data as { fill?: string }).fill !== 'transparent' ? (node.data as { fill?: string }).fill : 'var(--canvas-overlay-white-06)',
+                      borderColor: (node.data as { stroke?: string }).stroke && (node.data as { stroke?: string }).stroke !== 'transparent' ? (node.data as { stroke?: string }).stroke : 'var(--canvas-overlay-white-30)',
                     }}
                   >
                     #

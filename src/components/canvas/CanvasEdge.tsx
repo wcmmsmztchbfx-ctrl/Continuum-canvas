@@ -138,7 +138,8 @@ export function CanvasConnectionLine({
         className="canvas-connection-preview__glow"
         d={path}
         fill="none"
-        stroke="rgba(100, 180, 255, 0.4)"
+        stroke="var(--canvas-accent-primary)"
+        opacity={0.4}
         strokeWidth={6}
       />
       <path

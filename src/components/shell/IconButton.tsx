@@ -2,6 +2,9 @@ import { clsx } from 'clsx'
 import type { ButtonHTMLAttributes } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
+// Lucide supplies independent SVG geometry; the reference design contributes
+// sizing and stroke guidance only, never copied Figma path data.
+
 interface IconButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'aria-label' | 'children'> {
   icon: LucideIcon

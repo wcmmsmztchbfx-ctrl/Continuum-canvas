@@ -238,7 +238,7 @@ function TextNodeContent({
               color: model?.data.color ?? '#ffffff',
               textAlign: model?.data.textAlign ?? 'left',
               fontFamily: model?.data.fontFamily ?? 'inherit',
-              caretColor: '#0d99ff',
+              caretColor: 'var(--canvas-accent-primary)',
               padding: '6px 8px',
               width: '100%',
               height: '100%',

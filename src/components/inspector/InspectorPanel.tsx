@@ -209,7 +209,7 @@ export function InspectorPanel({
       >
         <div
           className="inspector-top-bar__avatar-bubble inspector-top-bar__avatar-bubble--none"
-          style={{ background: '#475569' }}
+          style={{ background: 'var(--canvas-avatar-fallback)' }}
         >
           无
         </div>
@@ -309,7 +309,7 @@ export function InspectorPanel({
                 <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Folder size={13} /> 编组选中图层
                 </span>
-                <span style={{ fontSize: '10px', color: '#888' }}>Ctrl+G</span>
+                <span style={{ fontSize: '10px', color: 'var(--canvas-text-muted)' }}>Ctrl+G</span>
               </button>
             </div>
           </div>
@@ -360,13 +360,13 @@ export function InspectorPanel({
             <div className="inspector-row" style={{ marginTop: '8px' }}>
               <div className="inspector-field">
                 <span className="inspector-field__label">缩放</span>
-                <span style={{ color: '#fff', fontSize: '11px' }}>
+                <span style={{ color: 'var(--canvas-text-primary)', fontSize: '11px' }}>
                   {Math.round(snapshot.viewport.zoom * 100)}%
                 </span>
               </div>
               <div className="inspector-field">
                 <span className="inspector-field__label">对象数</span>
-                <span style={{ color: '#fff', fontSize: '11px' }}>
+                <span style={{ color: 'var(--canvas-text-primary)', fontSize: '11px' }}>
                   {snapshot.nodes.length} 个节点
                 </span>
               </div>
@@ -393,7 +393,7 @@ export function InspectorPanel({
 
           <div className="inspector-empty">
             <Sliders className="inspector-empty__icon" size={28} />
-            <p style={{ margin: 0, fontSize: '11px', color: '#888' }}>
+            <p style={{ margin: 0, fontSize: '11px', color: 'var(--canvas-text-muted)' }}>
               选择画布上的任意节点，即可在此处查看并编辑其完整尺寸、样式与排版属性。按住标签可左右拖拽快速微调数值。
             </p>
           </div>
@@ -746,7 +746,7 @@ export function InspectorPanel({
                   type="number"
                   value={Math.round((activeNode as TextNode).data.letterSpacing ?? 0)}
                 />
-                <span style={{ color: '#737373', fontSize: '10px' }}>px</span>
+                <span style={{ color: 'var(--canvas-text-muted)', fontSize: '10px' }}>px</span>
               </div>
             </div>
 
@@ -788,7 +788,7 @@ export function InspectorPanel({
               <div className="inspector-color-row" style={{ width: '100%' }}>
                 <div
                   className="inspector-color-chip"
-                  style={{ background: (activeNode as TextNode).data.color || '#e0e0e0' }}
+                  style={{ background: (activeNode as TextNode).data.color || 'var(--canvas-text-primary)' }}
                 >
                   <input
                     className="inspector-color-input-native"
@@ -928,7 +928,7 @@ export function InspectorPanel({
                   type="number"
                   value={Math.round(((activeNode.data as { opacity?: number }).opacity ?? 1) * 100)}
                 />
-                <span style={{ color: '#737373', fontSize: '10px' }}>%</span>
+                <span style={{ color: 'var(--canvas-text-muted)', fontSize: '10px' }}>%</span>
               </div>
             </div>
           ) : null}

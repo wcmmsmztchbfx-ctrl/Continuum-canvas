@@ -171,7 +171,7 @@ describe('reference geometry and styling', () => {
   it('uses the sampled canvas color and the supplied global font stack', () => {
     expect(shellCss()).toMatch(/--shell-canvas:\s*(var\(--canvas-bg-canvas\)|#141414);/)
     expect(shellCss()).toContain(
-      `--shell-font: -apple-system, BlinkMacSystemFont, "PingFang SC", Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";`,
+      '--shell-font: var(--canvas-font-sans);',
     )
   })
 
@@ -218,12 +218,12 @@ describe('reference geometry and styling', () => {
     expect(cssRule('.mode-switch__option')).toMatch(/font-size:\s*13px/)
     expect(cssRule('.mode-switch__option')).toMatch(/line-height:\s*20\.15px/)
     expect(cssRule('.mode-switch__option[aria-pressed="true"]')).toContain(
-      'background: rgb(54, 54, 54)',
+      'background: var(--canvas-bg-elevated)',
     )
     expect(cssRule('.shell-icon-button')).toContain(
-      'background: rgba(38, 38, 38, 0.8)',
+      'background: var(--canvas-surface-control)',
     )
-    expect(cssRule('.shell-icon-button')).toContain('border: 1px solid #363636')
+    expect(cssRule('.shell-icon-button')).toContain('border: 1px solid var(--canvas-bg-elevated)')
     expect(cssRule('.shell-icon-button')).toContain('border-radius: 12px')
   })
 })

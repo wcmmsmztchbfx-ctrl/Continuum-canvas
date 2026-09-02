@@ -407,7 +407,7 @@ export function AgentSidebarPanel({
           <h2 className="fig-agent-header__title">新对话</h2>
           <span className="fig-agent-header__status">
             {readOnly ? (
-              <span style={{ color: '#a1a1aa' }}>仅房主可用</span>
+              <span style={{ color: 'var(--canvas-text-secondary)' }}>仅房主可用</span>
             ) : hasConfiguredLlm === false ? (
               '未接入大模型'
             ) : agentModelInfo?.providerName ? (
@@ -487,7 +487,7 @@ export function AgentSidebarPanel({
         ) : hasConfiguredLlm === false && messages.length === 0 ? (
           <div className="fig-agent-unconfigured-card">
             <div className="fig-agent-unconfigured-icon">
-              <AlertTriangle size={24} style={{ color: '#ff9f0a' }} />
+              <AlertTriangle size={24} style={{ color: 'var(--canvas-status-warning)' }} />
             </div>
             <h3>尚未接入 Agent 大模型</h3>
             <p>请在 API 管理中配置 DeepSeek、OpenAI 或其他兼容大模型的 API Key，即可开启自然语言对话与画布自主操控。</p>

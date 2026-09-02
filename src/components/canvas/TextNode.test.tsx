@@ -36,9 +36,9 @@ describe('TextNode collaboration editing', () => {
     expect(screen.getByText('共享正文')).toBeVisible()
 
     const css = readFileSync(resolve(process.cwd(), 'src/components/canvas/canvas.css'), 'utf8')
-    expect(css).toMatch(/\.canvas-text-node__frame\s*\{[^}]*border:\s*1px solid #3f4144/s)
-    expect(css).toMatch(/\.canvas-text-node\[data-selected="true"\][^{]*\{[^}]*#74777b/s)
-    expect(css).not.toMatch(/\.canvas-text-node\[data-selected="true"\][^{]*\{[^}]*#58a6ff/s)
+    expect(css).toMatch(/\.canvas-text-node__frame\s*\{[^}]*border:\s*1px solid var\(--canvas-border-control-muted\)/s)
+    expect(css).toMatch(/\.canvas-text-node\[data-selected="true"\][^{]*\{[^}]*var\(--canvas-border-control-strong\)/s)
+    expect(css).not.toMatch(/\.canvas-text-node\[data-selected="true"\][^{]*\{[^}]*var\(--canvas-border-focus\)/s)
   })
 
   it('stays in preview on click and enters editing only after a successful double-click lease', () => {

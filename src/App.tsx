@@ -1390,7 +1390,7 @@ export default function App({
                       <div
                         key={member.id || idx}
                         className={`inspector-top-bar__avatar-bubble ${!isOnline ? 'inspector-top-bar__avatar-bubble--offline' : ''}`}
-                        style={{ background: member.color || '#0d99ff', zIndex: 10 - idx }}
+                        style={{ background: member.color || 'var(--canvas-accent-primary)', zIndex: 10 - idx }}
                         title={`${member.displayName}${isOnline ? ' (在线)' : ' (离线)'}`}
                       >
                         {(member.displayName || '名').trim().slice(0, 1).toUpperCase()}
@@ -1400,7 +1400,7 @@ export default function App({
                 ) : (
                   <div
                     className="inspector-top-bar__avatar-bubble inspector-top-bar__avatar-bubble--none"
-                    style={{ background: '#475569' }}
+                    style={{ background: 'var(--canvas-avatar-fallback)' }}
                   >
                     {collaborationState.session?.displayName ? collaborationState.session.displayName.trim().slice(0, 1).toUpperCase() : '无'}
                   </div>
