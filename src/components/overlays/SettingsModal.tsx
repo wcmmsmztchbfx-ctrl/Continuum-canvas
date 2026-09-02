@@ -38,6 +38,9 @@ export function SettingsModal({
   const [language, setLanguage] = useState<string>(() => {
     return localStorage.getItem('continuum_language') || 'zh-CN'
   })
+  const [appMode, setAppMode] = useState<'host' | 'solo'>(() => {
+    return (localStorage.getItem('continuum_app_mode') as 'host' | 'solo') || 'solo'
+  })
   const [autoOpenBrowser, setAutoOpenBrowser] = useState<boolean>(() => {
     return localStorage.getItem('continuum_auto_open_browser') !== 'false'
   })
@@ -86,6 +89,17 @@ export function SettingsModal({
     setLanguage(newLang)
     localStorage.setItem('continuum_language', newLang)
     onNotify?.(newLang === 'zh-CN' ? '已切换至简体中文' : 'Switched to English', 'success')
+  }
+
+  const handleAppModeChange = (newMode: 'host' | 'solo') => {
+    setAppMode(newMode)
+    localStorage.setItem('continuum_app_mode', newMode)
+    onNotify?.(
+      newMode === 'host'
+        ? '已切换为主机模式：进入画布将自动开启多人协作'
+        : '已切换为个人模式：进入画布无需输入昵称，不开启多人协作',
+      'success',
+    )
   }
 
   const handleAutoOpenBrowserToggle = () => {
@@ -320,6 +334,41 @@ export function SettingsModal({
           {/* TAB 3: 启动与通用 */}
           {activeTab === 'startup' && (
             <div className="figma-settings__content">
+              <div className="figma-settings__section">
+                <h4 className="figma-settings__section-title">工作与协同模式 (Operation Mode)</h4>
+                <p className="figma-settings__section-subtitle">
+                  选择进入画布时的默认协同策略与身份设置。
+                </p>
+
+                <div className="figma-settings__radio-list" role="radiogroup" aria-label="工作与协同模式">
+                  <div
+                    className="figma-settings__radio-row"
+                    onClick={() => handleAppModeChange('host')}
+                  >
+                    <span className={`figma-settings__radio ${appMode === 'host' ? 'figma-settings__radio--checked' : ''}`}>
+                      {appMode === 'host' && <span className="figma-settings__radio-dot" />}
+                    </span>
+                    <div className="figma-settings__radio-content">
+                      <span className="figma-settings__radio-title">主机模式 (多人协作)</span>
+                      <span className="figma-settings__radio-desc">所有人进入画布均需先输入协作昵称，直接接入多人实时协同。适合团队/局域网共享创作。</span>
+                    </div>
+                  </div>
+
+                  <div
+                    className="figma-settings__radio-row"
+                    onClick={() => handleAppModeChange('solo')}
+                  >
+                    <span className={`figma-settings__radio ${appMode === 'solo' ? 'figma-settings__radio--checked' : ''}`}>
+                      {appMode === 'solo' && <span className="figma-settings__radio-dot" />}
+                    </span>
+                    <div className="figma-settings__radio-content">
+                      <span className="figma-settings__radio-title">个人模式 (单人创作)</span>
+                      <span className="figma-settings__radio-desc">进入画布无需输入昵称，直接进入独立画布，不开启多人协作网络。</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="figma-settings__section">
                 <h4 className="figma-settings__section-title">应用启动行为</h4>
 

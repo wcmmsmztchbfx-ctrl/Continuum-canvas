@@ -270,6 +270,17 @@ export default function App({
     providerCatalog,
     notify,
   })
+  const [hostPromptDismissed, setHostPromptDismissed] = useState(false)
+  const isHostMode = typeof window !== 'undefined' && localStorage.getItem('continuum_app_mode') === 'host'
+  const hostPromptOpen = Boolean(
+    isHostMode &&
+    !hostPromptDismissed &&
+    hydrated &&
+    loadedCanvasId === canvasId &&
+    collaborationState.status === 'inactive' &&
+    !collaborationState.session &&
+    !collaborationState.pendingInvite
+  )
   const [fitViewRequest, setFitViewRequest] = useState(0)
   const [focusNodeRequest, setFocusNodeRequest] = useState<{ id: string; nonce: number }>()
   const [layoutPreviewOpen, setLayoutPreviewOpen] = useState(false)
@@ -1583,6 +1594,8 @@ export default function App({
         workspaceRepository={workspaceRepository}
         onNavigateCanvas={onNavigateCanvas}
         onNavigateWorkspace={onNavigateWorkspace}
+        hostPromptOpen={hostPromptOpen}
+        onDismissHostPrompt={() => setHostPromptDismissed(true)}
         notify={notify}
         runMockAction={runMockAction}
         restoreProjectFrom={restoreProjectFrom}

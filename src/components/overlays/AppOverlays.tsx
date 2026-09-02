@@ -100,6 +100,8 @@ export interface AppOverlaysProps {
   notify: (message: string, tone?: 'info' | 'success' | 'error' | 'warning') => void
   runMockAction: (task: Promise<unknown>, successMessage: string) => void
   restoreProjectFrom: (task: Promise<ProjectSnapshot>, successMessage?: string) => void
+  hostPromptOpen?: boolean
+  onDismissHostPrompt?: () => void
 }
 
 export function AppOverlays({
@@ -151,6 +153,8 @@ export function AppOverlays({
   notify,
   runMockAction,
   restoreProjectFrom,
+  hostPromptOpen,
+  onDismissHostPrompt,
 }: AppOverlaysProps) {
   return (
     <>
@@ -222,15 +226,29 @@ export function AppOverlays({
         state={collaborationState}
       />
       <CollaborationNicknameDialog
-        defaultName={collaborationState.pendingInvite?.suggestedName}
-        onCancel={() => {
-          collaborationControllerRef.current?.dismissPendingInvite()
-          notify('邀请链接会保留，刷新页面后仍可加入', 'warning')
-        }}
-        onSubmit={(displayName) =>
-          collaborationAction((controller) => controller.joinPendingInvite(displayName))
+        defaultName={
+          collaborationState.pendingInvite?.suggestedName ||
+          (typeof window !== 'undefined'
+            ? localStorage.getItem('libtv-collaboration-display-name') || ''
+            : '')
         }
-        open={Boolean(collaborationState.pendingInvite)}
+        onCancel={() => {
+          if (collaborationState.pendingInvite) {
+            collaborationControllerRef.current?.dismissPendingInvite()
+            notify('邀请链接会保留，刷新页面后仍可加入', 'warning')
+          } else {
+            onDismissHostPrompt?.()
+          }
+        }}
+        onSubmit={(displayName) => {
+          if (collaborationState.pendingInvite) {
+            collaborationAction((controller) => controller.joinPendingInvite(displayName))
+          } else {
+            onDismissHostPrompt?.()
+            collaborationAction((controller) => controller.enable(displayName))
+          }
+        }}
+        open={Boolean(collaborationState.pendingInvite) || Boolean(hostPromptOpen)}
       />
       <HelpPopover
         onAction={handleHelpAction}
