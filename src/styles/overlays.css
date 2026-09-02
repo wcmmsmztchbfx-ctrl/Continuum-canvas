@@ -2566,8 +2566,8 @@
   }
 }
 
-/* --- Settings Modal Styles (Pixel-Accurate Figma Dark Theme) --- */
-.figma-settings-dialog {
+/* --- Settings Modal Styles (Pixel-Accurate Minimal Precision Dark Theme) --- */
+.canvas-settings-dialog {
   position: fixed;
   top: 50%;
   left: 50%;
@@ -2588,7 +2588,7 @@
   outline: none;
 }
 
-.figma-settings__header {
+.canvas-settings__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2599,13 +2599,13 @@
   background: #2c2c2c;
 }
 
-.figma-settings__tabs {
+.canvas-settings__tabs {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.figma-settings__tab {
+.canvas-settings__tab {
   padding: 5px 12px;
   font-size: 12px;
   font-weight: 500;
@@ -2617,17 +2617,17 @@
   transition: all 100ms ease;
 }
 
-.figma-settings__tab:hover {
+.canvas-settings__tab:hover {
   color: #d0d0d0;
 }
 
-.figma-settings__tab--active {
+.canvas-settings__tab--active {
   color: #ffffff;
   background: #444444;
   font-weight: 600;
 }
 
-.figma-settings__close {
+.canvas-settings__close {
   display: grid;
   place-items: center;
   width: 28px;
@@ -2640,12 +2640,12 @@
   transition: all 100ms ease;
 }
 
-.figma-settings__close:hover {
+.canvas-settings__close:hover {
   color: #ffffff;
   background: rgba(255, 255, 255, 0.08);
 }
 
-.figma-settings__body {
+.canvas-settings__body {
   flex: 1;
   padding: 32px 40px;
   overflow-y: auto;
@@ -2654,18 +2654,18 @@
   background: #2c2c2c;
 }
 
-.figma-settings__content {
+.canvas-settings__content {
   display: flex;
   flex-direction: column;
   gap: 28px;
 }
 
-.figma-settings__section {
+.canvas-settings__section {
   display: flex;
   flex-direction: column;
 }
 
-.figma-settings__section-title {
+.canvas-settings__section-title {
   margin: 0 0 6px 0;
   font-size: 14px;
   font-weight: 700;
@@ -2673,21 +2673,21 @@
   letter-spacing: -0.01em;
 }
 
-.figma-settings__section-subtitle {
+.canvas-settings__section-subtitle {
   margin: 0 0 14px 0;
   font-size: 12px;
   color: #8a8a8a;
   line-height: 1.5;
 }
 
-.figma-settings__input-group {
+.canvas-settings__input-group {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 2px;
 }
 
-.figma-settings__input {
+.canvas-settings__input {
   flex: 1;
   height: 30px;
   padding: 0 10px;
@@ -2700,11 +2700,11 @@
   transition: border-color 100ms ease;
 }
 
-.figma-settings__input:focus {
+.canvas-settings__input:focus {
   border-color: #18a0fb;
 }
 
-.figma-settings__btn {
+.canvas-settings__btn {
   height: 30px;
   padding: 0 12px;
   border-radius: 4px;
@@ -2715,31 +2715,31 @@
   transition: all 100ms ease;
 }
 
-.figma-settings__btn--primary {
+.canvas-settings__btn--primary {
   background: #18a0fb;
   color: #ffffff;
   border-color: #18a0fb;
   font-weight: 600;
 }
 
-.figma-settings__btn--primary:hover {
+.canvas-settings__btn--primary:hover {
   background: #0d8de3;
   border-color: #0d8de3;
 }
 
-.figma-settings__btn--ghost {
+.canvas-settings__btn--ghost {
   background: transparent;
   color: #999999;
   border-color: #444444;
 }
 
-.figma-settings__btn--ghost:hover {
+.canvas-settings__btn--ghost:hover {
   color: #ffffff;
   border-color: #666666;
   background: rgba(255, 255, 255, 0.04);
 }
 
-.figma-settings__checkbox-row {
+.canvas-settings__checkbox-row {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2747,7 +2747,7 @@
   user-select: none;
 }
 
-.figma-settings__checkbox {
+.canvas-settings__checkbox {
   width: 14px;
   height: 14px;
   border-radius: 3px;
@@ -2760,50 +2760,50 @@
   transition: all 100ms ease;
 }
 
-.figma-settings__checkbox--checked {
+.canvas-settings__checkbox--checked {
   background: #18a0fb;
   border-color: #18a0fb;
 }
 
-.figma-settings__checkbox-label {
+.canvas-settings__checkbox-label {
   font-size: 13px;
   font-weight: 600;
   color: #ffffff;
 }
 
-.figma-settings__hint {
+.canvas-settings__hint {
   margin: 4px 0 0 24px;
   font-size: 12px;
   color: #8a8a8a;
   line-height: 1.5;
 }
 
-.figma-settings__subgroup {
+.canvas-settings__subgroup {
   margin: 16px 0 0 24px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.figma-settings__subitem {
+.canvas-settings__subitem {
   display: flex;
   align-items: center;
   gap: 12px;
   font-size: 12px;
 }
 
-.figma-settings__sublabel {
+.canvas-settings__sublabel {
   color: #8a8a8a;
   min-width: 90px;
 }
 
-.figma-settings__subvalue {
+.canvas-settings__subvalue {
   color: #d0d0d0;
   font-family: monospace;
   font-size: 11px;
 }
 
-.figma-settings__link {
+.canvas-settings__link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -2817,18 +2817,18 @@
   text-decoration: none;
 }
 
-.figma-settings__link:hover {
+.canvas-settings__link:hover {
   color: #55b7ff;
   text-decoration: underline;
 }
 
-.figma-settings__radio-list {
+.canvas-settings__radio-list {
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
-.figma-settings__radio-row {
+.canvas-settings__radio-row {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -2836,7 +2836,7 @@
   user-select: none;
 }
 
-.figma-settings__radio {
+.canvas-settings__radio {
   width: 14px;
   height: 14px;
   border-radius: 50%;
@@ -2849,36 +2849,36 @@
   transition: border-color 100ms ease;
 }
 
-.figma-settings__radio--checked {
+.canvas-settings__radio--checked {
   border-color: #18a0fb;
 }
 
-.figma-settings__radio-dot {
+.canvas-settings__radio-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: #18a0fb;
 }
 
-.figma-settings__radio-content {
+.canvas-settings__radio-content {
   display: flex;
   flex-direction: column;
 }
 
-.figma-settings__radio-title {
+.canvas-settings__radio-title {
   font-size: 13px;
   font-weight: 500;
   color: #ffffff;
 }
 
-.figma-settings__radio-desc {
+.canvas-settings__radio-desc {
   font-size: 12px;
   color: #8a8a8a;
   line-height: 1.4;
   margin-top: 2px;
 }
 
-.figma-settings__sr-only {
+.canvas-settings__sr-only {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -2889,11 +2889,11 @@
   border: 0;
 }
 
-.figma-settings-spin {
-  animation: figmaSpin 1s linear infinite;
+.canvas-settings-spin {
+  animation: canvasSettingsSpin 1s linear infinite;
 }
 
-@keyframes figmaSpin {
+@keyframes canvasSettingsSpin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }

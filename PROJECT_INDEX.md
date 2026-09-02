@@ -12,7 +12,7 @@
 - **状态管理**: Zustand (`src/store/canvas-store.ts`)
 - **协作引擎**: 自研 WebSocket / CRDT 混合锁协调器 (`src/collaboration/controller.ts`, `server/collaboration-service.ts`)
 - **本地持久化**: IndexedDB (`src/persistence/`)
-- **UI 风格**: Figma 风格暗色主题，模块化 ActivityBar + Layers + Canvas Workspace + InspectorPanel
+- **UI 风格**: 专业极简暗色风格暗色主题，模块化 ActivityBar + Layers + Canvas Workspace + InspectorPanel
 
 ---
 
@@ -31,7 +31,7 @@ src/
 │   │   ├── BottomStatusBar.tsx    # 底部状态栏 (缩放、网格、对齐吸附、全局全屏/全显)
 │   │   └── ToolDock.tsx           # 底部/浮动工具栏 (选择、移动、画框F、矩形/圆形R、画笔P、文字T)
 │   ├── inspector/
-│   │   ├── InspectorPanel.tsx     # 右侧 Figma 风格属性检查器 (变换、字号、填充、描边、圆角、模式切换)
+│   │   ├── InspectorPanel.tsx     # 右侧 专业极简暗色风格属性检查器 (变换、字号、填充、描边、圆角、模式切换)
 │   │   ├── ScrubbableLabel.tsx    # 左右拖拽滑动手感数字标签 (X, Y, W, H, 字号, 圆角, 线宽, 透明度)
 │   │   └── inspector.css          # 检查器暗色主题样式
 │   ├── canvas/
@@ -68,7 +68,7 @@ src/
   - `displayMode === 'generation'` (默认): 经典 AI 创作卡片，带有提示词框、参考图拾取、版本切换和生成按钮。
   - `displayMode === 'layer'` (自由图层): 纯媒体无边框图层，配合 8 控制点 `NodeResizer`，支持自由拉伸缩放、圆角、透明度、描边与旋转，受右侧 `InspectorPanel` 控制。
 
-### 3.2 Figma 风格右侧属性检查器 (`src/components/inspector/InspectorPanel.tsx` & `ScrubbableLabel.tsx`)
+### 3.2 专业极简暗色风格右侧属性检查器 (`src/components/inspector/InspectorPanel.tsx` & `ScrubbableLabel.tsx`)
 - **数值标签拖拽滑动调节 (Scrubbable Drag Inputs)**:
   - 鼠标悬停于 X, Y, W, H, 旋转, 字号, 圆角, 线宽, 透明度标签时显示 `ew-resize` (↔) 光标。
   - 按住鼠标左右拖拽即可以极佳手感平滑增减数值，按住 `Shift` 支持 10 倍步长加速。

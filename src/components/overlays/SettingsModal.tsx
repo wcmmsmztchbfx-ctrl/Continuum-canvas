@@ -148,17 +148,17 @@ export function SettingsModal({
       <div
         aria-label="系统设置"
         aria-modal="true"
-        className="figma-settings-dialog"
+        className="canvas-settings-dialog"
         ref={modalRef}
         role="dialog"
         tabIndex={-1}
       >
         {/* Top Header Tabs */}
-        <header className="figma-settings__header">
-          <nav className="figma-settings__tabs" role="tablist" aria-label="设置分类">
+        <header className="canvas-settings__header">
+          <nav className="canvas-settings__tabs" role="tablist" aria-label="设置分类">
             <button
               aria-selected={activeTab === 'storage'}
-              className={`figma-settings__tab ${activeTab === 'storage' ? 'figma-settings__tab--active' : ''}`}
+              className={`canvas-settings__tab ${activeTab === 'storage' ? 'canvas-settings__tab--active' : ''}`}
               onClick={() => setActiveTab('storage')}
               role="tab"
               type="button"
@@ -167,7 +167,7 @@ export function SettingsModal({
             </button>
             <button
               aria-selected={activeTab === 'language'}
-              className={`figma-settings__tab ${activeTab === 'language' ? 'figma-settings__tab--active' : ''}`}
+              className={`canvas-settings__tab ${activeTab === 'language' ? 'canvas-settings__tab--active' : ''}`}
               onClick={() => setActiveTab('language')}
               role="tab"
               type="button"
@@ -176,7 +176,7 @@ export function SettingsModal({
             </button>
             <button
               aria-selected={activeTab === 'startup'}
-              className={`figma-settings__tab ${activeTab === 'startup' ? 'figma-settings__tab--active' : ''}`}
+              className={`canvas-settings__tab ${activeTab === 'startup' ? 'canvas-settings__tab--active' : ''}`}
               onClick={() => setActiveTab('startup')}
               role="tab"
               type="button"
@@ -185,7 +185,7 @@ export function SettingsModal({
             </button>
             <button
               aria-selected={activeTab === 'about'}
-              className={`figma-settings__tab ${activeTab === 'about' ? 'figma-settings__tab--active' : ''}`}
+              className={`canvas-settings__tab ${activeTab === 'about' ? 'canvas-settings__tab--active' : ''}`}
               onClick={() => setActiveTab('about')}
               role="tab"
               type="button"
@@ -195,7 +195,7 @@ export function SettingsModal({
           </nav>
           <button
             aria-label="关闭系统设置"
-            className="figma-settings__close"
+            className="canvas-settings__close"
             onClick={onClose}
             type="button"
           >
@@ -203,39 +203,39 @@ export function SettingsModal({
           </button>
         </header>
 
-        {/* Pure Single-Column Figma Body */}
-        <main className="figma-settings__body">
+        {/* Pure Single-Column Settings Body */}
+        <main className="canvas-settings__body">
           {/* TAB 1: 存储与路径 */}
           {activeTab === 'storage' && (
-            <div className="figma-settings__content">
+            <div className="canvas-settings__content">
               {/* Section 1 */}
-              <div className="figma-settings__section">
-                <h4 className="figma-settings__section-title">本地输出路径</h4>
-                <p className="figma-settings__section-subtitle">
+              <div className="canvas-settings__section">
+                <h4 className="canvas-settings__section-title">本地输出路径</h4>
+                <p className="canvas-settings__section-subtitle">
                   AI 生成的图片、视频与合成产物在本地计算机上的落盘保存目录。
                 </p>
 
-                <div className="figma-settings__input-group">
-                  <label className="figma-settings__sr-only" htmlFor="output-path-input">
+                <div className="canvas-settings__input-group">
+                  <label className="canvas-settings__sr-only" htmlFor="output-path-input">
                     本地产出保存路径
                   </label>
                   <input
                     id="output-path-input"
-                    className="figma-settings__input"
+                    className="canvas-settings__input"
                     onChange={(e) => setEditingPath(e.target.value)}
                     placeholder="./outputs"
                     type="text"
                     value={editingPath}
                   />
                   <button
-                    className="figma-settings__btn figma-settings__btn--primary"
+                    className="canvas-settings__btn canvas-settings__btn--primary"
                     onClick={handleSaveOutputPath}
                     type="button"
                   >
                     保存
                   </button>
                   <button
-                    className="figma-settings__btn figma-settings__btn--ghost"
+                    className="canvas-settings__btn canvas-settings__btn--ghost"
                     onClick={handleResetOutputPath}
                     type="button"
                   >
@@ -245,44 +245,44 @@ export function SettingsModal({
               </div>
 
               {/* Section 2 */}
-              <div className="figma-settings__section">
-                <h4 className="figma-settings__section-title">临时缓存与素材空间</h4>
+              <div className="canvas-settings__section">
+                <h4 className="canvas-settings__section-title">临时缓存与素材空间</h4>
 
                 {/* Parent Checkbox */}
                 <div
-                  className="figma-settings__checkbox-row"
+                  className="canvas-settings__checkbox-row"
                   onClick={() => setEnableCache(!enableCache)}
                 >
-                  <span className={`figma-settings__checkbox ${enableCache ? 'figma-settings__checkbox--checked' : ''}`}>
+                  <span className={`canvas-settings__checkbox ${enableCache ? 'canvas-settings__checkbox--checked' : ''}`}>
                     {enableCache && <Check size={11} strokeWidth={3} />}
                   </span>
-                  <span className="figma-settings__checkbox-label">自动暂存参考图与工作区缩略图</span>
+                  <span className="canvas-settings__checkbox-label">自动暂存参考图与工作区缩略图</span>
                 </div>
-                <p className="figma-settings__hint">
+                <p className="canvas-settings__hint">
                   加速画布加载与节点渲染，系统会定期或通过下方按钮清理陈旧缓存。
                 </p>
 
                 {/* Sub Options (Indented) */}
-                <div className="figma-settings__subgroup">
-                  <div className="figma-settings__subitem">
-                    <span className="figma-settings__sublabel">系统数据目录</span>
-                    <span className="figma-settings__subvalue">{storageInfo?.storagePath || './data'}</span>
+                <div className="canvas-settings__subgroup">
+                  <div className="canvas-settings__subitem">
+                    <span className="canvas-settings__sublabel">系统数据目录</span>
+                    <span className="canvas-settings__subvalue">{storageInfo?.storagePath || './data'}</span>
                   </div>
-                  <div className="figma-settings__subitem">
-                    <span className="figma-settings__sublabel">当前缓存占用</span>
-                    <span className="figma-settings__subvalue">
+                  <div className="canvas-settings__subitem">
+                    <span className="canvas-settings__sublabel">当前缓存占用</span>
+                    <span className="canvas-settings__subvalue">
                       {storageInfo ? `${storageInfo.totalCacheFormatted} (${storageInfo.fileCount} 个临时文件)` : '正在统计...'}
                     </span>
                   </div>
 
                   <div style={{ marginTop: '12px' }}>
                     <button
-                      className="figma-settings__link"
+                      className="canvas-settings__link"
                       disabled={clearing}
                       onClick={handleClearCache}
                       type="button"
                     >
-                      {clearing ? <Loader2 size={12} className="figma-settings-spin" /> : null}
+                      {clearing ? <Loader2 size={12} className="canvas-settings-spin" /> : null}
                       <span>一键清理临时缓存</span>
                     </button>
                   </div>
@@ -293,37 +293,37 @@ export function SettingsModal({
 
           {/* TAB 2: 界面语言 */}
           {activeTab === 'language' && (
-            <div className="figma-settings__content">
-              <div className="figma-settings__section">
-                <h4 className="figma-settings__section-title">显示语言偏好 (Language)</h4>
-                <p className="figma-settings__section-subtitle">
+            <div className="canvas-settings__content">
+              <div className="canvas-settings__section">
+                <h4 className="canvas-settings__section-title">显示语言偏好 (Language)</h4>
+                <p className="canvas-settings__section-subtitle">
                   选择 Continuum 整个画板、顶部工具栏及右键菜单的显示语言。
                 </p>
 
-                <div className="figma-settings__radio-list" role="radiogroup" aria-label="显示语言">
+                <div className="canvas-settings__radio-list" role="radiogroup" aria-label="显示语言">
                   <div
-                    className="figma-settings__radio-row"
+                    className="canvas-settings__radio-row"
                     onClick={() => handleLanguageChange('zh-CN')}
                   >
-                    <span className={`figma-settings__radio ${language === 'zh-CN' ? 'figma-settings__radio--checked' : ''}`}>
-                      {language === 'zh-CN' && <span className="figma-settings__radio-dot" />}
+                    <span className={`canvas-settings__radio ${language === 'zh-CN' ? 'canvas-settings__radio--checked' : ''}`}>
+                      {language === 'zh-CN' && <span className="canvas-settings__radio-dot" />}
                     </span>
-                    <div className="figma-settings__radio-content">
-                      <span className="figma-settings__radio-title">简体中文 (Simplified Chinese)</span>
-                      <span className="figma-settings__radio-desc">完整的中文本地化界面、快捷键提示与参数说明</span>
+                    <div className="canvas-settings__radio-content">
+                      <span className="canvas-settings__radio-title">简体中文 (Simplified Chinese)</span>
+                      <span className="canvas-settings__radio-desc">完整的中文本地化界面、快捷键提示与参数说明</span>
                     </div>
                   </div>
 
                   <div
-                    className="figma-settings__radio-row"
+                    className="canvas-settings__radio-row"
                     onClick={() => handleLanguageChange('en-US')}
                   >
-                    <span className={`figma-settings__radio ${language === 'en-US' ? 'figma-settings__radio--checked' : ''}`}>
-                      {language === 'en-US' && <span className="figma-settings__radio-dot" />}
+                    <span className={`canvas-settings__radio ${language === 'en-US' ? 'canvas-settings__radio--checked' : ''}`}>
+                      {language === 'en-US' && <span className="canvas-settings__radio-dot" />}
                     </span>
-                    <div className="figma-settings__radio-content">
-                      <span className="figma-settings__radio-title">English (United States)</span>
-                      <span className="figma-settings__radio-desc">Complete English interface, node tooltips, and generation logs</span>
+                    <div className="canvas-settings__radio-content">
+                      <span className="canvas-settings__radio-title">English (United States)</span>
+                      <span className="canvas-settings__radio-desc">Complete English interface, node tooltips, and generation logs</span>
                     </div>
                   </div>
                 </div>
@@ -333,74 +333,74 @@ export function SettingsModal({
 
           {/* TAB 3: 启动与通用 */}
           {activeTab === 'startup' && (
-            <div className="figma-settings__content">
-              <div className="figma-settings__section">
-                <h4 className="figma-settings__section-title">工作与协同模式 (Operation Mode)</h4>
-                <p className="figma-settings__section-subtitle">
+            <div className="canvas-settings__content">
+              <div className="canvas-settings__section">
+                <h4 className="canvas-settings__section-title">工作与协同模式 (Operation Mode)</h4>
+                <p className="canvas-settings__section-subtitle">
                   选择进入画布时的默认协同策略与身份设置。
                 </p>
 
-                <div className="figma-settings__radio-list" role="radiogroup" aria-label="工作与协同模式">
+                <div className="canvas-settings__radio-list" role="radiogroup" aria-label="工作与协同模式">
                   <div
-                    className="figma-settings__radio-row"
+                    className="canvas-settings__radio-row"
                     onClick={() => handleAppModeChange('host')}
                   >
-                    <span className={`figma-settings__radio ${appMode === 'host' ? 'figma-settings__radio--checked' : ''}`}>
-                      {appMode === 'host' && <span className="figma-settings__radio-dot" />}
+                    <span className={`canvas-settings__radio ${appMode === 'host' ? 'canvas-settings__radio--checked' : ''}`}>
+                      {appMode === 'host' && <span className="canvas-settings__radio-dot" />}
                     </span>
-                    <div className="figma-settings__radio-content">
-                      <span className="figma-settings__radio-title">主机模式 (多人协作)</span>
-                      <span className="figma-settings__radio-desc">所有人进入画布均需先输入协作昵称，直接接入多人实时协同。适合团队/局域网共享创作。</span>
+                    <div className="canvas-settings__radio-content">
+                      <span className="canvas-settings__radio-title">主机模式 (多人协作)</span>
+                      <span className="canvas-settings__radio-desc">所有人进入画布均需先输入协作昵称，直接接入多人实时协同。适合团队/局域网共享创作。</span>
                     </div>
                   </div>
 
                   <div
-                    className="figma-settings__radio-row"
+                    className="canvas-settings__radio-row"
                     onClick={() => handleAppModeChange('solo')}
                   >
-                    <span className={`figma-settings__radio ${appMode === 'solo' ? 'figma-settings__radio--checked' : ''}`}>
-                      {appMode === 'solo' && <span className="figma-settings__radio-dot" />}
+                    <span className={`canvas-settings__radio ${appMode === 'solo' ? 'canvas-settings__radio--checked' : ''}`}>
+                      {appMode === 'solo' && <span className="canvas-settings__radio-dot" />}
                     </span>
-                    <div className="figma-settings__radio-content">
-                      <span className="figma-settings__radio-title">个人模式 (单人创作)</span>
-                      <span className="figma-settings__radio-desc">进入画布无需输入昵称，直接进入独立画布，不开启多人协作网络。</span>
+                    <div className="canvas-settings__radio-content">
+                      <span className="canvas-settings__radio-title">个人模式 (单人创作)</span>
+                      <span className="canvas-settings__radio-desc">进入画布无需输入昵称，直接进入独立画布，不开启多人协作网络。</span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="figma-settings__section">
-                <h4 className="figma-settings__section-title">应用启动行为</h4>
+              <div className="canvas-settings__section">
+                <h4 className="canvas-settings__section-title">应用启动行为</h4>
 
                 <div
-                  className="figma-settings__checkbox-row"
+                  className="canvas-settings__checkbox-row"
                   onClick={handleAutoOpenBrowserToggle}
                 >
                   <span
                     aria-checked={autoOpenBrowser}
-                    className={`figma-settings__checkbox ${autoOpenBrowser ? 'figma-settings__checkbox--checked' : ''}`}
+                    className={`canvas-settings__checkbox ${autoOpenBrowser ? 'canvas-settings__checkbox--checked' : ''}`}
                     role="switch"
                     tabIndex={0}
                   >
                     {autoOpenBrowser && <Check size={11} strokeWidth={3} />}
                   </span>
-                  <span className="figma-settings__checkbox-label">服务启动时自动打开默认浏览器</span>
+                  <span className="canvas-settings__checkbox-label">服务启动时自动打开默认浏览器</span>
                 </div>
-                <p className="figma-settings__hint">
+                <p className="canvas-settings__hint">
                   后台网关启动就绪后，自动在系统默认浏览器中唤起画布主页 (127.0.0.1:4173)。
                 </p>
               </div>
 
-              <div className="figma-settings__section">
-                <h4 className="figma-settings__section-title">画布数据与持久化</h4>
+              <div className="canvas-settings__section">
+                <h4 className="canvas-settings__section-title">画布数据与持久化</h4>
 
-                <div className="figma-settings__checkbox-row" style={{ cursor: 'default' }}>
-                  <span className="figma-settings__checkbox figma-settings__checkbox--checked" style={{ opacity: 0.85 }}>
+                <div className="canvas-settings__checkbox-row" style={{ cursor: 'default' }}>
+                  <span className="canvas-settings__checkbox canvas-settings__checkbox--checked" style={{ opacity: 0.85 }}>
                     <Check size={11} strokeWidth={3} />
                   </span>
-                  <span className="figma-settings__checkbox-label">画板编辑实时自动持久化</span>
+                  <span className="canvas-settings__checkbox-label">画板编辑实时自动持久化</span>
                 </div>
-                <p className="figma-settings__hint">
+                <p className="canvas-settings__hint">
                   节点增删、连线拖拽与属性调整将实时自动保存至本地工作区 SQLite 存储。
                 </p>
               </div>
@@ -409,37 +409,37 @@ export function SettingsModal({
 
           {/* TAB 4: 关于与更新 */}
           {activeTab === 'about' && (
-            <div className="figma-settings__content">
-              <div className="figma-settings__section">
-                <h4 className="figma-settings__section-title">Continuum 无限画布</h4>
-                <p className="figma-settings__section-subtitle">
+            <div className="canvas-settings__content">
+              <div className="canvas-settings__section">
+                <h4 className="canvas-settings__section-title">Continuum 无限画布</h4>
+                <p className="canvas-settings__section-subtitle">
                   基于现代 Web 技术的专业级 AI 节点式无限画布创作平台。
                 </p>
 
-                <div className="figma-settings__subgroup">
-                  <div className="figma-settings__subitem">
-                    <span className="figma-settings__sublabel">系统核心版本</span>
-                    <span className="figma-settings__subvalue">v{versionInfo?.version || '1.2.0'} (Stable)</span>
+                <div className="canvas-settings__subgroup">
+                  <div className="canvas-settings__subitem">
+                    <span className="canvas-settings__sublabel">系统核心版本</span>
+                    <span className="canvas-settings__subvalue">v{versionInfo?.version || '1.2.0'} (Stable)</span>
                   </div>
-                  <div className="figma-settings__subitem">
-                    <span className="figma-settings__sublabel">Node.js 运行环境</span>
-                    <span className="figma-settings__subvalue">{versionInfo?.nodeVersion || 'v20.x'}</span>
+                  <div className="canvas-settings__subitem">
+                    <span className="canvas-settings__sublabel">Node.js 运行环境</span>
+                    <span className="canvas-settings__subvalue">{versionInfo?.nodeVersion || 'v20.x'}</span>
                   </div>
-                  <div className="figma-settings__subitem">
-                    <span className="figma-settings__sublabel">本地服务网关</span>
-                    <span className="figma-settings__subvalue" style={{ color: '#18a0fb' }}>
+                  <div className="canvas-settings__subitem">
+                    <span className="canvas-settings__sublabel">本地服务网关</span>
+                    <span className="canvas-settings__subvalue" style={{ color: '#18a0fb' }}>
                       http://127.0.0.1:4173 (连接正常)
                     </span>
                   </div>
 
                   <div style={{ marginTop: '14px' }}>
                     <button
-                      className="figma-settings__link"
+                      className="canvas-settings__link"
                       disabled={checkingUpdate}
                       onClick={handleCheckUpdate}
                       type="button"
                     >
-                      {checkingUpdate ? <Loader2 size={12} className="figma-settings-spin" /> : null}
+                      {checkingUpdate ? <Loader2 size={12} className="canvas-settings-spin" /> : null}
                       <span>{checkingUpdate ? '正在检查更新...' : '检查软件更新'}</span>
                     </button>
                   </div>
