@@ -27,6 +27,8 @@ export interface WorkspaceHomeProps {
   initialCreate?: 'project' | 'canvas'
   onNavigateCanvas?: (canvas: WorkspaceCanvas) => void
   repository?: WorkspaceRepository
+  /** False on the public gateway; only language/version remain available there. */
+  canManageSettings?: boolean
   gateway?: Pick<GatewayClient, 'reassignGenerationHistory'> &
     Partial<Pick<GatewayClient, 'releaseCanvasAssetReferences'>>
 }
@@ -46,6 +48,7 @@ export function WorkspaceHome({
   initialCreate,
   onNavigateCanvas,
   repository = defaultWorkspaceRepository,
+  canManageSettings = true,
 }: WorkspaceHomeProps) {
   const [manifest, setManifest] = useState<WorkspaceManifestV1 | null>(null)
   const [editing, setEditing] = useState<EditingItem>(null)
@@ -386,6 +389,7 @@ export function WorkspaceHome({
         </Suspense>
       ) : null}
       <SettingsModal
+        canManageSettings={canManageSettings}
         onClose={() => setSettingsOpen(false)}
         onNotify={(msg) => setMessage(msg)}
         open={settingsOpen}

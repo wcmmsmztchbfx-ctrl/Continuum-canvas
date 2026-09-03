@@ -24,7 +24,11 @@ describe('runtime bootstrap', () => {
     signals.emit('SIGINT')
 
     await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1))
-    expect(start).toHaveBeenCalledWith(expect.objectContaining({ host: '127.0.0.1', port: 4174 }))
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({
+      host: '127.0.0.1',
+      port: 4174,
+      adminPort: 5172,
+    }))
   })
 
   it('uses repository env file values when no higher-priority source is present', async () => {
@@ -44,6 +48,7 @@ describe('runtime bootstrap', () => {
     expect(resolved).toEqual(expect.objectContaining({
       host: '127.0.0.9',
       port: 5101,
+      adminPort: 5172,
       dataDir: join(rootDir, 'file-data'),
       assetImportTimeoutMs: 91_000,
       generationMaxRunTimeMs: 1_800_001,
@@ -74,6 +79,7 @@ describe('runtime bootstrap', () => {
     expect(resolved).toEqual(expect.objectContaining({
       host: '127.0.0.8',
       port: 5102,
+      adminPort: 5172,
       dataDir: join(rootDir, 'process-data'),
       assetImportTimeoutMs: 92_000,
       generationMaxRunTimeMs: 1_800_002,
@@ -112,6 +118,7 @@ describe('runtime bootstrap', () => {
       rootDir,
       host: '127.0.0.7',
       port: 5103,
+      adminPort: 5172,
       dataDir: join(rootDir, 'explicit-data'),
       envFile: join(rootDir, 'data', 'secrets.env'),
       assetImportTimeoutMs: 93_000,
@@ -142,6 +149,7 @@ describe('runtime bootstrap', () => {
       rootDir: PROJECT_ROOT,
       dataDir: join(PROJECT_ROOT, 'data'),
       envFile: join(PROJECT_ROOT, 'data', 'secrets.env'),
+      adminPort: 5172,
       assetImportTimeoutMs: 90_000,
       generationMaxRunTimeMs: 1_800_000,
     }))

@@ -17,6 +17,10 @@ export interface UseAppCollaborationOptions {
   canvasId?: string
   projectId?: string
   loadedCanvasId?: string | null
+  /** Nickname established by the gateway entry gate for host/workstation mode. */
+  entryDisplayName?: string
+  /** Server mode creates or joins the canvas relay room without a second prompt. */
+  autoJoinServer?: boolean
   workspaceRepository: WorkspaceRepository
   providerCatalog?: ProviderCatalogState
   notify: (message: string, tone?: 'info' | 'success' | 'error' | 'warning') => void
@@ -25,6 +29,8 @@ export interface UseAppCollaborationOptions {
 export function useAppCollaboration({
   hydrated,
   canvasId,
+  entryDisplayName,
+  autoJoinServer = false,
   projectId,
   loadedCanvasId,
   workspaceRepository,
@@ -101,6 +107,7 @@ export function useAppCollaboration({
 
   useEffect(() => {
     if (!hydrated || !canvasId || !projectId || loadedCanvasId !== canvasId) return
+    let disposed = false
     const controller = new CanvasCollaborationController({
       canvasId,
       projectId,
@@ -117,8 +124,30 @@ export function useAppCollaboration({
       collaborationPresenceStore.setPresence(presence)
       setCollaborationPresence(presence)
     })
-    void controller.initializeFromLocation().catch(() => undefined)
+    const initialize = async () => {
+      await controller.initializeFromLocation()
+      if (disposed || !entryDisplayName) return
+
+      const state = controller.getState()
+      if (state.pendingInvite) {
+        await controller.joinPendingInvite(entryDisplayName)
+        return
+      }
+      if (state.pendingHostJoin) {
+        await controller.joinPendingHost(entryDisplayName)
+        return
+      }
+      if (autoJoinServer && state.status === 'inactive' && !state.session) {
+        await controller.enable(entryDisplayName)
+      }
+    }
+    void initialize().catch((error) => {
+      if (!disposed) {
+        notify(error instanceof Error ? error.message : '协作会话建立失败', 'error')
+      }
+    })
     return () => {
+      disposed = true
       unsubscribe()
       unsubscribePresence()
       collaborationPresenceStore.clear()
@@ -129,7 +158,7 @@ export function useAppCollaboration({
       }
       void controller.destroy()
     }
-  }, [canvasId, hydrated, loadedCanvasId, projectId, workspaceRepository])
+  }, [autoJoinServer, canvasId, entryDisplayName, hydrated, loadedCanvasId, notify, projectId, workspaceRepository])
 
   return {
     collaborationState,

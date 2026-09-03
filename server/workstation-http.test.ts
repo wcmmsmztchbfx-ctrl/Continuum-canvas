@@ -281,6 +281,17 @@ describe('workstation access boundary', () => {
     const context = await fetch(`${gateway.adminOrigin}/api/access/context`)
     expect(context.status).toBe(200)
     expect(await context.json()).toMatchObject({ canManageSettings: true })
+    const publicVersion = await fetch(`${gateway.origin}/api/system/version`)
+    expect(publicVersion.status).toBe(200)
+    expect(await publicVersion.json()).toEqual({ version: '1.2.0', name: 'Continuum Canvas' })
+    const adminVersion = await fetch(`${gateway.adminOrigin}/api/system/version`)
+    expect(adminVersion.status).toBe(200)
+    expect(await adminVersion.json()).toMatchObject({
+      version: '1.2.0',
+      name: 'Continuum Canvas',
+      nodeVersion: expect.any(String),
+      uptimeSeconds: expect.any(Number),
+    })
     const manifest = await fetch(`${gateway.adminOrigin}/api/workspace/manifest`)
     expect(manifest.status).toBe(200)
     const update = await fetch(`${gateway.adminOrigin}/api/system/settings`, {

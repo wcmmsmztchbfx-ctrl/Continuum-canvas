@@ -35,6 +35,8 @@ export interface ApplicationRootProps {
   repository?: WorkspaceRepository
   thumbnailService?: Pick<CanvasThumbnailService, 'schedule' | 'flush'>
   canManageSettings?: boolean
+  entryDisplayName?: string
+  autoJoinServer?: boolean
 }
 
 interface AccessContext {
@@ -70,7 +72,13 @@ function parseAccessContext(value: unknown): AccessContext | undefined {
   }
 }
 
-function WorkstationNicknameGate({ onAuthenticated }: { onAuthenticated: () => void }) {
+function WorkstationNicknameGate({
+  mode,
+  onAuthenticated,
+}: {
+  mode: Extract<CollaborationOperationMode, 'host' | 'workstation'>
+  onAuthenticated: (identity: { displayName: string }) => void
+}) {
   const [displayName, setDisplayName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string>()
@@ -91,10 +99,19 @@ function WorkstationNicknameGate({ onAuthenticated }: { onAuthenticated: () => v
         credentials: 'same-origin',
         body: JSON.stringify({ displayName: normalized }),
       })
-      if (!response.ok) throw new Error('工作站会话创建失败，请重试')
-      onAuthenticated()
+      if (!response.ok) throw new Error('访问会话创建失败，请重试')
+      try {
+        // Keep the collaboration identity in the same browser profile so a
+        // canvas route can reuse the entry nickname without opening a second
+        // prompt. The server cookie remains the source of authorization.
+        localStorage.setItem('libtv-collaboration-display-name', normalized)
+      } catch {
+        // A restricted browser may not expose localStorage; the server cookie
+        // still authenticates the entry session in that case.
+      }
+      onAuthenticated({ displayName: normalized })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '工作站会话创建失败，请重试')
+      setError(caught instanceof Error ? caught.message : '访问会话创建失败，请重试')
     } finally {
       setSubmitting(false)
     }
@@ -103,9 +120,13 @@ function WorkstationNicknameGate({ onAuthenticated }: { onAuthenticated: () => v
   return (
     <main className="workstation-entry" data-testid="workstation-entry">
       <form className="workstation-entry__card" onSubmit={submit}>
-        <p className="canvas-type-eyebrow">WORKSTATION MODE</p>
+        <p className="canvas-type-eyebrow">{mode === 'workstation' ? 'WORKSTATION MODE' : 'SERVER MODE'}</p>
         <h1>输入昵称后进入工作区</h1>
-        <p>昵称用于选择你的独立工作区。无需账号或密码，同一昵称会继续使用同一组画布。</p>
+        <p>
+          {mode === 'workstation'
+            ? '昵称用于选择你的独立工作区。无需账号或密码，同一昵称会继续使用同一组画布。'
+            : '昵称用于加入局域网协作。无需账号或密码，进入画布后会沿用本次会话。'}
+        </p>
         <label htmlFor="workstation-display-name">协作昵称</label>
         <input
           autoComplete="nickname"
@@ -165,12 +186,16 @@ function CanvasRoute({
   repository,
   thumbnailService,
   canManageSettings,
+  entryDisplayName,
+  autoJoinServer,
 }: {
   location: BrowserLocationSnapshot
   navigate: (url: string, replace?: boolean) => void
   repository: WorkspaceRepository
   thumbnailService?: Pick<CanvasThumbnailService, 'schedule' | 'flush'>
   canManageSettings?: boolean
+  entryDisplayName?: string
+  autoJoinServer?: boolean
 }) {
   const [manifest, setManifest] = useState<WorkspaceManifestV1 | null>(null)
   const [resolved, setResolved] = useState<ResolvedCanvasLocation | null>(null)
@@ -233,7 +258,9 @@ function CanvasRoute({
   )
   return (
     <App
+      autoJoinServer={autoJoinServer}
       canvasId={resolved.canvasId}
+      entryDisplayName={entryDisplayName}
       key={resolved.canvasId}
       onNavigateCanvas={(canvasId, projectId) =>
         navigate(buildCanvasRoute(projectId, canvasId))
@@ -254,6 +281,8 @@ function WorkspaceApplication({
   repository = defaultWorkspaceRepository,
   thumbnailService,
   canManageSettings = true,
+  entryDisplayName,
+  autoJoinServer = false,
 }: ApplicationRootProps) {
   const [location, setLocation] = useState(currentLocation)
   const navigate = useCallback((url: string, replace = false) => {
@@ -293,6 +322,7 @@ function WorkspaceApplication({
               navigate(buildCanvasRoute(canvas.projectId, canvas.canvasId))
             }
             repository={repository}
+            canManageSettings={canManageSettings}
           />
         )}
         {route.kind === 'canvas' && (
@@ -302,6 +332,8 @@ function WorkspaceApplication({
             repository={repository}
             thumbnailService={thumbnailService}
             canManageSettings={canManageSettings}
+            entryDisplayName={entryDisplayName}
+            autoJoinServer={autoJoinServer}
           />
         )}
         {route.kind !== 'workspace' && route.kind !== 'canvas' && (
@@ -349,7 +381,11 @@ export default function ApplicationRoot(props: ApplicationRootProps) {
 
   useEffect(() => {
     gatewayClient.setWorkstationSession(
-      access?.operationMode === 'workstation' && access.workstation.authenticated,
+      Boolean(
+        access &&
+        access.operationMode !== 'solo' &&
+        access.workstation.authenticated,
+      ),
     )
   }, [access])
 
@@ -359,8 +395,16 @@ export default function ApplicationRoot(props: ApplicationRootProps) {
   if (access && !access.canManageSettings && access.operationMode !== 'solo' && !access.workstation.authenticated) {
     return (
       <WorkstationNicknameGate
-        onAuthenticated={() => setAccess((current) => current
-          ? { ...current, workstation: { ...current.workstation, authenticated: true } }
+        mode={access.operationMode}
+        onAuthenticated={({ displayName }) => setAccess((current) => current
+          ? {
+              ...current,
+              workstation: {
+                ...current.workstation,
+                authenticated: true,
+                displayName,
+              },
+            }
           : current)}
       />
     )
@@ -368,7 +412,9 @@ export default function ApplicationRoot(props: ApplicationRootProps) {
   return (
     <WorkspaceApplication
       {...props}
+      autoJoinServer={access?.operationMode === 'host'}
       canManageSettings={access?.canManageSettings ?? props.canManageSettings ?? true}
+      entryDisplayName={access?.workstation.displayName}
     />
   )
 }

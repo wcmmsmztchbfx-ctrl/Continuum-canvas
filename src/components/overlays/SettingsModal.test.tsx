@@ -24,6 +24,24 @@ describe('SettingsModal', () => {
     expect(screen.getByRole('tab', { name: /关于与更新/ })).toBeInTheDocument()
   })
 
+  it('keeps public workspace settings to language and version only', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ version: '1.2.0' }),
+    })
+    global.fetch = fetchMock
+
+    render(<SettingsModal canManageSettings={false} open onClose={vi.fn()} />)
+
+    expect(screen.queryByRole('tab', { name: /存储与路径/ })).toBeNull()
+    expect(screen.getByRole('tab', { name: /界面语言/ })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /启动与通用/ })).toBeNull()
+    expect(screen.getByRole('tab', { name: /关于与更新/ })).toBeInTheDocument()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/system/version'))
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/system/settings')
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/system/storage-info')
+  })
+
   it('allows switching tabs and updating output path', async () => {
     const notify = vi.fn()
     render(<SettingsModal open onClose={vi.fn()} onNotify={notify} />)

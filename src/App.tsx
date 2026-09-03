@@ -177,6 +177,10 @@ export interface AppProps {
   thumbnailService?: Pick<CanvasThumbnailService, 'schedule' | 'flush'>
   /** System settings are served from the loopback-only administration port. */
   canManageSettings?: boolean
+  /** Nickname collected by the gateway entry gate. */
+  entryDisplayName?: string
+  /** Automatically activate the relay room for server-mode canvas entry. */
+  autoJoinServer?: boolean
 }
 
 export default function App({
@@ -188,6 +192,8 @@ export default function App({
   workspaceRepository = defaultWorkspaceRepository,
   thumbnailService = canvasThumbnailService,
   canManageSettings = true,
+  entryDisplayName,
+  autoJoinServer = false,
 }: AppProps = {}) {
   const [hydrated, setHydrated] = useState(false)
   const [loadedCanvasId, setLoadedCanvasId] = useState<string | null>()
@@ -267,6 +273,8 @@ export default function App({
   } = useAppCollaboration({
     hydrated,
     canvasId,
+    entryDisplayName,
+    autoJoinServer,
     projectId,
     loadedCanvasId,
     workspaceRepository,
@@ -299,6 +307,7 @@ export default function App({
   const isHostMode = appModeLoaded && appMode === 'host'
   const hostPromptOpen = Boolean(
     isHostMode &&
+    !entryDisplayName &&
     !hostPromptDismissed &&
     hydrated &&
     loadedCanvasId === canvasId &&
@@ -1626,6 +1635,8 @@ export default function App({
         hostPromptOpen={hostPromptOpen}
         onDismissHostPrompt={() => setHostPromptDismissed(true)}
         appMode={appMode}
+        canManageSettings={canManageSettings}
+        entryDisplayName={entryDisplayName}
         onAppModeChange={setAppMode}
         notify={notify}
         runMockAction={runMockAction}

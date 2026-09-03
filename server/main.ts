@@ -64,12 +64,12 @@ export async function resolveMainOptions(
     port: explicit.port
       ?? validPort(env.CANVAS_GATEWAY_PORT ?? env.GATEWAY_PORT)
       ?? (production ? 4173 : 4174),
-    // The administration API is deliberately loopback-only. In production
-    // it lives beside the static gateway on 4174; during Vite development it
-    // uses 4175 so the 4174 gateway remains available to the proxy.
+    // The administration API is deliberately loopback-only. It uses the
+    // dedicated 5172 port in both production and development so the public
+    // workspace gateway never shares an address with management traffic.
     adminPort: explicit.adminPort
       ?? validPort(env.CANVAS_ADMIN_PORT ?? env.ADMIN_PORT)
-      ?? (production ? 4174 : 4175),
+      ?? 5172,
     assetImportTimeoutMs: resolveAssetImportTimeoutMs(
       explicit.assetImportTimeoutMs ?? env.CANVAS_ASSET_IMPORT_TIMEOUT_MS,
     ),

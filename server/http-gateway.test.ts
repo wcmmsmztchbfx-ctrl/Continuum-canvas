@@ -1246,12 +1246,12 @@ describe('HTTP gateway', () => {
     })
   })
 
-  it('chooses 4174 for the gateway and 4173 with dist hosting for production', async () => {
+  it('chooses the development/production gateway ports and 5172 for administration', async () => {
     await expect(resolveMainOptions([], {}, 'D:/app')).resolves.toEqual(expect.objectContaining({
-      host: '127.0.0.1', port: 4174, distDir: undefined,
+      host: '127.0.0.1', port: 4174, adminPort: 5172, distDir: undefined,
     }))
     await expect(resolveMainOptions(['--production'], {}, 'D:/app')).resolves.toEqual(expect.objectContaining({
-      host: '127.0.0.1', port: 4173, distDir: join('D:/app', 'dist'),
+      host: '127.0.0.1', port: 4173, adminPort: 5172, distDir: join('D:/app', 'dist'),
     }))
   })
 

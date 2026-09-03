@@ -102,6 +102,9 @@ export interface AppOverlaysProps {
   restoreProjectFrom: (task: Promise<ProjectSnapshot>, successMessage?: string) => void
   hostPromptOpen?: boolean
   onDismissHostPrompt?: () => void
+  canManageSettings?: boolean
+  /** Nickname already collected by the gateway entry gate. */
+  entryDisplayName?: string
   appMode?: 'host' | 'solo' | 'workstation'
   onAppModeChange?: (mode: 'host' | 'solo' | 'workstation') => void
 }
@@ -157,6 +160,8 @@ export function AppOverlays({
   restoreProjectFrom,
   hostPromptOpen,
   onDismissHostPrompt,
+  canManageSettings = true,
+  entryDisplayName,
   appMode,
   onAppModeChange,
 }: AppOverlaysProps) {
@@ -258,7 +263,11 @@ export function AppOverlays({
             collaborationAction((controller) => controller.enable(displayName))
           }
         }}
-        open={Boolean(collaborationState.pendingInvite) || Boolean(collaborationState.pendingHostJoin) || Boolean(hostPromptOpen)}
+        open={!entryDisplayName && (
+          Boolean(collaborationState.pendingInvite) ||
+          Boolean(collaborationState.pendingHostJoin) ||
+          Boolean(hostPromptOpen)
+        )}
       />
       <HelpPopover
         onAction={handleHelpAction}
@@ -446,6 +455,7 @@ export function AppOverlays({
       />
       <SettingsModal
         appMode={appMode}
+        canManageSettings={canManageSettings}
         onAppModeChange={onAppModeChange}
         onClose={() => setDialog(null)}
         onNotify={(message, tone) => notify(message, tone)}

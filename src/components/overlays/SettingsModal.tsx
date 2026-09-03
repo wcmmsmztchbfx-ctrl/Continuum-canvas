@@ -6,6 +6,8 @@ import type { ControlledOverlayProps } from './primitives'
 export type SettingsTab = 'storage' | 'language' | 'startup' | 'about'
 
 export interface SettingsModalProps extends ControlledOverlayProps {
+  /** Public workspace shows only language and version; admin keeps all tabs. */
+  canManageSettings?: boolean
   appMode?: 'host' | 'solo' | 'workstation'
   onAppModeChange?: (mode: 'host' | 'solo' | 'workstation') => void
   onNotify?: (message: string, tone?: 'info' | 'success' | 'warning' | 'error') => void
@@ -29,12 +31,15 @@ interface VersionInfo {
 
 export function SettingsModal({
   appMode: controlledAppMode,
+  canManageSettings = true,
   onAppModeChange,
   onClose,
   onNotify,
   open,
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('storage')
+  const [activeTab, setActiveTab] = useState<SettingsTab>(
+    canManageSettings ? 'storage' : 'language',
+  )
   const [outputPath, setOutputPath] = useState<string>(() => {
     return localStorage.getItem('continuum_custom_output_path') || './outputs'
   })
@@ -65,30 +70,38 @@ export function SettingsModal({
   }, [controlledAppMode])
 
   useEffect(() => {
+    if (!canManageSettings && (activeTab === 'storage' || activeTab === 'startup')) {
+      setActiveTab('language')
+    }
+  }, [activeTab, canManageSettings])
+
+  useEffect(() => {
     if (!open) return
     setEditingPath(localStorage.getItem('continuum_custom_output_path') || './outputs')
 
-    fetch('/api/system/settings')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && typeof data.allowLanApiManagement === 'boolean') {
-          setAllowLanApiManagement(data.allowLanApiManagement)
-          localStorage.setItem('continuum_allow_lan_api', String(data.allowLanApiManagement))
-        }
-        if (data && (data.operationMode === 'host' || data.operationMode === 'solo' || data.operationMode === 'workstation')) {
-          setAppMode(data.operationMode)
-          localStorage.setItem('continuum_app_mode', data.operationMode)
-          onAppModeChange?.(data.operationMode)
-        }
-      })
-      .catch(() => {})
+    if (canManageSettings) {
+      fetch('/api/system/settings')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && typeof data.allowLanApiManagement === 'boolean') {
+            setAllowLanApiManagement(data.allowLanApiManagement)
+            localStorage.setItem('continuum_allow_lan_api', String(data.allowLanApiManagement))
+          }
+          if (data && (data.operationMode === 'host' || data.operationMode === 'solo' || data.operationMode === 'workstation')) {
+            setAppMode(data.operationMode)
+            localStorage.setItem('continuum_app_mode', data.operationMode)
+            onAppModeChange?.(data.operationMode)
+          }
+        })
+        .catch(() => {})
 
-    fetch('/api/system/storage-info')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data) setStorageInfo(data)
-      })
-      .catch(() => {})
+      fetch('/api/system/storage-info')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data) setStorageInfo(data)
+        })
+        .catch(() => {})
+    }
 
     fetch('/api/system/version')
       .then((res) => (res.ok ? res.json() : null))
@@ -96,7 +109,7 @@ export function SettingsModal({
         if (data) setVersionInfo(data)
       })
       .catch(() => {})
-  }, [open, onAppModeChange])
+  }, [canManageSettings, open, onAppModeChange])
 
   const handleSaveOutputPath = () => {
     setOutputPath(editingPath)
@@ -236,15 +249,17 @@ export function SettingsModal({
         {/* Top Header Tabs */}
         <header className="canvas-settings__header">
           <nav className="canvas-settings__tabs" role="tablist" aria-label="设置分类">
-            <button
-              aria-selected={activeTab === 'storage'}
-              className={`canvas-settings__tab ${activeTab === 'storage' ? 'canvas-settings__tab--active' : ''}`}
-              onClick={() => setActiveTab('storage')}
-              role="tab"
-              type="button"
-            >
-              存储与路径
-            </button>
+            {canManageSettings && (
+              <button
+                aria-selected={activeTab === 'storage'}
+                className={`canvas-settings__tab ${activeTab === 'storage' ? 'canvas-settings__tab--active' : ''}`}
+                onClick={() => setActiveTab('storage')}
+                role="tab"
+                type="button"
+              >
+                存储与路径
+              </button>
+            )}
             <button
               aria-selected={activeTab === 'language'}
               className={`canvas-settings__tab ${activeTab === 'language' ? 'canvas-settings__tab--active' : ''}`}
@@ -254,15 +269,17 @@ export function SettingsModal({
             >
               界面语言
             </button>
-            <button
-              aria-selected={activeTab === 'startup'}
-              className={`canvas-settings__tab ${activeTab === 'startup' ? 'canvas-settings__tab--active' : ''}`}
-              onClick={() => setActiveTab('startup')}
-              role="tab"
-              type="button"
-            >
-              启动与通用
-            </button>
+            {canManageSettings && (
+              <button
+                aria-selected={activeTab === 'startup'}
+                className={`canvas-settings__tab ${activeTab === 'startup' ? 'canvas-settings__tab--active' : ''}`}
+                onClick={() => setActiveTab('startup')}
+                role="tab"
+                type="button"
+              >
+                启动与通用
+              </button>
+            )}
             <button
               aria-selected={activeTab === 'about'}
               className={`canvas-settings__tab ${activeTab === 'about' ? 'canvas-settings__tab--active' : ''}`}
@@ -286,7 +303,7 @@ export function SettingsModal({
         {/* Pure Single-Column Settings Body */}
         <main className="canvas-settings__body">
           {/* TAB 1: 存储与路径 */}
-          {activeTab === 'storage' && (
+          {canManageSettings && activeTab === 'storage' && (
             <div className="canvas-settings__content">
               {/* Section 1 */}
               <div className="canvas-settings__section">
@@ -412,7 +429,7 @@ export function SettingsModal({
           )}
 
           {/* TAB 3: 启动与通用 */}
-          {activeTab === 'startup' && (
+          {canManageSettings && activeTab === 'startup' && (
             <div className="canvas-settings__content">
               <div className="canvas-settings__section">
                 <h4 className="canvas-settings__section-title">工作与协同模式 (Operation Mode)</h4>
@@ -533,28 +550,34 @@ export function SettingsModal({
                     <span className="canvas-settings__sublabel">系统核心版本</span>
                     <span className="canvas-settings__subvalue">v{versionInfo?.version || '1.2.0'} (Stable)</span>
                   </div>
-                  <div className="canvas-settings__subitem">
-                    <span className="canvas-settings__sublabel">Node.js 运行环境</span>
-                    <span className="canvas-settings__subvalue">{versionInfo?.nodeVersion || 'v20.x'}</span>
-                  </div>
-                  <div className="canvas-settings__subitem">
-                    <span className="canvas-settings__sublabel">本地服务网关</span>
-                    <span className="canvas-settings__subvalue" style={{ color: 'var(--canvas-accent-primary)' }}>
-                      http://127.0.0.1:4173 (连接正常)
-                    </span>
-                  </div>
+                  {canManageSettings && (
+                    <>
+                      <div className="canvas-settings__subitem">
+                        <span className="canvas-settings__sublabel">Node.js 运行环境</span>
+                        <span className="canvas-settings__subvalue">{versionInfo?.nodeVersion || 'v20.x'}</span>
+                      </div>
+                      <div className="canvas-settings__subitem">
+                        <span className="canvas-settings__sublabel">本地服务网关</span>
+                        <span className="canvas-settings__subvalue" style={{ color: 'var(--canvas-accent-primary)' }}>
+                          {typeof window !== 'undefined' ? window.location.origin : '本地网关'} (连接正常)
+                        </span>
+                      </div>
+                    </>
+                  )}
 
-                  <div style={{ marginTop: '14px' }}>
-                    <button
-                      className="canvas-settings__link"
-                      disabled={checkingUpdate}
-                      onClick={handleCheckUpdate}
-                      type="button"
-                    >
-                      {checkingUpdate ? <Loader2 size={12} className="canvas-settings-spin" /> : null}
-                      <span>{checkingUpdate ? '正在检查更新...' : '检查软件更新'}</span>
-                    </button>
-                  </div>
+                  {canManageSettings && (
+                    <div style={{ marginTop: '14px' }}>
+                      <button
+                        className="canvas-settings__link"
+                        disabled={checkingUpdate}
+                        onClick={handleCheckUpdate}
+                        type="button"
+                      >
+                        {checkingUpdate ? <Loader2 size={12} className="canvas-settings-spin" /> : null}
+                        <span>{checkingUpdate ? '正在检查更新...' : '检查软件更新'}</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

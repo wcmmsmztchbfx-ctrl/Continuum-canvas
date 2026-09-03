@@ -931,7 +931,7 @@ function providerScopeFromRequest(
 
 function isManagementApiPath(pathname: string): boolean {
   return pathname === '/api/local-admin/session' ||
-    pathname.startsWith('/api/system/') ||
+    (pathname.startsWith('/api/system/') && pathname !== '/api/system/version') ||
     pathname.startsWith('/api/collaboration/tunnel')
 }
 
@@ -1253,12 +1253,15 @@ async function routeApi(
     return true
   }
   if (method === 'GET' && path === '/api/system/version') {
-    sendJson(response, 200, {
+    const version = {
       version: '1.2.0',
       name: 'Continuum Canvas',
-      nodeVersion: process.version,
-      uptimeSeconds: Math.floor(process.uptime()),
-    })
+    }
+    // Keep the public workspace's version badge useful without exposing
+    // runtime details. The loopback administration port receives diagnostics.
+    sendJson(response, 200, isAdminRequest(request)
+      ? { ...version, nodeVersion: process.version, uptimeSeconds: Math.floor(process.uptime()) }
+      : version)
     return true
   }
   if (method === 'GET' && path === '/api/system/settings') {
