@@ -2,6 +2,7 @@
   "name": "continuum",
   "private": true,
   "version": "0.0.0",
+  "description": "Continuum 连点成片 - 基于 React Flow 的无限 AI 影视创作画布与专业矢量设计系统",
   "type": "module",
   "engines": {
     "node": ">=22.18.0",

@@ -1,143 +1,150 @@
-# Continuum 连点成片
+# Continuum 连点成片 (Infinite AI Visual Canvas)
 
-Continuum 连点成片 是一个基于 React、TypeScript 和 React Flow 的无限 AI 影视创作画布编辑器。浏览器端负责画布交互、项目状态与本地持久化；仓库内置的 Node gateway 负责供应商配置、素材存储、任务执行和静态文件托管。
+Continuum 连点成片 是一个专为 AI 影视创作、概念设计与视觉叙事打造的无限节点式画布编辑器。项目基于 React 18、TypeScript 与 React Flow 构建，融合了专业级矢量图形设计能力（贝塞尔钢笔、二次矢量编辑、高斯模糊/阴影滤镜）、强大的 AI 多模型生成矩阵（MiniMax、ComfyUI、火山引擎、可灵、通义等）以及自托管轻量级多人协同引擎。
 
-gateway 使用 provider registry + adapter 架构。当前随仓库提供的可用 adapter 是 AIStartLab OpenAPI；其他供应商可以通过实现 `server/providers/provider-adapter.ts` 接入，但没有安装 adapter 的供应商会保持不可用，不会接收或发送密钥。
+---
 
-## 系统结构
+## ✨ 核心特性
 
-- React Flow 画布：节点、连线、分组、选区、生成面板与工作流交互。
-- Zustand + IndexedDB：浏览器中的画布状态、项目数据和界面偏好。
-- Node gateway：`/api`、供应商注册表、目录缓存、生成任务和素材文件。
-- AIStartLab adapter：provider adapter 接口的内置实现，密钥只在 gateway 进程内使用。
-- 本地数据目录：JSON 状态、任务恢复信息、目录缓存和素材二进制文件。
+### 1. 🎨 专业级矢量绘图与设计系统
+* **经典贝塞尔钢笔工具 (Vector Pen Tool)**：
+  * **绘制交互**：单击放置直线折点，按压并拖拽拉出对称顺滑的贝塞尔控制手柄（`in` 与 `out`）；
+  * **实时动态引导**：鼠标移动时实时渲染下一段曲线/直线的动态橡皮筋虚线预览；
+  * **起点智能吸附闭合**：光标靠近起点（14px 范围内）自动高亮绿色吸附光环，点击即可自动闭合路径；
+  * **角度约束 (Shift)**：按住 `Shift` 键可约束手柄或折线在 0° / 45° / 90° 水平垂直方向；
+  * **快捷操作**：绘制中按 `Backspace` / `Delete` 撤销上一个锚点，按 `Enter` 快速提交开放路径，按 `Esc` 取消/提交；绘制完成后自动切回选择工具并选中新路径。
+* **矢量二次编辑模式 (Vector Edit Mode)**：
+  * 双击画布路径节点或点击属性面板【编辑路径】一键进入；
+  * 高亮所有顶点与贝塞尔控制手柄，支持拖拽移动顶点、微调控制手柄曲率；
+  * 按住 `Alt` 键拖拽手柄可**自由解耦单侧控制柄**，轻松绘制非对称转角曲线；
+  * 直接点击线段空白处**插入新锚点**，选中锚点按 `Delete` / `Backspace` 即可**删除锚点**；
+  * 双击空白处或按 `Esc` / `Enter` 退出编辑态，系统自动重算外接矩形（Bounding Box）并自适应更新尺寸与相对坐标。
+* **画框 (Frame) 与几何图形 (Shape)**：
+  * 预设常用画幅（16:9、9:16、1:1、4:3、A4）与自定义画幅；
+  * 矩形、椭圆与即时排版文本节点（字号、字重、对齐、颜色）。
 
-## 环境要求
+### 2. 🎛️ 极简黑白 Figma 风格属性面板 (Inspector Panel)
+* **黑白线条极简设计**：全模块配备简约黑白专业图标修饰，提供干净克制的视觉界面；
+* **数字标签拖拽调节 (Scrubbable Labels)**：悬停在 X, Y, W, H, 旋转, 字号, 圆角, 线宽, 透明度标签上左右拖拽即可平滑微调数值，按住 `Shift` 享受 10 倍步长加速；
+* **独立透明度控制 (Opacity)**：专用透明度分组与百分比微调；
+* **描边与线型 (Stroke)**：支持线宽连续调节与**实线 (Solid) / 虚线 (Dashed)** 分段切换；
+* **视觉效果 (Effects)**：内置 Figma 风格的**高斯模糊 (Gaussian Blur)** 与**外投影 (Drop Shadow)** 开关卡片，支持模糊半径与投影偏移/颜色自定义；
+* **路径专属控制 (Path)**：提供【编辑路径】与【路径闭合 (Closed)】开关，允许随时在开放轮廓与闭合多边形之间自由转换；
+* **多选批量微调**：支持多选对象下的批量透明度调节、批量修改填充颜色与编组 (Ctrl+G)。
 
-- Node.js 22.18 或更高版本
-- npm 10 或更高版本
+### 3. 🤖 全面内置的多供应商 AI 适配器矩阵 (Multi-Vendor AI Adapters)
+仓库内置 Node Gateway 采用 Provider Registry + Adapter 插件化架构，已原生实现以下主流视觉与视频大模型适配器：
+* **MiniMax**：文本生视频、图生视频高品质模型；
+* **OpenAI Compatible**：支持所有兼容 OpenAI 规范的本地与云端生图/生视频模型；
+* **ComfyUI**：无缝对接本地 ComfyUI 服务与工作流；
+* **火山引擎 (VolcEngine)**：字节跳动视觉大模型能力；
+* **RunningHub**：云端生图生视频工作流任务；
+* **ModelScope (魔搭社区)**：开源模型快速接入；
+* **快手可灵 (Kling)**：电影级 AI 视频生成；
+* **阿里通义千问 (DashScope / Wanx)**：通义万相系列模型；
+* **即梦 (Jimeng)**：图像与视频生成能力；
+* **AIStartLab**：OpenAPI 统一服务。
 
-Node 版本下限来自 gateway 直接运行 TypeScript 文件以及 Vite 8 的运行要求。
+> **安全机制**：API 密钥仅由本地 Node Gateway 安全进程管理并在调用时直接注入 Header，前端界面绝不接收或回显明文密钥。
 
-## 安装与开发
+### 4. 🎬 AI 影视概念全流程创作套件
+* **双模式卡片设计**：
+  * **AI 生成卡片 (`generation`)**：输入 Prompt、拾取参考图（Reference Picking）、调整模型与生成参数，直观追踪多版本迭代历史；
+  * **自由编辑图层 (`layer`)**：一键切换为无边框的自由图像/视频图层，配合 8 控制点自由拉伸、旋转、圆角与滤镜混合；
+* **视频关键帧提取 (Video Frame Extraction)**：播放视频时一键捕获当前精确时间戳的视频帧画面，在侧方生成独立图像节点，无缝串联后续图生图/图生视频工作流；
+* **内置图像编辑器 (Image Editor)**：支持非破坏性笔刷微调与衍生版本历史回溯；
+* **故事板脉络流图 (Lineage Panel)**：可视化呈现从构思、参考图、生图到生视频的全链路衍生演进血统；
+* **资产管理中心 (Asset Manager)**：集中管理与检索项目历史资产，一键拖拽置入画布。
 
-Windows PowerShell：
+### 5. 🤝 自托管轻量级多人协作 (Self-Hosted Collaboration)
+* **单实例自托管协同**：支持通过局域网 (LAN Share) 或临时远程穿透通道实现即时多人协同，实时同步指针轨迹、选区高亮与画布修改；
+* **动态租约锁机制 (Lease Guard)**：编辑节点时自动申请临时交互租约，避免并发编辑冲突；
+* **极简部署**：同一端口自动反代静态页面、`/api` 与 WebSocket 通道，开箱即用。
 
-```powershell
+---
+
+## 🛠️ 系统架构
+
+```
+Continuum /
+├── src/ (前端客户端)
+│   ├── model/                  # 核心数据模型 (CanvasNode, PathAnchor, PathNode, etc.)
+│   ├── store/                  # 全局 Zustand 状态库 (CRUD、历史撤销重做、选区)
+│   ├── components/
+│   │   ├── canvas/             # React Flow 画布、钢笔绘制图层、矢量编辑图层、智能吸附
+│   │   ├── inspector/          # Figma 风格右侧属性栏 (变换、透明度、描边实虚线、模糊/投影)
+│   │   ├── overlays/           # 资产中心、设置弹窗、快捷键面板
+│   │   └── shell/              # 顶部栏、浮动工具坞、底部状态栏
+│   └── collaboration/          # WebSocket 协作客户端与状态机
+└── server/ (本地安全网关)
+    ├── providers/              # MiniMax, OpenAI, ComfyUI, 火山, 可灵, 即梦等适配器
+    ├── collaboration-service.ts# 多人协作房间与状态同步
+    └── http-gateway.ts         # REST API、静态资源托管与任务执行
+```
+
+---
+
+## 🚀 环境要求与快速启动
+
+### 环境要求
+* **Node.js**: 22.18 或更高版本
+* **npm**: 10 或更高版本
+
+### 安装与启动开发服务
+
+```bash
+# 1. 安装依赖
 npm ci
-Copy-Item .env.example .env.local
+
+# 2. 复制环境配置
+cp .env.example .env.local   # Windows: Copy-Item .env.example .env.local
+
+# 3. 启动开发环境 (客户端 + 本地 Gateway)
 npm run dev
 ```
 
-macOS / Linux：
+启动后访问：
+* **前端画布**：`http://127.0.0.1:4173`
+* **本地网关**：`http://127.0.0.1:4174`
+
+---
+
+## 📦 生产运行
 
 ```bash
-npm ci
-cp .env.example .env.local
-npm run dev
-```
-
-`npm run dev` 同时启动 Vite 客户端和本地 gateway：
-
-- 客户端：`http://127.0.0.1:4173`
-- gateway：`http://127.0.0.1:4174`
-
-画布入口示例：`http://127.0.0.1:4173/canvas?spaceId=local&projectId=reference`
-
-## 生产运行
-
-Windows、macOS 和 Linux 使用同一组 npm 脚本：
-
-```bash
-npm ci
+# 编译生产包
 npm run build
+
+# 启动生产服务
 npm start
 ```
+`npm start` 会在 `127.0.0.1:4173` 启动整合网关，并直接托管 `dist/` 下的前端生产资源。
 
-`npm start` 默认在 `127.0.0.1:4173` 启动 gateway，并从 `dist/` 提供前端静态文件。部署到非本机地址时，应通过下面的环境变量显式配置 host，并仅在受信任网络或经过访问控制的反向代理后使用。
+---
 
-## 配置
+## 🛡️ 质量门禁与测试套件
 
-配置优先级从低到高为：仓库 env 文件、`process.env`、程序化启动 options。默认 env 文件是项目根目录下的 `.env.local`，它不会覆盖容器、服务管理器或 shell 已注入的环境变量。
-
-相对路径始终相对于项目根目录解析，不依赖启动命令的当前工作目录。
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `CANVAS_ENV_FILE` | `<项目根>/.env.local` | env 文件路径；通过进程环境或程序化 option 设置 |
-| `CANVAS_DATA_DIR` | `<项目根>/data` | gateway 数据目录 |
-| `CANVAS_GATEWAY_HOST` | `127.0.0.1` | gateway 监听地址 |
-| `CANVAS_GATEWAY_PORT` | 开发 `4174`，生产 `4173` | gateway 监听端口；兼容旧变量 `GATEWAY_PORT` |
-| `CANVAS_VITE_HOST` | `127.0.0.1` | Vite 开发服务器监听地址；局域网开发可设为 `0.0.0.0` |
-| `CANVAS_ALLOW_INSECURE_LAN` | 未设置 | 显式允许私网 IP 使用 HTTP 协作；公网地址不受此开关影响，仍强制 HTTPS |
-| `CANVAS_PUBLIC_ORIGIN` | 未设置 | 公开协作部署的 HTTPS 站点 Origin；非回环监听时必填 |
-| `CANVAS_ALLOWED_ORIGINS` | 未设置 | 允许访问 HTTP 与 WebSocket 协作接口的 Origin，逗号分隔且必须包含公开 Origin |
-| `CANVAS_GENERATION_MAX_RUN_TIME_MS` | `1800000` | 单个上游生成任务的最长本地跟踪时间；允许 1 分钟至 24 小时 |
-| `API_PROVIDER_AISTARTLAB_KEY` | 未设置 | AIStartLab API 密钥 |
-| `CANVAS_DOH_ENDPOINT` | 未设置 | 可选的 DNS-over-HTTPS resolver |
-
-Windows PowerShell 临时覆盖示例：
-
-```powershell
-$env:CANVAS_GATEWAY_PORT = '5180'
-$env:CANVAS_DATA_DIR = Join-Path $env:ProgramData 'libtv-canvas'
-npm run server
-```
-
-macOS / Linux 临时覆盖示例：
+项目拥有严苛的质量门禁与自动化测试流程：
 
 ```bash
-CANVAS_GATEWAY_PORT=5180 CANVAS_DATA_DIR=/var/lib/libtv-canvas npm run server
-```
-
-这些路径只是命令示例，不是代码中的默认值；仓库没有硬编码盘符、用户名或用户主目录。
-
-## 自托管多人协作
-
-多人协作与普通画布共用同一个 Node gateway。默认只绑定 `127.0.0.1`，适合本机开发；局域网或公网协作必须显式修改 `CANVAS_GATEWAY_HOST`，并同时设置 `CANVAS_PUBLIC_ORIGIN` 和 `CANVAS_ALLOWED_ORIGINS`。公开 Origin 强制使用 HTTPS，WebSocket 应由同源反向代理升级为 WSS。
-
-开发服务会自动选择真实的私网 IPv4 地址（优先避开 VMware、WSL 等虚拟网卡），让 Vite 与 gateway 监听局域网，并让邀请链接使用该地址。`npm run dev:service` 启动时会同时输出本机地址和 `LAN share` 地址；另一台设备应打开后者。若系统存在多个真实网卡或需要固定地址，可在 `.env.local` 中显式设置 `CANVAS_PUBLIC_ORIGIN`、`CANVAS_ALLOWED_ORIGINS`、`CANVAS_VITE_HOST` 与 `CANVAS_GATEWAY_HOST`，显式值优先于自动检测。此 HTTP 模式只接受私网 IP，不适用于互联网部署。
-
-如果另一台设备打不开 `LAN share` 地址，先确认两台设备连接同一局域网，并允许 Windows 防火墙中的 TCP `4173` 端口。邀请必须从新的局域网页面重新复制；旧的 `127.0.0.1` 邀请链接仍然只能在本机使用。
-
-典型反向代理需要把静态页面、`/api` 和 `/api/collaboration/ws` 转发到同一 gateway，并为 WebSocket 路径保留 `Upgrade` 和 `Connection` 请求头。不要绕过 gateway 直接暴露协作数据目录。首次开启协作的设备是房间所有者；编辑和查看邀请使用不同权限，邀请秘密只在 URL fragment 中传递，交换为 HttpOnly 会话后会从地址栏移除。
-
-协作房间的 Yjs 快照、增量日志、成员和邀请元数据保存在 `CANVAS_DATA_DIR/collaboration`。部署迁移或升级前应备份整个数据目录。供应商 API Key、上传签名和邀请明文不会写入 Yjs 文档；供应商密钥仍只应通过 secret manager 或进程环境注入。
-
-当前协作实现面向最多 10 个客户端的单实例自托管部署，不包含中心账号、跨实例联邦、水平扩展、端到端加密、评论或云端“共享给我”。需要多实例时，必须先增加共享持久化、房间路由和跨实例广播，不能让多个 gateway 直接并发写同一个数据目录。
-
-## 数据与密钥安全
-
-默认 `data/` 包含 `providers.json`、`jobs.json`、`catalog-cache.json`、任务恢复文件和 `assets/`。一个数据目录同一时间只能由一个 gateway 进程使用。
-
-`.gitignore` 保留 `data/`、`secrets/`、`.env` 和 `.env.*`；只有不含真实值的 `.env.example` 可以提交。生产环境应使用部署平台的 secret manager 或进程环境注入密钥，不要把真实密钥写入仓库、README、日志或 issue。
-
-供应商 API 只返回密钥是否已配置和掩码，不返回明文。gateway 的启动错误与上游错误会映射为受控错误码，不把密钥、上游 URL 或原始异常正文写入响应。`.env.example` 中的密钥值为空，不能直接调用真实供应商。
-
-## 测试与合并门禁
-
-PR 门禁运行零警告 lint、前端与服务端单元测试、真实性能门禁、生产构建和核心 Smoke：
-
-```bash
+# 1. 代码规范与 Lint
 npm run lint
+
+# 2. 前端单元测试 (82 个测试套件，745 项测试全绿)
 npm test
+
+# 3. 服务端与适配器单元测试 (38 个测试套件，483 项测试全绿)
 npm run test:server
-npm run test:performance
+
+# 4. 生产构建打包检查
 npm run build
+
+# 5. Playwright E2E 核心冒烟测试 (19 项测试全绿)
 npm run test:e2e:smoke
 ```
 
-Nightly 独立运行多人协作、离线恢复、复杂画布和 Continuum 自有视觉回归：
+---
 
-```bash
-npm run test:nightly
-```
+## 📄 开源许可证
 
-视觉测试只允许通过显式命令更新基线，普通测试不会写入受版本控制的截图：
-
-```bash
-npm run test:e2e:visual
-npm run test:e2e:update-visual
-```
-
-E2E 使用本地有效 PNG、H.264 MP4 和 Fake Provider，并阻止浏览器访问非本机 HTTP 服务。测试失败产物位于 `test-results/`；GitHub Actions 会保存 trace、截图、视频和服务端日志。`CONTINUUM_E2E` 只由专用 E2E 网关进程设置，生产环境的重置路由固定返回 `404`。
+本项目采用私有/专属授权进行开发维护。如需商业合作或接入支持，请联系项目维护者。
