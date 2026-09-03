@@ -498,7 +498,11 @@ export class CanvasCollaborationController {
       this.patch({ status: 'connecting', error: undefined })
       const baseline = this.connectionBaseline ?? this.currentSnapshot()
       this.connectionBaseline = baseline
-      const session = await joinOpenRoom({ roomId: pending.roomId, displayName }, { signal })
+      // Preserve the CollaborationClient receiver. Calling the optional method
+      // through the extracted function loses `this`, which made a fresh/private
+      // browser session fail with "Cannot read properties of undefined
+      // (reading 'request')" while joining an existing host room.
+      const session = await joinOpenRoom.call(this.client, { roomId: pending.roomId, displayName }, { signal })
       this.assertCurrent(epoch)
       this.assertScope(session)
       const room = await this.client.getRoom(pending.roomId, { signal })

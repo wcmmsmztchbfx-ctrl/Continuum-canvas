@@ -484,6 +484,45 @@ describe('CanvasCollaborationController', () => {
     await subject.controller.destroy()
   })
 
+  it('preserves the client receiver when joining a discovered host room', async () => {
+    const subject = setup()
+    subject.client.getCollaborationScope = vi.fn(async () => ({
+      projectId: 'project-a',
+      canvasId: 'canvas-a',
+      mode: 'host' as const,
+      active: true,
+      roomId: 'room-a',
+    }))
+    vi.mocked(subject.client.resumeRoom).mockRejectedValueOnce(
+      new CollaborationClientError(403, 'collaboration_forbidden', 'forbidden'),
+    )
+
+    const guestSession: CollaborationSession = {
+      ...owner,
+      memberId: 'guest-a',
+      displayName: 'Guest',
+      role: 'editor',
+    }
+    const joinOpenRoom: NonNullable<CollaborationClientHandle['joinOpenRoom']> =
+      function (this: CollaborationClientHandle, input) {
+        expect(this).toBe(subject.client)
+        expect(input).toEqual({ roomId: 'room-a', displayName: 'Guest' })
+        return Promise.resolve(guestSession)
+      }
+    subject.client.joinOpenRoom = vi.fn(joinOpenRoom)
+
+    await subject.controller.initializeFromLocation()
+    expect(subject.controller.getState().pendingHostJoin).toEqual({ roomId: 'room-a' })
+
+    await expect(subject.controller.joinPendingHost('Guest')).resolves.toBeUndefined()
+    expect(subject.controller.getState().status).toBe('synced')
+    expect(subject.client.joinOpenRoom).toHaveBeenCalledWith(
+      { roomId: 'room-a', displayName: 'Guest' },
+      expect.anything(),
+    )
+    await subject.controller.destroy()
+  })
+
   it('merges connection-window edits after authenticating an invite', async () => {
     const invitedLocation = location('#invite=secret-editor')
     invitedLocation.search += '&collabRoom=room-a'
