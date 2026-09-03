@@ -4,6 +4,7 @@ interface ScrubbableLabelProps {
   label: ReactNode
   value: number
   onChange: (value: number) => void
+  onChangeEnd?: (value: number) => void
   min?: number
   max?: number
   step?: number
@@ -16,6 +17,7 @@ export function ScrubbableLabel({
   label,
   value,
   onChange,
+  onChangeEnd,
   min,
   max,
   step = 1,
@@ -62,10 +64,12 @@ export function ScrubbableLabel({
           nextValue = Math.round(nextValue)
         }
 
+        activeValueRef.current = nextValue
         onChange(nextValue)
       }
 
       const onPointerUp = (upEvent: PointerEvent) => {
+        if (!isDraggingRef.current) return
         isDraggingRef.current = false
         document.body.style.cursor = ''
         document.body.style.userSelect = ''
@@ -77,13 +81,14 @@ export function ScrubbableLabel({
         window.removeEventListener('pointermove', onPointerMove)
         window.removeEventListener('pointerup', onPointerUp)
         window.removeEventListener('pointercancel', onPointerUp)
+        onChangeEnd?.(activeValueRef.current)
       }
 
       window.addEventListener('pointermove', onPointerMove)
       window.addEventListener('pointerup', onPointerUp)
       window.addEventListener('pointercancel', onPointerUp)
     },
-    [max, min, onChange, sensitivity, step],
+    [max, min, onChange, onChangeEnd, sensitivity, step],
   )
 
   return (

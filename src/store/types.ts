@@ -1,6 +1,5 @@
 import type { GenerationHistoryEntry } from '../contracts/generation'
 import type {
-  CanvasComment,
   CanvasEdge,
   CanvasNode,
   ImageVersion,
@@ -103,12 +102,11 @@ export interface CanvasStoreState {
       size: NodeSize
       data: Record<string, unknown>
     }>,
+    commit?: boolean,
   ) => void
-  updateTextNode: (nodeId: string, text: string) => void
+  updateTextNode: (nodeId: string, text: string, commit?: boolean) => void
   addImageVersion: (nodeId: string, version: ImageVersion) => void
   setImageVersion: (nodeId: string, versionId: string) => void
-  addComment: (comment: CanvasComment) => void
-  updateComment: (commentId: string, updater: (comment: CanvasComment) => CanvasComment) => void
   toggleNodeFlag: (nodeId: string, flag: 'locked' | 'hidden') => void
   updateGenerationSettings: (
     nodeId: string,

@@ -47,6 +47,7 @@ export type CanvasFlowNodeData = {
   hasAudio?: boolean
   text?: string
   node?: CanvasNode
+  editingVector?: boolean
   referenceNodeIds?: string[]
   references?: Array<{
     id: string
@@ -81,7 +82,7 @@ export type CanvasFlowNodeData = {
     naturalHeight: number,
   ) => void
   onRename?: (nodeId: string, name: string) => void
-  onTextChange?: (nodeId: string, text: string) => void
+  onTextChange?: (nodeId: string, text: string, commit?: boolean) => void
   onInteractionStart?: (nodeId: string, kind: 'text' | 'settings') => boolean
   onInteractionEnd?: (nodeId: string, kind: 'text' | 'settings') => void
   onGenerate?: (nodeId: string, request: GenerationQuoteRequest) => void

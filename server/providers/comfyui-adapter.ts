@@ -100,7 +100,7 @@ export class ComfyUIAdapter implements ProviderAdapter {
   async testConnection(signal?: AbortSignal): Promise<void> {
     try {
       await this.request('/system_stats', { method: 'GET' }, signal)
-    } catch (err) {
+    } catch {
       throw new ProviderRequestRejectedError(
         `无法连接到本地 ComfyUI (${this.baseUrl})，请确认已启动 ComfyUI 服务（如 run_nvidia_gpu.bat）`,
       )

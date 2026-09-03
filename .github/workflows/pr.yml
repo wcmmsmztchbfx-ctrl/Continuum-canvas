@@ -1,0 +1,49 @@
+name: PR quality gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run lint
+      - run: npm test
+      - run: npm run test:server
+      - run: npm run test:performance
+      - run: npm run build
+      - run: npm run test:e2e:smoke
+      - run: git diff --exit-code
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-test-failures
+          path: |
+            test-results/
+            logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high

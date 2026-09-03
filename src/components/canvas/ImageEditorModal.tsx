@@ -27,16 +27,32 @@ export function ImageEditorWorkspace({ name, url, onCancel, onSave, onDirtyChang
   const [ratio, setRatio] = useState<(typeof ratios)[number]>('自由')
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string>()
   const [imageReady, setImageReady] = useState(0)
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
   const save = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas || saving) return
+    setSaveError(undefined)
     setSaving(true)
-    canvas.toBlob((blob) => {
-      if (!blob) { setSaving(false); return }
-      void onSave(blob).then(() => { setDirty(false) }).finally(() => setSaving(false))
-    }, 'image/png')
+    try {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          setSaveError('无法导出图片，请重新载入素材后再试')
+          setSaving(false)
+          return
+        }
+        void onSave(blob)
+          .then(() => { setDirty(false) })
+          .catch((error: unknown) => {
+            setSaveError(error instanceof Error ? error.message : '保存图片失败，请重试')
+          })
+          .finally(() => setSaving(false))
+      }, 'image/png')
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : '无法导出图片，请重新载入素材后再试')
+      setSaving(false)
+    }
   }, [onSave, saving])
   useEffect(() => registerSave?.(save), [registerSave, save])
 
@@ -99,7 +115,7 @@ export function ImageEditorWorkspace({ name, url, onCancel, onSave, onDirtyChang
         onPointerDown={(event) => { drawing.current = true; event.currentTarget.setPointerCapture(event.pointerId); const p = pointer(event); const ctx = event.currentTarget.getContext('2d')!; ctx.beginPath(); ctx.moveTo(p.x, p.y) }}
         onPointerMove={(event) => { if (!drawing.current) return; const p = pointer(event); const ctx = event.currentTarget.getContext('2d')!; ctx.strokeStyle = '#ff4d4f'; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.lineTo(p.x, p.y); ctx.stroke(); setDirty(true) }}
         onPointerUp={() => { drawing.current = false }} /></div>
-      <footer><button onClick={onCancel} type="button">取消</button><button disabled={saving} onClick={save} type="button"><Check />{saving ? '保存中' : '保存新版本'}</button></footer>
+      <footer>{saveError ? <span className="image-editor__save-error" role="alert">{saveError}</span> : null}<button onClick={onCancel} type="button">取消</button><button disabled={saving} onClick={save} type="button"><Check />{saving ? '保存中' : '保存新版本'}</button></footer>
     </section>
   return embedded ? editor : <div className="image-editor-backdrop" role="dialog" aria-modal="true" aria-label={`编辑 ${name}`}>{editor}</div>
 }

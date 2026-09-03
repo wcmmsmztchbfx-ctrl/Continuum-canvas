@@ -263,6 +263,12 @@ export class MiniMaxAdapter implements ProviderAdapter {
         image_url: { url: stagedImageUrls[1] },
         role: 'last_frame',
       })
+    } else if (mode === 'first_frame' && stagedImageUrls.length > 0) {
+      content.push({
+        type: 'image_url',
+        image_url: { url: stagedImageUrls[0] },
+        role: 'first_frame',
+      })
     } else if (mode === 'image2video' || stagedImageUrls.length > 0) {
       for (const imgUrl of stagedImageUrls.slice(0, 9)) {
         content.push({

@@ -334,7 +334,7 @@ describe('collaboration WebSocket gateway', () => {
 
       expect(await closed).toBe(1008)
       expect(await readFile(updatesPath)).toEqual(beforeLog)
-      expect(gateway.runtime.collaboration.exportSnapshot(roomId)).toEqual({ ...snapshot(), version: 3, comments: [] })
+      expect(gateway.runtime.collaboration.exportSnapshot(roomId)).toEqual({ ...snapshot(), version: 3 })
       expect(gateway.runtime.collaboration.documentForRoom(roomId).share.has('unexpectedRoot')).toBe(false)
     },
   )
@@ -443,7 +443,7 @@ describe('collaboration WebSocket gateway', () => {
         cursor: { x: 10, y: 20 },
       }),
     )
-    expect(gateway.runtime.collaboration.exportSnapshot(roomId)).toEqual({ ...snapshot(), version: 3, comments: [] })
+    expect(gateway.runtime.collaboration.exportSnapshot(roomId)).toEqual({ ...snapshot(), version: 3 })
     const ownerState = [...remoteAwareness.getStates().values()]
       .find((state) => state.memberId === owner.payload.session.memberId)
     expect(ownerState).not.toHaveProperty('unexpected')

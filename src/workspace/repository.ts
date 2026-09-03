@@ -263,7 +263,6 @@ export function createWorkspaceRepository(
         viewport: { x: 0, y: 0, zoom: 1 },
         nodes: [],
         edges: [],
-        comments: [],
       }
       manifest.canvases.push({
         canvasId,
@@ -341,7 +340,6 @@ export function createWorkspaceRepository(
             viewport: { x: 0, y: 0, zoom: 1 },
             nodes: [],
             edges: [],
-            comments: [],
           }
       const canvas: WorkspaceCanvas = {
         canvasId,

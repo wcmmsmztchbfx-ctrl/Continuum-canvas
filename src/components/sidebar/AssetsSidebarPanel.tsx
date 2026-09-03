@@ -121,10 +121,14 @@ export function AssetsSidebarPanel({
     onNotify?.(`已将「${asset.name}」置入画布`, 'success')
   }
 
-  const handleDelete = (asset: CanvasAssetEntry) => {
-    assetRegistry.deleteAssets([asset.id])
-    refreshAssets()
-    onNotify?.(`已删除资产「${asset.name}」`, 'info')
+  const handleDelete = async (asset: CanvasAssetEntry) => {
+    try {
+      await assetRegistry.deleteAsset(asset.id)
+      refreshAssets()
+      onNotify?.(`已删除资产「${asset.name}」`, 'info')
+    } catch (err: unknown) {
+      onNotify?.(err instanceof Error ? err.message : '删除失败', 'error')
+    }
   }
 
   const tabCounts = useMemo(() => {

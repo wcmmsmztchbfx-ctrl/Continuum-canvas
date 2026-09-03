@@ -299,7 +299,12 @@ export async function uploadAndPrepareMediaAsset(
     const asset = await persistLocalMedia(fileToUpload, uploader)
     mediaUrl = asset.url
     assetId = asset.assetId
-  } catch {
+  } catch (error) {
+    if (kind === 'video') {
+      throw new Error(
+        error instanceof Error ? error.message : '视频上传保存失败，请检查后端服务连接',
+      )
+    }
     mediaUrl = URL.createObjectURL(fileToUpload)
   }
 

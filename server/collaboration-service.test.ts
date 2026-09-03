@@ -623,7 +623,7 @@ describe('CollaborationService', () => {
     expect(restored.authorizeSession({
       roomId: owner.room.roomId, sessionToken: owner.sessionToken,
     }).role).toBe('owner')
-    expect(restored.exportSnapshot(owner.room.roomId)).toEqual({ ...snapshot(), version: 3, comments: [] })
+    expect(restored.exportSnapshot(owner.room.roomId)).toEqual({ ...snapshot(), version: 3 })
     await restored.close()
   })
 

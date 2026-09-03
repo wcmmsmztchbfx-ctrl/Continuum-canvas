@@ -121,5 +121,20 @@ describe('localMedia service', () => {
       expect(result.assetId).toBeUndefined()
       expect(result.url).toContain('blob:')
     })
+
+    it('rejects with descriptive error when video upload fails to prevent temporary blob leakage', async () => {
+      const videoFile = new File(['mock-video'], 'clip.mp4', {
+        type: 'video/mp4',
+      })
+      const uploader = {
+        uploadAsset: vi.fn(async () => {
+          throw new Error('Connection refused')
+        }),
+      }
+
+      await expect(uploadAndPrepareMediaAsset(videoFile, uploader)).rejects.toThrow(
+        'Connection refused',
+      )
+    })
   })
 })

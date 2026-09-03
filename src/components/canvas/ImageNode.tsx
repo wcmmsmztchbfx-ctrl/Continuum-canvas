@@ -143,6 +143,12 @@ function ImageNodeContent({
       aria-label={data.name}
       style={{
         opacity: modelData?.opacity !== undefined ? modelData.opacity : undefined,
+        filter: (() => {
+          const filters: string[] = []
+          if (modelData?.blur && modelData.blur > 0) filters.push(`blur(${modelData.blur}px)`)
+          if (modelData?.shadow) filters.push(`drop-shadow(${modelData.shadow.x}px ${modelData.shadow.y}px ${modelData.shadow.blur}px ${modelData.shadow.color})`)
+          return filters.length > 0 ? filters.join(' ') : undefined
+        })(),
         transform: modelData?.rotation ? `rotate(${modelData.rotation}deg)` : undefined,
         '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))),
       } as React.CSSProperties}
@@ -182,7 +188,7 @@ function ImageNodeContent({
         style={{
           borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
           border: modelData?.stroke
-            ? `${modelData.strokeWidth ?? 1}px solid ${modelData.stroke}`
+            ? `${modelData.strokeWidth ?? 1}px ${modelData.strokeStyle ?? 'solid'} ${modelData.stroke}`
             : undefined,
           overflow: 'hidden',
         }}
@@ -274,6 +280,7 @@ function ImageNodeContent({
           settings={data.generationSettings}
           unresolvedReferences={data.unresolvedReferences}
           mode={data.imagePanelMode}
+          editAvailable={hasImage}
           onModeChange={(mode) => data.onImagePanelModeChange?.(id, mode)}
           editContent={data.imageEditorContent}
           versionControl={data.versions && data.versions.length > 1 ? <select aria-label="图片版本" value={data.activeVersionId} onChange={(event) => data.onSetImageVersion?.(id, event.target.value)}>{data.versions.map((version) => <option value={version.id} key={version.id}>{version.label ?? version.createdAt}</option>)}</select> : null}

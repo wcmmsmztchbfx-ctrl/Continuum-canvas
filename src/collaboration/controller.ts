@@ -855,7 +855,6 @@ export class CanvasCollaborationController {
       ...snapshot,
       version: CANVAS_SNAPSHOT_VERSION,
       canvasId: this.options.canvasId,
-      comments: snapshot.comments ?? [],
     }
   }
 

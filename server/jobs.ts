@@ -639,6 +639,10 @@ export class GenerationJobStore {
     return this.jobs.map((job) => this.toPublic(job))
   }
 
+  clear(): void {
+    this.jobs = []
+  }
+
   onChange(listener: GenerationJobListener): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)

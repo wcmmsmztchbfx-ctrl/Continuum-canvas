@@ -38,7 +38,6 @@ describe('canvas application integration', () => {
       viewport: { x: 0, y: 0, zoom: 1 },
       nodes: [],
       edges: [],
-      comments: [],
     }
     const repository = {
       loadCanvas: vi.fn(async () => document),
@@ -435,7 +434,6 @@ describe('canvas application integration', () => {
         },
       ],
       edges: [],
-      comments: [],
     }
 
     const repository = {

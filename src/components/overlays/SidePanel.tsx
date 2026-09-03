@@ -1,7 +1,6 @@
 import { clsx } from 'clsx'
 import {
   Bot,
-  Camera,
   Clock3,
   FileText,
   FolderOpen,
@@ -13,9 +12,7 @@ import {
   Package,
   Search,
   SlidersHorizontal,
-  UserRound,
   Video,
-  Workflow,
   X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -29,18 +26,12 @@ export type SidePanelKind =
   | 'project-files'
   | 'canvases'
   | 'assets'
-  | 'templates'
-  | 'styles'
-  | 'characters'
   | 'history'
   | 'agent'
 
 export type SidePanelAction =
   | 'upload'
   | 'new-canvas'
-  | 'use-template'
-  | 'apply-style'
-  | 'apply-character'
   | 'new-chat'
 
 interface PanelMeta {
@@ -52,9 +43,6 @@ const panelMeta: Record<SidePanelKind, PanelMeta> = {
   'project-files': { icon: FolderOpen, title: '项目文件' },
   canvases: { icon: LayoutGrid, title: '画布列表' },
   assets: { icon: Package, title: '资产' },
-  templates: { icon: Workflow, title: '工具与工作流模板' },
-  styles: { icon: Camera, title: '风格与镜头' },
-  characters: { icon: UserRound, title: '角色' },
   history: { icon: Clock3, title: '历史记录' },
   agent: { icon: Bot, title: 'Agent' },
 }
@@ -173,28 +161,10 @@ function PanelContent({
   if (kind === 'project-files') {
     return <AssetManager canvasNodes={canvasNodes ?? []} onLocateNode={onLocateNode} />
   }
-  if (kind === 'templates') {
-    return <LibraryRows actionLabel="使用" descriptions={[
-      { name: '参考图生成视频', detail: '图片参考、提示词和视频输出' },
-      { name: '角色一致性镜头', detail: '主体参考与连续镜头' },
-      { name: '首尾帧过渡', detail: '两张图片连接为视频' },
-    ]} onAction={() => onAction?.('use-template')} />
-  }
-  if (kind === 'assets' || kind === 'styles') {
-    return <LibraryRows actionLabel="应用风格" descriptions={[
-      { name: '电影柔光', detail: '低对比、柔和高光' },
-      { name: '纪实手持', detail: '自然光与轻微镜头运动' },
-      { name: '黑白胶片', detail: '高颗粒单色影调' },
-    ]} onAction={() => onAction?.('apply-style')} />
-  }
-  if (kind === 'characters') {
+  if (kind === 'assets') {
     return (
-      <div className="character-library">
-        <div className="character-library__filters"><button aria-pressed="true" type="button">全部</button><button type="button">我的角色</button></div>
-        <UserRound aria-hidden="true" className="character-library__portrait" />
-        <strong>未命名角色</strong>
-        <span>正面、侧面与全身参考</span>
-        <button onClick={() => onAction?.('apply-character')} type="button">应用至画布</button>
+      <div className="panel-library-list">
+        <p className="panel-empty-copy">请使用左侧资产库图标或快捷键浏览管理全局与项目素材</p>
       </div>
     )
   }

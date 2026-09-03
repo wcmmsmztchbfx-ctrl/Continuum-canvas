@@ -59,7 +59,7 @@ describe('project model', () => {
     } as const
 
     expect(CANVAS_SNAPSHOT_VERSION).toBe(3)
-    expect(parseCanvasSnapshot(JSON.stringify(snapshot))).toEqual({ ...snapshot, version: 3, comments: [] })
+    expect(parseCanvasSnapshot(JSON.stringify(snapshot))).toEqual({ ...snapshot, version: 3 })
     expect(() => parseProjectSnapshot(JSON.stringify(snapshot))).toThrow(
       'Unsupported project snapshot version: 2',
     )
@@ -80,7 +80,6 @@ describe('project model', () => {
       version: 3,
       canvasId: deterministicLegacyCanvasId('legacy-project'),
       name: '画布 1',
-      comments: [],
     })
     expect(deterministicLegacyCanvasId('legacy-project')).toBe(
       deterministicLegacyCanvasId('legacy-project'),

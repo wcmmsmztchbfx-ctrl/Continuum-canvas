@@ -77,28 +77,166 @@ function nearestDistances(rect: SnapRect, candidates: SnapRect[]): SnapDistance[
   return [horizontal, vertical].filter((value): value is SnapDistance => value !== undefined)
 }
 
-function equalGapDelta(rect: SnapRect, candidates: SnapRect[], axis: 'x' | 'y', threshold: number) {
-  // Proximity filter: only consider candidates within 1200px orthogonally
+interface EqualGapResult {
+  delta: number
+  guides: SnapGuide[]
+  distances: SnapDistance[]
+}
+
+function equalGapSnap(
+  rect: SnapRect,
+  candidates: SnapRect[],
+  axis: 'x' | 'y',
+  threshold: number,
+): EqualGapResult | undefined {
   const nearby = candidates.filter((item) => {
     const dist = axis === 'x'
       ? Math.abs((item.y + item.height / 2) - (rect.y + rect.height / 2))
       : Math.abs((item.x + item.width / 2) - (rect.x + rect.width / 2))
     return dist <= 1200
   })
-  const sorted = [...nearby].sort((a, b) => axis === 'x' ? a.x - b.x : a.y - b.y)
-  let best: number | undefined
-  for (let index = 0; index < sorted.length - 1; index += 1) {
-    const first = sorted[index]!
-    const second = sorted[index + 1]!
+  if (nearby.length === 0) return undefined
+
+  const sorted = [...nearby].sort((a, b) => (axis === 'x' ? a.x - b.x : a.y - b.y))
+  const current = axis === 'x' ? rect.x : rect.y
+  const size = axis === 'x' ? rect.width : rect.height
+  const crossPos = axis === 'x' ? rect.y + rect.height / 2 : rect.x + rect.width / 2
+
+  let best: EqualGapResult | undefined
+  let bestAbsDelta = Infinity
+
+  // Case 1: Insert Between: A -> [rect] -> B
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i]!
+    const b = sorted[i + 1]!
+    const aEnd = axis === 'x' ? a.x + a.width : a.y + a.height
+    const bStart = axis === 'x' ? b.x : b.y
+    const available = bStart - aEnd
+    if (available > size + 4) {
+      const equalGap = (available - size) / 2
+      const target = aEnd + equalGap
+      const delta = target - current
+      const absDelta = Math.abs(delta)
+      if (absDelta <= threshold && absDelta < bestAbsDelta) {
+        bestAbsDelta = absDelta
+        const roundedGap = Math.round(equalGap)
+        best = {
+          delta,
+          guides: [
+            {
+              axis,
+              value: target,
+              from: crossPos - 20,
+              to: crossPos + 20,
+              label: `${roundedGap}px`,
+            },
+          ],
+          distances: [
+            {
+              axis,
+              from: aEnd,
+              to: target,
+              cross: crossPos,
+              value: roundedGap,
+            },
+            {
+              axis,
+              from: target + size,
+              to: bStart,
+              cross: crossPos,
+              value: roundedGap,
+            },
+          ],
+        }
+      }
+    }
+  }
+
+  // Case 2: Append or Prepend: A -> B -> [rect] or [rect] -> A -> B
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const first = sorted[i]!
+    const second = sorted[i + 1]!
     const firstEnd = axis === 'x' ? first.x + first.width : first.y + first.height
     const secondStart = axis === 'x' ? second.x : second.y
     const gap = secondStart - firstEnd
-    if (gap < 0) continue
-    const expected = secondStart + gap
-    const current = axis === 'x' ? rect.x : rect.y
-    const delta = expected - current
-    if (Math.abs(delta) <= threshold && (best === undefined || Math.abs(delta) < Math.abs(best))) best = delta
+    if (gap <= 2) continue
+
+    const secondEnd = axis === 'x' ? second.x + second.width : second.y + second.height
+    const firstStart = axis === 'x' ? first.x : first.y
+
+    // 2a: Append: first -> second -> [rect]
+    const appendTarget = secondEnd + gap
+    const appendDelta = appendTarget - current
+    if (Math.abs(appendDelta) <= threshold && Math.abs(appendDelta) < bestAbsDelta) {
+      bestAbsDelta = Math.abs(appendDelta)
+      const roundedGap = Math.round(gap)
+      best = {
+        delta: appendDelta,
+        guides: [
+          {
+            axis,
+            value: appendTarget,
+            from: crossPos - 20,
+            to: crossPos + 20,
+            label: `${roundedGap}px`,
+          },
+        ],
+        distances: [
+          {
+            axis,
+            from: firstEnd,
+            to: secondStart,
+            cross: crossPos,
+            value: roundedGap,
+          },
+          {
+            axis,
+            from: secondEnd,
+            to: appendTarget,
+            cross: crossPos,
+            value: roundedGap,
+          },
+        ],
+      }
+    }
+
+    // 2b: Prepend: [rect] -> first -> second
+    const prependTarget = firstStart - gap - size
+    const prependDelta = prependTarget - current
+    if (Math.abs(prependDelta) <= threshold && Math.abs(prependDelta) < bestAbsDelta) {
+      bestAbsDelta = Math.abs(prependDelta)
+      const roundedGap = Math.round(gap)
+      best = {
+        delta: prependDelta,
+        guides: [
+          {
+            axis,
+            value: prependTarget,
+            from: crossPos - 20,
+            to: crossPos + 20,
+            label: `${roundedGap}px`,
+          },
+        ],
+        distances: [
+          {
+            axis,
+            from: prependTarget + size,
+            to: firstStart,
+            cross: crossPos,
+            value: roundedGap,
+          },
+          {
+            axis,
+            from: firstEnd,
+            to: secondStart,
+            cross: crossPos,
+            value: roundedGap,
+          },
+        ],
+      }
+    }
   }
+
   return best
 }
 
@@ -123,8 +261,17 @@ function cullDistantCandidates(
   ))
 }
 
-export function snapRect(input: { rect: SnapRect; candidates: SnapRect[]; zoom: number; enabled: boolean; grid?: number; disable?: boolean; measure?: boolean; previous?: SnapState }): SnapResult {
-  const threshold = 6 / Math.max(input.zoom, 0.01)
+export function snapRect(input: {
+  rect: SnapRect
+  candidates: SnapRect[]
+  zoom: number
+  enabled: boolean
+  grid?: number
+  disable?: boolean
+  measure?: boolean
+  previous?: SnapState
+}): SnapResult {
+  const threshold = Math.min(24, Math.max(3, 6 / Math.max(input.zoom, 0.05)))
   const original = input.rect
   const candidates = cullDistantCandidates(
     original,
@@ -132,16 +279,25 @@ export function snapRect(input: { rect: SnapRect; candidates: SnapRect[]; zoom: 
     2500 / Math.min(Math.max(input.zoom, 0.25), 1),
     [input.previous?.x?.candidateId, input.previous?.y?.candidateId],
   )
-  if (input.disable) return { rect: { ...original }, guides: [], distances: input.measure ? nearestDistances(original, candidates) : [], state: {} }
+  if (input.disable) {
+    return {
+      rect: { ...original },
+      guides: [],
+      distances: input.measure ? nearestDistances(original, candidates) : [],
+      state: {},
+    }
+  }
   const x = input.enabled ? nearestAxis(original, anchorsX(original), candidates, 'x', threshold, input.previous?.x) : undefined
   const y = input.enabled ? nearestAxis(original, anchorsY(original), candidates, 'y', threshold, input.previous?.y) : undefined
-  const gapX = input.enabled && !x ? equalGapDelta(original, candidates, 'x', threshold) : undefined
-  const gapY = input.enabled && !y ? equalGapDelta(original, candidates, 'y', threshold) : undefined
-  let dx = x?.delta ?? gapX ?? 0
-  let dy = y?.delta ?? gapY ?? 0
+
+  const gapX = input.enabled && !x ? equalGapSnap(original, candidates, 'x', threshold) : undefined
+  const gapY = input.enabled && !y ? equalGapSnap(original, candidates, 'y', threshold) : undefined
+
+  let dx = x?.delta ?? gapX?.delta ?? 0
+  let dy = y?.delta ?? gapY?.delta ?? 0
   if (input.grid) {
-    if (!x && gapX === undefined) dx = Math.round(original.x / input.grid) * input.grid - original.x
-    if (!y && gapY === undefined) dy = Math.round(original.y / input.grid) * input.grid - original.y
+    if (!x && !gapX) dx = Math.round(original.x / input.grid) * input.grid - original.x
+    if (!y && !gapY) dy = Math.round(original.y / input.grid) * input.grid - original.y
   }
   const rect = { ...original, x: original.x + dx, y: original.y + dy }
   const guides: SnapGuide[] = []
@@ -149,18 +305,27 @@ export function snapRect(input: { rect: SnapRect; candidates: SnapRect[]; zoom: 
     const fromY = x.candidate ? Math.min(rect.y, x.candidate.y) : rect.y
     const toY = x.candidate ? Math.max(rect.y + rect.height, x.candidate.y + x.candidate.height) : rect.y + rect.height
     guides.push({ axis: 'x', value: x.target, from: fromY, to: toY })
+  } else if (gapX) {
+    guides.push(...gapX.guides)
   }
+
   if (y) {
     const fromX = y.candidate ? Math.min(rect.x, y.candidate.x) : rect.x
     const toX = y.candidate ? Math.max(rect.x + rect.width, y.candidate.x + y.candidate.width) : rect.x + rect.width
     guides.push({ axis: 'y', value: y.target, from: fromX, to: toX })
+  } else if (gapY) {
+    guides.push(...gapY.guides)
   }
-  if (gapX !== undefined) guides.push({ axis: 'x', value: rect.x, from: rect.y, to: rect.y + rect.height, label: '等间距' })
-  if (gapY !== undefined) guides.push({ axis: 'y', value: rect.y, from: rect.x, to: rect.x + rect.width, label: '等间距' })
+
+  const extraDistances = [...(gapX?.distances ?? []), ...(gapY?.distances ?? [])]
+  const distances = input.measure
+    ? nearestDistances(rect, input.candidates)
+    : extraDistances
+
   return {
     rect,
     guides,
-    distances: input.measure ? nearestDistances(rect, input.candidates) : [],
+    distances,
     state: {
       ...(x ? { x: { target: x.target, source: x.source, candidateId: x.candidate?.id } } : {}),
       ...(y ? { y: { target: y.target, source: y.source, candidateId: y.candidate?.id } } : {}),
@@ -193,8 +358,17 @@ function nearestTarget(rect: SnapRect, value: number, candidates: SnapRect[], ax
   return best
 }
 
-export function snapResizeRect(input: { rect: SnapRect; direction: ResizeDirection; candidates: SnapRect[]; zoom: number; enabled: boolean; grid?: number; disable?: boolean; measure?: boolean }): SnapResult {
-  const threshold = 6 / Math.max(input.zoom, 0.01)
+export function snapResizeRect(input: {
+  rect: SnapRect
+  direction: ResizeDirection
+  candidates: SnapRect[]
+  zoom: number
+  enabled: boolean
+  grid?: number
+  disable?: boolean
+  measure?: boolean
+}): SnapResult {
+  const threshold = Math.min(24, Math.max(3, 6 / Math.max(input.zoom, 0.05)))
   const rect = { ...input.rect }
   const guides: SnapGuide[] = []
   if (!input.disable) {

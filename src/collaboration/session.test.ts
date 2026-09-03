@@ -751,7 +751,7 @@ describe('CanvasCollaborationSession', () => {
     remote.destroy()
   })
 
-  it('throttles cursor and preview updates to 20Hz while flushing final cleared values', async () => {
+  it('performance gate: throttles cursor and preview updates to 20Hz while flushing final cleared values', async () => {
     let now = 0
     const scheduled: Array<{
       at: number
@@ -1437,7 +1437,7 @@ describe('CanvasCollaborationSession', () => {
     encoding.writeVarUint(step2, MESSAGE_SYNC)
     syncProtocol.writeSyncStep2(step2, server.doc)
     firstSockets[0]!.receive(encoding.toUint8Array(step2))
-    await vi.waitFor(() => expect(first.getSnapshot()).toEqual({ ...snapshot, version: 3, comments: [] }))
+    await vi.waitFor(() => expect(first.getSnapshot()).toEqual({ ...snapshot, version: 3 }))
     await first.destroy()
 
     const refreshed = await CanvasCollaborationSession.create({
@@ -1447,7 +1447,7 @@ describe('CanvasCollaborationSession', () => {
       persistenceFactory,
       webSocketFactory: () => collaborationSocket(),
     })
-    expect(refreshed.getSnapshot()).toEqual({ ...snapshot, version: 3, comments: [] })
+    expect(refreshed.getSnapshot()).toEqual({ ...snapshot, version: 3 })
     await refreshed.destroy()
 
     expect(seedUpdates).toEqual([1, 0])
@@ -1503,7 +1503,7 @@ describe('CanvasCollaborationSession', () => {
     sockets[0]!.receive(encoding.toUint8Array(step2))
 
     await vi.waitFor(() => expect(session.status.state).toBe('synced'))
-    expect(session.getSnapshot()).toEqual({ ...snapshot, version: 3, comments: [] })
+    expect(session.getSnapshot()).toEqual({ ...snapshot, version: 3 })
     expect(() => session.transact((doc) => doc.getMap('meta').set('name', 'Viewer-local mutation')))
       .toThrow(/viewer/i)
     const sentSyncTypes = sockets[0]!.sent

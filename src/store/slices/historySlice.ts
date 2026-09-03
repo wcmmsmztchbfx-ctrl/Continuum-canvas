@@ -6,30 +6,40 @@ import { MAX_UNDO_STACK_SIZE, lockedGenerationNodeIds } from '../storeHelpers'
 export interface HistoryContext {
   past: ProjectSnapshot[]
   future: ProjectSnapshot[]
+  lastCommitted: { current: ProjectSnapshot | null }
   commitDocument: (next: ProjectSnapshot) => void
 }
 
-export function createHistoryContext(set: StoreSet, get: StoreGet): HistoryContext {
+export function createHistoryContext(
+  set: StoreSet,
+  get: StoreGet,
+  initialSnapshot?: ProjectSnapshot,
+): HistoryContext {
   const past: ProjectSnapshot[] = []
   const future: ProjectSnapshot[] = []
+  const lastCommitted: { current: ProjectSnapshot | null } = {
+    current: initialSnapshot ?? null,
+  }
 
   const commitDocument = (next: ProjectSnapshot) => {
-    const current = get().snapshot
-    if (next === current) return
+    const base = lastCommitted.current ?? get().snapshot
+    if (next === base) return
 
-    past.push(current)
+    past.push(base)
     if (past.length > MAX_UNDO_STACK_SIZE) {
       past.shift()
     }
     future.length = 0
+    const committedSnapshot = { ...next, nodes: normalizeCanvasHierarchy(next.nodes) }
+    lastCommitted.current = committedSnapshot
     set({
-      snapshot: { ...next, nodes: normalizeCanvasHierarchy(next.nodes) },
+      snapshot: committedSnapshot,
       canUndo: true,
       canRedo: false,
     })
   }
 
-  return { past, future, commitDocument }
+  return { past, future, lastCommitted, commitDocument }
 }
 
 export function createHistoryActions(
@@ -43,7 +53,8 @@ export function createHistoryActions(
       const previous = ctx.past.pop()
       if (!previous) return
 
-      ctx.future.push(get().snapshot)
+      ctx.future.push(ctx.lastCommitted.current ?? get().snapshot)
+      ctx.lastCommitted.current = previous
       const ids = new Set(previous.nodes.map((node) => node.id))
       set({
         snapshot: previous,
@@ -56,7 +67,8 @@ export function createHistoryActions(
       const next = ctx.future.pop()
       if (!next) return
 
-      ctx.past.push(get().snapshot)
+      ctx.past.push(ctx.lastCommitted.current ?? get().snapshot)
+      ctx.lastCommitted.current = next
       const ids = new Set(next.nodes.map((node) => node.id))
       set({
         snapshot: next,
@@ -70,6 +82,7 @@ export function createHistoryActions(
       const snapshot = parseProjectSnapshot(serialized)
       ctx.past.length = 0
       ctx.future.length = 0
+      ctx.lastCommitted.current = snapshot
       set({
         snapshot,
         selectedNodeIds: [],

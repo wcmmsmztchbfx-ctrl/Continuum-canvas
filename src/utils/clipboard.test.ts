@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { copyImageToClipboard, copyText, imageToPngBlob } from './clipboard'
+import { copyImageToClipboard, copyText } from './clipboard'
 
 describe('clipboard utils', () => {
   beforeEach(() => {

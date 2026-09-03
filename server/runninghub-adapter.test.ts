@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { GenerationRequest } from '../src/contracts/generation.ts'
 import { RunningHubAdapter } from './providers/runninghub-adapter.ts'
-import { ProviderRequestRejectedError } from './providers/provider-adapter.ts'
 
 async function tempDirectory() {
   return mkdtemp(join(tmpdir(), 'continuum-runninghub-'))

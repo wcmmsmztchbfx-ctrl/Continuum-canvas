@@ -197,14 +197,6 @@ describe('creative canvas state', () => {
     expect(store.getState().snapshot.nodes.find((node) => node.id === 'image-1')).not.toHaveProperty('parentId')
   })
 
-  it('moves anchored comments and preserves them when their node is deleted', () => {
-    const store = createCanvasStore(initialSnapshot)
-    store.getState().addComment({ id: 'comment-1', authorId: 'a', authorName: 'A', body: '检查这里', position: { x: 10, y: 20 }, nodeId: 'image-1', createdAt: '2026-08-12T00:00:00.000Z', replies: [] })
-    store.getState().moveNode('image-1', { x: 30, y: 45 })
-    expect(store.getState().snapshot.comments?.[0]?.position).toEqual({ x: 30, y: 45 })
-    store.getState().deleteNodes(['image-1'])
-    expect(store.getState().snapshot.comments?.[0]).toMatchObject({ nodeDeleted: true, position: { x: 30, y: 45 } })
-  })
 })
 
 describe('canvas store node movement history', () => {

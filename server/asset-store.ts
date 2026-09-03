@@ -279,6 +279,10 @@ export class AssetStore {
     return asset ? this.publicRecord(asset) : undefined
   }
 
+  list(): AssetRecord[] {
+    return this.assets.map((asset) => this.publicRecord(asset))
+  }
+
   canImportRemote(): boolean {
     return this.pinnedFetcher !== undefined
   }
@@ -394,6 +398,15 @@ export class AssetStore {
       await atomicWriteJson(this.indexPath, retained)
       await Promise.all(removable.map((asset) => rm(this.assetPath(asset), { force: true })))
       return removable.map((asset) => asset.id)
+    })
+  }
+
+  async clear(): Promise<void> {
+    return this.mutate(async () => {
+      const removable = [...this.assets]
+      this.assets = []
+      await atomicWriteJson(this.indexPath, [])
+      await Promise.all(removable.map((asset) => rm(this.assetPath(asset), { force: true })))
     })
   }
 

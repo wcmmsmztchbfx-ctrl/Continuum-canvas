@@ -151,7 +151,15 @@ function TextNodeContent({
     if (!editing || finishingRef.current) return
     finishingRef.current = true
     setEditing(false)
-    data.onTextChange?.(id, text)
+    const editor = editorRef.current
+    if (editor && plain) {
+      const font = `${model?.data.fontWeight ?? 500} ${model?.data.fontSize ?? 24}px ${model?.data.fontFamily ?? 'sans-serif'}`
+      const measuredWidth = measureTextWidth(text || '输入文字', font)
+      const width = autoWidth ? Math.min(640, Math.max(80, measuredWidth + 8)) : (model?.size.width ?? 180)
+      const height = Math.max(42, editor.scrollHeight)
+      data.onResize?.(id, { width, height })
+    }
+    data.onTextChange?.(id, text, true)
     data.onInteractionEnd?.(id, 'text')
   }
 
@@ -173,9 +181,12 @@ function TextNodeContent({
       const font = `${model?.data.fontWeight ?? 500} ${model?.data.fontSize ?? 24}px ${model?.data.fontFamily ?? 'sans-serif'}`
       const measuredWidth = measureTextWidth(text || '输入文字', font)
       const width = Math.min(640, Math.max(80, measuredWidth + 8))
-      data.onResize?.(id, { width, height: Math.max(42, editor.scrollHeight) })
+      editor.style.width = `${width}px`
+      if (!editing) {
+        data.onResize?.(id, { width, height: Math.max(42, editor.scrollHeight) })
+      }
     }
-  }, [autoWidth, data, id, model?.data.fontFamily, model?.data.fontSize, model?.data.fontWeight, plain, text])
+  }, [autoWidth, data, editing, id, model?.data.fontFamily, model?.data.fontSize, model?.data.fontWeight, plain, text])
 
   let zoom = 1
   try {
@@ -192,7 +203,17 @@ function TextNodeContent({
       data-editing={editing || undefined}
       data-locked={Boolean(data.lockedBy) || undefined}
       data-selected={selected || undefined}
-      style={{ '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))) } as React.CSSProperties}
+      style={{
+        opacity: model?.data.opacity !== undefined ? model?.data.opacity : undefined,
+        transform: model?.data.rotation ? `rotate(${model.data.rotation}deg)` : undefined,
+        filter: (() => {
+          const filters: string[] = []
+          if (model?.data.blur && model.data.blur > 0) filters.push(`blur(${model.data.blur}px)`)
+          if (model?.data.shadow) filters.push(`drop-shadow(${model.data.shadow.x}px ${model.data.shadow.y}px ${model.data.shadow.blur}px ${model.data.shadow.color})`)
+          return filters.length > 0 ? filters.join(' ') : undefined
+        })(),
+        '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))),
+      } as React.CSSProperties}
     >
       <NodeResizer
         isVisible={showDetails}
@@ -222,7 +243,14 @@ function TextNodeContent({
         position={Position.Left}
         isConnectable={isConnectable}
       /> : null}
-      <div className="canvas-media-node__frame canvas-text-node__frame">
+      <div
+        className="canvas-media-node__frame canvas-text-node__frame"
+        style={{
+          border: model?.data.stroke
+            ? `${model.data.strokeWidth ?? 1}px ${model.data.strokeStyle ?? 'solid'} ${model.data.stroke}`
+            : undefined,
+        }}
+      >
         {editing ? (
           <>
           <textarea
@@ -258,7 +286,7 @@ function TextNodeContent({
             onChange={(event) => {
               const nextText = event.target.value
               setText(nextText)
-              data.onTextChange?.(id, nextText)
+              data.onTextChange?.(id, nextText, false)
             }}
             onBlur={finishEditing}
             onKeyDown={(event) => {

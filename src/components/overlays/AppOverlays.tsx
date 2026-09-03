@@ -6,7 +6,6 @@ import type { PresenceState } from '../../contracts/collaboration'
 import type { ProjectSnapshot } from '../../model/project'
 import { canvasStore } from '../../store/canvas-store'
 import type { WorkspaceRepository } from '../../workspace'
-import { ensureMockWorkspace, mockApi } from '../../services/mockApi'
 import { copyText } from '../../utils/clipboard'
 
 import {
@@ -18,7 +17,6 @@ import {
   HelpPopover,
   KeyboardShortcutsDialog,
   NodeContextMenu,
-  PublishDialog,
   RenameProjectDialog,
   SidePanel,
   WorkspaceDropdown,
@@ -27,7 +25,6 @@ import {
   type HelpAction,
   type NodeContextAction,
   type OverlayPosition,
-  type PublishVisibility,
   type SidePanelKind,
   type WorkspaceAction,
 } from './index'
@@ -42,7 +39,7 @@ const ProviderDrawer = lazy(() =>
 )
 
 export type AppPopup = 'workspace' | 'add' | 'api-integration' | 'collaboration' | 'help' | null
-export type AppDialog = 'publish' | 'shortcuts' | 'delete' | 'rename' | 'settings' | null
+export type AppDialog = 'shortcuts' | 'delete' | 'rename' | 'settings' | null
 export type AppContextMenu = 'blank' | 'node' | null
 
 export interface AppOverlaysProps {
@@ -90,16 +87,10 @@ export interface AppOverlaysProps {
   selectedNodeIds: readonly string[]
   renameProjectName: string
   setRenameProjectName: (name: string) => void
-  publishDescription: string
-  setPublishDescription: (desc: string) => void
-  publishVisibility: PublishVisibility
-  setPublishVisibility: (vis: PublishVisibility) => void
   workspaceRepository: WorkspaceRepository
   onNavigateCanvas?: (canvasId: string, projectId: string) => void
   onNavigateWorkspace?: (create?: 'canvas' | 'project') => void
   notify: (message: string, tone?: 'info' | 'success' | 'error' | 'warning') => void
-  runMockAction: (task: Promise<unknown>, successMessage: string) => void
-  restoreProjectFrom: (task: Promise<ProjectSnapshot>, successMessage?: string) => void
 }
 
 export function AppOverlays({
@@ -141,16 +132,10 @@ export function AppOverlays({
   selectedNodeIds,
   renameProjectName,
   setRenameProjectName,
-  publishDescription,
-  setPublishDescription,
-  publishVisibility,
-  setPublishVisibility,
   workspaceRepository,
   onNavigateCanvas,
   onNavigateWorkspace,
   notify,
-  runMockAction,
-  restoreProjectFrom,
 }: AppOverlaysProps) {
   return (
     <>
@@ -251,12 +236,9 @@ export function AppOverlays({
           else if (action === 'new-canvas') {
             if (onNavigateWorkspace) onNavigateWorkspace('canvas')
             else handleWorkspaceAction('new')
-          } else if (action === 'use-template')
-            handleAddNode('text', '根据参考图生成连续镜头')
-          else if (action === 'apply-style') handleAddNode('style-shot')
-          else if (action === 'apply-character')
-            handleAddNode('reference-image')
-          else closePanel()
+          } else {
+            closePanel()
+          }
         }}
         onClose={closePanel}
         onLocateNode={(nodeId) => {
@@ -330,23 +312,6 @@ export function AppOverlays({
         open={assetManagerOpen}
         projectId={snapshot.projectId}
       />
-      <PublishDialog
-        description={publishDescription}
-        onClose={() => setDialog(null)}
-        onDescriptionChange={setPublishDescription}
-        onPublish={() => {
-          if (!capabilities.canPublish) return
-          setDialog(null)
-          runMockAction(
-            mockApi.publishProject(canvasStore.getState().snapshot.projectId),
-            '项目已发布到本地预览',
-          )
-        }}
-        onVisibilityChange={setPublishVisibility}
-        open={dialog === 'publish'}
-        projectTitle={snapshot.name}
-        visibility={publishVisibility}
-      />
       <KeyboardShortcutsDialog
         onClose={() => setDialog(null)}
         open={dialog === 'shortcuts'}
@@ -357,27 +322,20 @@ export function AppOverlays({
         onNameChange={setRenameProjectName}
         onRename={() => {
           if (readOnly) return
-          const activeProjectId = canvasStore.getState().snapshot.projectId
+          const targetCanvasId = canvasId || snapshot.projectId
           setDialog(null)
-          if (canvasId) {
-            void workspaceRepository
-              .renameCanvas(canvasId, renameProjectName)
-              .then(() => {
-                canvasStore.getState().renameCanvas(renameProjectName)
-                notify('画布已重命名')
-              })
-              .catch((error: unknown) =>
-                notify(
-                  error instanceof Error ? error.message : '重命名画布失败',
-                  'error',
-                ),
-              )
-            return
-          }
-          restoreProjectFrom(
-            mockApi.renameProject(activeProjectId, renameProjectName),
-            '项目已重命名',
-          )
+          void workspaceRepository
+            .renameCanvas(targetCanvasId, renameProjectName)
+            .then(() => {
+              canvasStore.getState().renameCanvas(renameProjectName)
+              notify('画布已重命名')
+            })
+            .catch((error: unknown) =>
+              notify(
+                error instanceof Error ? error.message : '重命名画布失败',
+                'error',
+              ),
+            )
         }}
         open={dialog === 'rename'}
       />
@@ -385,33 +343,26 @@ export function AppOverlays({
         confirmLabel={canvasId ? '移入回收站' : '删除项目'}
         message={
           canvasId
-            ? '画布会移入工作区回收站，可以随时恢复。'
+            ? '画布会移入工作区回收站，可以随时在工作区中恢复。'
             : '删除后将保留其他本地项目，并立即打开一个新的空白项目。'
         }
         onClose={() => setDialog(null)}
         onConfirm={() => {
           if (readOnly) return
-          const activeProjectId = canvasStore.getState().snapshot.projectId
+          const targetCanvasId = canvasId || snapshot.projectId
           setDialog(null)
-          if (canvasId) {
-            void workspaceRepository
-              .trashCanvas(canvasId)
-              .then(() => onNavigateWorkspace?.())
-              .catch((error: unknown) =>
-                notify(
-                  error instanceof Error ? error.message : '移动画布失败',
-                  'error',
-                ),
-              )
-            return
-          }
-          restoreProjectFrom(
-            ensureMockWorkspace().then(async (workspace) => {
-              await mockApi.deleteProject(activeProjectId)
-              return mockApi.createProject(workspace.id, '未命名项目')
-            }),
-            '当前项目已删除，已打开新的空白项目',
-          )
+          void workspaceRepository
+            .trashCanvas(targetCanvasId)
+            .then(() => {
+              notify(canvasId ? '画布已移入回收站' : '当前项目已删除')
+              onNavigateWorkspace?.()
+            })
+            .catch((error: unknown) =>
+              notify(
+                error instanceof Error ? error.message : '移动画布失败',
+                'error',
+              ),
+            )
         }}
         open={dialog === 'delete'}
         title={canvasId ? '将画布移入回收站？' : '删除当前项目？'}

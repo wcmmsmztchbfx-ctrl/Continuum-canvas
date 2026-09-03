@@ -86,7 +86,7 @@ export function createServerWorkspaceBackend(
         if (!response.ok) {
           throw new Error(`Server commit failed with status ${response.status}`)
         }
-      } catch (error) {
+      } catch {
         // If server is temporarily unreachable, local fallback already recorded it
       }
     },

@@ -31,7 +31,7 @@ describe('WorkspaceService', () => {
 
       initial.canvases.push({
         canvasId: 'canvas-new',
-        projectId: 'default-project',
+        projectId: initial.projects[0]!.projectId,
         name: '全新画布',
         position: { x: 100, y: 100 },
         nodeCount: 5,

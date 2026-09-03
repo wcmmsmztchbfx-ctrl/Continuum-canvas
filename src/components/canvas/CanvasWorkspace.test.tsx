@@ -852,7 +852,7 @@ describe('CanvasWorkspace', () => {
     expect(store.getState().selectedNodeIds).toEqual([first.id, second.id])
   })
 
-  it('commits a leased multi-node drag once after forty preview steps', () => {
+  it('performance gate: commits a leased multi-node drag once after 120 preview steps', () => {
     const store = createCanvasStore(referenceProjectSnapshot)
     const first = referenceProjectSnapshot.nodes[0]!
     const second = referenceProjectSnapshot.nodes[1]!
@@ -863,6 +863,10 @@ describe('CanvasWorkspace', () => {
     const setInteractionPreview = vi.fn()
     const releaseLease = vi.fn()
     const moveNodes = vi.spyOn(store.getState(), 'moveNodesInHierarchy')
+    const snapshotCommits = vi.fn()
+    const unsubscribe = store.subscribe((state, previous) => {
+      if (state.snapshot !== previous.snapshot) snapshotCommits(state.snapshot)
+    })
     render(<CanvasWorkspace collaboration={{
       localMemberId: 'local-a', status: 'synced', presence: [],
       setCursor: vi.fn(), setSelection: vi.fn(), setViewport: vi.fn(),
@@ -872,16 +876,24 @@ describe('CanvasWorkspace', () => {
     }} store={store} />)
     const nodes = flowNodes().slice(0, 2)
     act(() => flowProps().onNodeDragStart?.({} as never, nodes[0]!, nodes))
-    for (let step = 1; step <= 40; step += 1) {
+    for (let step = 1; step <= 120; step += 1) {
       const moved = nodes.map((node) => ({ ...node, position: { x: node.position.x + step, y: node.position.y } }))
       act(() => flowProps().onNodeDrag?.({} as never, moved[0]!, moved))
     }
-    const finalNodes = nodes.map((node) => ({ ...node, position: { x: node.position.x + 40, y: node.position.y } }))
+    expect(snapshotCommits).not.toHaveBeenCalled()
+    const finalNodes = nodes.map((node) => ({ ...node, position: { x: node.position.x + 120, y: node.position.y } }))
     act(() => flowProps().onNodeDragStop?.({} as never, finalNodes[0]!, finalNodes))
 
-    expect(setInteractionPreview).toHaveBeenCalledTimes(40)
+    expect(setInteractionPreview).toHaveBeenCalledTimes(120)
     expect(moveNodes).toHaveBeenCalledTimes(1)
+    expect(snapshotCommits).toHaveBeenCalledTimes(1)
     expect(releaseLease).toHaveBeenCalledTimes(1)
+    store.getState().undo()
+    expect(store.getState().snapshot.nodes.find((node) => node.id === first.id)?.position)
+      .toEqual(first.position)
+    expect(store.getState().snapshot.nodes.find((node) => node.id === second.id)?.position)
+      .toEqual(second.position)
+    unsubscribe()
   })
 
   it('does not commit movement when the whole selection lease is refused', () => {

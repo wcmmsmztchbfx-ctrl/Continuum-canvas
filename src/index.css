@@ -73,8 +73,11 @@ select:focus-visible {
 }
 
 .app-shell {
+  --layers-sidebar-rail-width: 48px;
   --layers-sidebar-width: 260px;
-  position: relative;
+  --inspector-sidebar-width: 280px;
+  display: flex;
+  flex-direction: row;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
@@ -82,30 +85,36 @@ select:focus-visible {
 }
 
 .app-layer-sidebar {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  z-index: 45;
+  position: relative;
+  flex-shrink: 0;
   display: flex;
   flex-direction: row;
   height: 100%;
-  overflow: visible;
+  overflow: hidden;
   background: transparent;
-  pointer-events: none;
-  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 45;
+  transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .app-shell:not([data-layers-open]) .app-layer-sidebar {
-  transform: translateX(-100%);
+  width: 0;
   pointer-events: none;
   visibility: hidden;
 }
 
 .app-shell[data-layers-open] .app-layer-sidebar {
-  transform: translateX(0);
+  width: calc(var(--layers-sidebar-rail-width, 48px) + var(--layers-sidebar-width));
+  overflow: visible;
   pointer-events: auto;
   visibility: visible;
+}
+
+.app-shell[data-layers-resizing] .app-layer-sidebar,
+.app-shell[data-layers-resizing] .app-layer-sidebar__content,
+.app-shell[data-layers-resizing] .canvas-stage,
+.app-shell[data-inspector-resizing] .inspector-panel,
+.app-shell[data-inspector-resizing] .canvas-stage {
+  transition: none !important;
 }
 
 .app-layer-sidebar__rail {
@@ -346,6 +355,12 @@ select:focus-visible {
   touch-action: none;
   outline: none;
   pointer-events: auto;
+  transition: background 150ms ease;
+}
+
+.app-layer-sidebar__resize-handle:hover,
+.app-shell[data-layers-resizing] .app-layer-sidebar__resize-handle {
+  background: rgba(34, 211, 227, 0.4);
 }
 
 .app-shell[data-layers-resizing],
@@ -355,16 +370,16 @@ select:focus-visible {
 }
 
 .canvas-stage {
-  position: absolute;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
+  flex: 1 1 0%;
+  min-width: 0;
+  height: 100%;
+  position: relative;
   overflow: hidden;
   z-index: 1;
 }
 
 .canvas-top-left-pill {
-  position: fixed;
+  position: absolute;
   top: 12px;
   left: 16px;
   display: inline-flex;
@@ -419,7 +434,7 @@ select:focus-visible {
 }
 
 .canvas-top-right-pill {
-  position: fixed;
+  position: absolute;
   top: 12px;
   right: 16px;
   display: flex;
@@ -436,16 +451,16 @@ select:focus-visible {
 }
 
 .inspector-panel {
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
+  position: relative;
+  flex-shrink: 0;
   width: var(--inspector-sidebar-width, 280px);
   min-width: var(--inspector-sidebar-width, 280px);
   max-width: var(--inspector-sidebar-width, 280px);
+  height: 100%;
   z-index: 45;
   background: #1e1e1e;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
+  transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .app-shell:not([data-layers-open]) .inspector-panel,

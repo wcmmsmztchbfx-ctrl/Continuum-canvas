@@ -18,7 +18,7 @@ import {
   LayoutDecisionBar,
   CollaborationPopover,
   NodeContextMenu,
-  PublishDialog,
+  RenameProjectDialog,
   SelectionToolbar,
   SidePanel,
   ToastRegion,
@@ -149,9 +149,6 @@ describe('SidePanel', () => {
     ['project-files', '项目文件'],
     ['canvases', '画布列表'],
     ['assets', '资产'],
-    ['templates', '工具与工作流模板'],
-    ['styles', '风格与镜头'],
-    ['characters', '角色'],
     ['history', '历史记录'],
     ['agent', 'Agent'],
   ] as const)('renders %s content with the expected title', (kind, title) => {
@@ -197,9 +194,6 @@ describe('SidePanel', () => {
   })
 
   it.each([
-    ['templates', '使用'],
-    ['assets', '应用风格'],
-    ['characters', '应用至画布'],
     ['history', '图片'],
   ] as const)('renders discoverable %s panel controls', (kind, label) => {
     render(<SidePanel kind={kind} onClose={vi.fn()} open />)
@@ -326,30 +320,7 @@ describe('dialogs and popovers', () => {
     expect(onFollowMember).toHaveBeenLastCalledWith(undefined)
   })
 
-  it('gives PublishDialog modal semantics and reports visibility and publish', () => {
-    const onPublish = vi.fn()
-    const onVisibilityChange = vi.fn()
-    render(
-      <PublishDialog
-        onClose={vi.fn()}
-        onPublish={onPublish}
-        onVisibilityChange={onVisibilityChange}
-        open
-        projectTitle="城市回声"
-        visibility="public"
-      />,
-    )
 
-    const dialog = screen.getByRole('dialog', { name: '发布项目' })
-    expect(dialog).toHaveAttribute('aria-modal', 'true')
-    expect(screen.getByDisplayValue('城市回声')).toHaveAttribute('readonly')
-
-    fireEvent.click(screen.getByRole('radio', { name: '私密' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认发布' }))
-
-    expect(onVisibilityChange).toHaveBeenCalledWith('private')
-    expect(onPublish).toHaveBeenCalledOnce()
-  })
 
   it('requires an explicit confirmation for destructive actions', () => {
     const onConfirm = vi.fn()
@@ -482,7 +453,6 @@ describe('contextual controls', () => {
 
     for (const label of [
       '整理选区',
-      '保存到资产',
       '创建副本',
       '复制',
       '打组',
@@ -524,8 +494,8 @@ describe('closing behavior', () => {
       (onClose) => <ApiIntegrationPopover onClose={onClose} open />,
     ],
     [
-      'PublishDialog',
-      (onClose) => <PublishDialog onClose={onClose} open />,
+      'RenameProjectDialog',
+      (onClose) => <RenameProjectDialog name="项目 1" onClose={onClose} open />,
     ],
     [
       'CollaborationPopover',
@@ -617,18 +587,15 @@ describe('overlay positioning and focus', () => {
     const opener = document.createElement('button')
     document.body.append(opener)
     opener.focus()
-    const view = render(<PublishDialog onClose={vi.fn()} open />)
-    const dialog = screen.getByRole('dialog', { name: '发布项目' })
-    const firstField = screen.getByDisplayValue('未命名项目')
+    const view = render(<KeyboardShortcutsDialog onClose={vi.fn()} open />)
+    screen.getByRole('dialog', { name: '键盘快捷键' })
+    const closeBtn = screen.getByRole('button', { name: '关闭键盘快捷键' })
 
-    expect(firstField).toHaveFocus()
+    expect(closeBtn).toHaveFocus()
     opener.focus()
-    expect(firstField).toHaveFocus()
+    expect(closeBtn).toHaveFocus()
 
-    screen.getByRole('button', { name: '确认发布' }).focus()
-    fireEvent.keyDown(dialog, { key: 'Tab' })
-
-    view.rerender(<PublishDialog onClose={vi.fn()} open={false} />)
+    view.rerender(<KeyboardShortcutsDialog onClose={vi.fn()} open={false} />)
     expect(opener).toHaveFocus()
     opener.remove()
   })
@@ -765,6 +732,5 @@ describe('overlay visual contract', () => {
     )
     expect(css).toMatch(/\.api-integration-popover\s*\{[^}]*width:\s*360px/s)
     expect(css).toMatch(/\.collaboration-popover\s*\{[^}]*width:\s*380px/s)
-    expect(css).toMatch(/\.publish-dialog\s*\{[^}]*width:\s*480px/s)
   })
 })

@@ -623,6 +623,41 @@ export class GatewayClient {
     return response.asset
   }
 
+  async listAssets(options?: GatewayRequestOptions): Promise<AssetRecord[]> {
+    const response = await this.request<{ assets: AssetRecord[] }>(
+      '/api/assets',
+      { method: 'GET' },
+      options,
+    )
+    if (!Array.isArray(response.assets) || !response.assets.every(isAssetRecord)) {
+      invalidResponse('Gateway returned an invalid asset list')
+    }
+    return response.assets
+  }
+
+  async deleteAsset(
+    assetId: string,
+    options?: GatewayRequestOptions,
+  ): Promise<{ ok: boolean; deletedId: string }> {
+    await this.ensureSensitiveAccess(options)
+    return this.request<{ ok: boolean; deletedId: string }>(
+      `/api/assets/${encodeURIComponent(assetId)}`,
+      { method: 'DELETE' },
+      options,
+    )
+  }
+
+  async cleanUnreferencedAssets(
+    options?: GatewayRequestOptions,
+  ): Promise<{ ok: boolean; deletedIds: string[]; count: number }> {
+    await this.ensureSensitiveAccess(options)
+    return this.request<{ ok: boolean; deletedIds: string[]; count: number }>(
+      '/api/assets/clean-unreferenced',
+      { method: 'POST' },
+      options,
+    )
+  }
+
   async createGenerationJob(
     request: GenerationRequest,
     options?: GatewayRequestOptions,

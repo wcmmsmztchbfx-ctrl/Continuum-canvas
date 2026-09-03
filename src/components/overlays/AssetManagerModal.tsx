@@ -186,10 +186,14 @@ export function AssetManagerModal({
     onNotify?.(`已将「${asset.name}」置入画布`, 'success')
   }
 
-  const handleDelete = (asset: CanvasAssetEntry) => {
-    assetRegistry.deleteAssets([asset.id])
-    refreshAssets()
-    onNotify?.(`已删除资产「${asset.name}」`, 'info')
+  const handleDelete = async (asset: CanvasAssetEntry) => {
+    try {
+      await assetRegistry.deleteAsset(asset.id)
+      refreshAssets()
+      onNotify?.(`已删除资产「${asset.name}」`, 'info')
+    } catch (err: unknown) {
+      onNotify?.(err instanceof Error ? err.message : '删除失败', 'error')
+    }
   }
 
   const handleDownload = (asset: CanvasAssetEntry) => {
@@ -220,13 +224,36 @@ export function AssetManagerModal({
     }
   }
 
-  const handleBatchDelete = () => {
+  const [cleaning, setCleaning] = useState(false)
+  const handleCleanUnreferenced = async () => {
+    setCleaning(true)
+    try {
+      const { count } = await assetRegistry.cleanUnreferenced()
+      refreshAssets()
+      if (count > 0) {
+        onNotify?.(`已清理 ${count} 个未引用的资产`, 'success')
+      } else {
+        onNotify?.('所有资产均在画布中被引用，无需清理', 'info')
+      }
+    } catch (err: unknown) {
+      onNotify?.(err instanceof Error ? err.message : '清理失败', 'error')
+    } finally {
+      setCleaning(false)
+    }
+  }
+
+  const handleBatchDelete = async () => {
     const ids = Array.from(selectedIds)
     if (ids.length === 0) return
-    assetRegistry.deleteAssets(ids)
-    setSelectedIds(new Set())
-    refreshAssets()
-    onNotify?.(`已批量删除 ${ids.length} 个资产`, 'info')
+    try {
+      const deleted = await assetRegistry.deleteAssets(ids)
+      setSelectedIds(new Set())
+      refreshAssets()
+      onNotify?.(`已批量删除 ${deleted.length} 个资产`, 'info')
+    } catch (err: unknown) {
+      refreshAssets()
+      onNotify?.(err instanceof Error ? err.message : '批量删除失败', 'error')
+    }
   }
 
   const handleBatchInsert = () => {
@@ -290,6 +317,18 @@ export function AssetManagerModal({
             >
               {uploading ? <Loader2 className="spinning" size={14} /> : <Upload size={14} />}
               <span>{uploading ? '上传中...' : '上传资产'}</span>
+            </button>
+            <button
+              aria-label="清理未引用资产"
+              className="asset-manager-modal__upload-btn"
+              disabled={cleaning}
+              onClick={() => void handleCleanUnreferenced()}
+              style={{ background: 'var(--canvas-toolbar-btn-hover-bg, rgba(255,255,255,0.08))', border: '1px solid rgba(255,255,255,0.1)' }}
+              title="扫描所有画布，安全清理未被任何画布引用的孤儿素材"
+              type="button"
+            >
+              {cleaning ? <Loader2 className="spinning" size={14} /> : <Trash2 size={14} />}
+              <span>{cleaning ? '清理中...' : '清理未引用'}</span>
             </button>
             <button
               aria-label="关闭资产管理"

@@ -280,7 +280,6 @@ describe('collaborative canvas document', () => {
       version: 3,
       canvasId: deterministicLegacyCanvasId(legacy.projectId),
       name: '画布 1',
-      comments: [],
     })
 
     collaborative.destroy()

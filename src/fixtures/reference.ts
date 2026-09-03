@@ -1,4 +1,4 @@
-import type { ProjectSnapshot } from '../model/project'
+import type { ProjectSnapshot } from '../model/project.ts'
 
 export const referenceProjectSnapshot = {
   "version": 1,

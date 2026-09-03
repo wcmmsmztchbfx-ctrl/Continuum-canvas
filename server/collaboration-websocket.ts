@@ -51,11 +51,19 @@ function allowedOrigin(
   const host = request.headers.host?.toLowerCase()
   const allowed = configured.map((item) => item.toLowerCase())
   if (allowRequestHost) {
+    try {
+      const originUrl = new URL(origin)
+      if (originUrl.hostname === '127.0.0.1' || originUrl.hostname === 'localhost') {
+        return true
+      }
+    } catch {}
     allowed.push(
       host ? `http://${host}` : '',
       host ? `https://${host}` : '',
       'http://127.0.0.1:4173',
       'http://localhost:4173',
+      'http://127.0.0.1:4273',
+      'http://localhost:4273',
     )
   }
   return new Set(allowed).has(origin.toLowerCase())

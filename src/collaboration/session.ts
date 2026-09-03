@@ -441,14 +441,6 @@ function applyChangesToPublishedSnapshot(
     ...(changes.name !== undefined ? { name: changes.name } : {}),
     nodes: merge(snapshot.nodes, changes.nodes.upserted, changes.nodes.removed, changes.nodeOrder),
     edges: merge(snapshot.edges, changes.edges.upserted, changes.edges.removed, changes.edgeOrder),
-    comments: changes.comments || changes.commentOrder
-      ? merge(
-          snapshot.comments,
-          changes.comments?.upserted ?? [],
-          changes.comments?.removed ?? [],
-          changes.commentOrder,
-        )
-      : snapshot.comments,
   }
 }
 

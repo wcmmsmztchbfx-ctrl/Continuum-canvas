@@ -776,12 +776,28 @@ async function routeApi(
   localAdminAllowed: boolean,
   localAdminRecoveryAllowed: boolean,
   frontendPort: number = 4173,
+  onReset?: () => Promise<void>,
+  isE2eMode?: boolean,
 ): Promise<boolean> {
   const method = request.method ?? 'GET'
   const path = url.pathname
   if (path !== '/api' && !path.startsWith('/api/')) return false
   if (method === 'GET' && path === '/api/health') {
     sendJson(response, 200, { ok: true, version: 1 })
+    return true
+  }
+  if (method === 'POST' && path === '/api/dev/reset-e2e-fixtures') {
+    if (!isE2eMode) {
+      sendJson(response, 404, { error: { code: 'not_found', message: 'Resource not found' } })
+      return true
+    }
+    if (!isLoopbackRemoteAddress(request.socket.remoteAddress)) {
+      throw new ApiError(403, 'forbidden', 'Fixture reset is only available on loopback')
+    }
+    await rejectUnexpectedBody(request)
+    if (onReset) await onReset()
+    else await runtime.workspace.reset()
+    sendJson(response, 200, { ok: true, state: { rooms: 0, jobs: 0, assets: 0, workspaceDocuments: 0 } })
     return true
   }
   if (method === 'POST' && path === '/api/local-admin/session') {
@@ -1428,7 +1444,17 @@ async function routeApi(
   const canvasPathMatch = /^\/api\/canvases\/([A-Za-z0-9._:-]+)$/.exec(path)
   if (canvasPathMatch && method === 'GET') {
     const canvasId = canvasPathMatch[1]
-    const canvas = await runtime.canvases.getCanvas(canvasId)
+    let canvas = await runtime.canvases.getCanvas(canvasId)
+    if (!canvas) {
+      const doc = await runtime.workspace.getCanvasDocument(canvasId)
+      if (doc) {
+        try {
+          canvas = parseCanvasSnapshot(doc)
+        } catch {
+          // ignore
+        }
+      }
+    }
     if (!canvas) {
       throw new ApiError(404, 'canvas_not_found', `Canvas ${canvasId} not found`)
     }
@@ -1513,9 +1539,45 @@ async function routeApi(
     sendJson(response, 201, { asset })
     return true
   }
+  if (method === 'GET' && path === '/api/assets') {
+    const assets = runtime.assets.list()
+    sendJson(response, 200, { assets })
+    return true
+  }
+  if (method === 'POST' && path === '/api/assets/clean-unreferenced') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const refMap = await runtime.workspace.getReferencedAssetMap()
+    const referencedIds = new Set(refMap.keys())
+    const candidateIds = runtime.assets.list().map((a) => a.id)
+    const deletedIds = await runtime.trackOperation(() =>
+      runtime.assets.deleteUnreferenced(candidateIds, referencedIds),
+    )
+    sendJson(response, 200, { ok: true, deletedIds, count: deletedIds.length })
+    return true
+  }
   const assetMatch = /^\/api\/assets\/([0-9a-f-]{36})$/i.exec(path)
   if (assetMatch && (method === 'GET' || method === 'HEAD')) {
     await serveAsset(runtime, request, response, assetMatch[1])
+    return true
+  }
+  if (assetMatch && method === 'DELETE') {
+    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const assetId = assetMatch[1].toLowerCase()
+    const asset = runtime.assets.get(assetId)
+    if (!asset) throw new RuntimeNotFoundError('Asset not found')
+    const refMap = await runtime.workspace.getReferencedAssetMap()
+    const refs = refMap.get(assetId)
+    if (refs && refs.length > 0) {
+      throw new ApiError(
+        409,
+        'asset_in_use',
+        `资产正在被画布“${refs[0].canvasName}”的节点“${refs[0].nodeName}”引用，无法删除`,
+      )
+    }
+    await runtime.trackOperation(() =>
+      runtime.assets.deleteUnreferenced([assetId], new Set()),
+    )
+    sendJson(response, 200, { ok: true, deletedId: assetId })
     return true
   }
   if (method === 'POST' && path === '/api/generation-jobs') {
@@ -1668,6 +1730,17 @@ export async function startGateway(options: {
           (localHostOnly && isLoopbackHost(host)) || loopbackBrowserOrigin,
           loopbackBrowserOrigin,
           frontendPort,
+          async () => {
+            await runtime.workspace.reset()
+            runtime.jobs.clear?.()
+            runtime.canvases.clear?.()
+            await (runtime.assets as { clear?: () => Promise<void> }).clear?.()
+            const { rm } = await import('node:fs/promises')
+            await rm(join(runtime.dataDir, 'canvases'), { recursive: true, force: true }).catch(() => {})
+            await rm(join(runtime.dataDir, 'jobs.json'), { force: true }).catch(() => {})
+            await runtime.collaboration.reset?.()
+          },
+          options.processEnv?.CONTINUUM_E2E === '1',
         )
         return
       }
@@ -1730,7 +1803,7 @@ export async function startGateway(options: {
   return {
     origin: formatGatewayOrigin(host, address.port),
     dataDir: runtime.dataDir,
-    runtime,
+    get runtime() { return runtime },
     close() {
       closing ??= (async () => {
         const serverClosed = new Promise<void>((resolveClose, reject) => {

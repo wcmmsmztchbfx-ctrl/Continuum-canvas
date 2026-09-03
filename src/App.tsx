@@ -51,9 +51,7 @@ import {
 } from './workspace'
 // Media uploads delegate to persistLocalMedia(file) via useCanvasClipboard
 import {
-  ensureMockWorkspace,
   gatewayClient,
-  mockApi,
   uploadAndPrepareMediaAsset,
 } from './services'
 import { canvasStore } from './store/canvas-store'
@@ -87,16 +85,13 @@ type Popup =
   | 'collaboration'
   | 'help'
   | null
-type Dialog = 'publish' | 'shortcuts' | 'delete' | 'rename' | 'settings' | null
+type Dialog = 'shortcuts' | 'delete' | 'rename' | 'settings' | null
 type ContextMenu = 'blank' | 'node' | null
 
 const sidePanelKinds: ReadonlyArray<SidePanelKind> = [
   'project-files',
   'canvases',
   'assets',
-  'templates',
-  'styles',
-  'characters',
   'history',
   'agent',
 ]
@@ -192,6 +187,7 @@ export default function App({
     loadUiPreferences(),
   )
   const appShellRef = useRef<HTMLElement | null>(null)
+  const canvasStageRef = useRef<HTMLElement | null>(null)
   const {
     layersWidth,
     layersResizing,
@@ -219,7 +215,42 @@ export default function App({
       })
     },
   })
+
+  // Figma-grade viewport anchor compensation: keep existing nodes pinned in screen space when sidebar opens/closes or resizes
+  const prevLayersOffsetRef = useRef<number>(preferences.layersOpen ? (48 + layersWidth) : 0)
+  useEffect(() => {
+    const currentOffset = preferences.layersOpen ? (48 + layersWidth) : 0
+    const delta = currentOffset - prevLayersOffsetRef.current
+    prevLayersOffsetRef.current = currentOffset
+    if (delta !== 0) {
+      const state = canvasStore.getState()
+      const vp = state.snapshot.viewport
+      state.setViewport({
+        ...vp,
+        x: vp.x - delta,
+      })
+    }
+  }, [preferences.layersOpen, layersWidth])
+
+  const getStageCenterPoint = useCallback(() => {
+    const rect = canvasStageRef.current?.getBoundingClientRect()
+    if (rect && rect.width > 0 && rect.height > 0) {
+      return { x: rect.width / 2, y: rect.height / 2 }
+    }
+    return { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+  }, [])
   const [activeTool, setActiveTool] = useState<ToolDockTool>('select')
+  const [editingPathNodeId, setEditingPathNodeId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!editingPathNodeId) return
+    const unsubscribe = canvasStore.subscribe((state) => {
+      if (!state.selectedNodeIds.includes(editingPathNodeId)) {
+        setEditingPathNodeId(null)
+      }
+    })
+    return unsubscribe
+  }, [editingPathNodeId])
   const [popup, setPopup] = useState<Popup>(null)
   const [providerDrawerOpen, setProviderDrawerOpen] = useState(false)
   const [providerDrawerTab, setProviderDrawerTab] = useState<'media' | 'agent'>('media')
@@ -240,11 +271,7 @@ export default function App({
   })
   const [addNodePosition, setAddNodePosition] =
     useState<OverlayPosition | undefined>()
-  const [publishDescription, setPublishDescription] = useState('')
   const [renameProjectName, setRenameProjectName] = useState('')
-  const [publishVisibility, setPublishVisibility] = useState<
-    'public' | 'unlisted' | 'private'
-  >('public')
   const { dismiss: dismissToast, notify, toasts } = useToastQueue()
   const providerCatalog = useOptionalProviderCatalog()
 
@@ -334,37 +361,7 @@ export default function App({
 
 
 
-  const runMockAction = useCallback(
-    (task: Promise<unknown>, successMessage: string) => {
-      void task
-        .then(() => notify(successMessage))
-        .catch((error: unknown) =>
-          notify(
-            error instanceof Error ? error.message : '本地模拟操作失败',
-            'error',
-          ),
-        )
-    },
-    [notify],
-  )
 
-  const restoreProjectFrom = useCallback(
-    (task: Promise<ProjectSnapshot>, successMessage?: string) => {
-      void task
-        .then((project) => {
-          canvasStore.getState().restore(JSON.stringify(project))
-          saveActiveProjectId(project.projectId)
-          if (successMessage) notify(successMessage)
-        })
-        .catch((error: unknown) =>
-          notify(
-            error instanceof Error ? error.message : '本地模拟操作失败',
-            'error',
-          ),
-        )
-    },
-    [notify],
-  )
 
   useAppHotkeys({
     hydrated,
@@ -411,7 +408,6 @@ export default function App({
               viewport: canvasDocument.viewport,
               nodes: canvasDocument.nodes,
               edges: canvasDocument.edges,
-              comments: canvasDocument.comments ?? [],
             }
           : activeProject ?? (await ensureReferenceProject())
 
@@ -439,7 +435,6 @@ export default function App({
               projectId: projectId ?? project.projectId,
               version: CANVAS_SNAPSHOT_VERSION,
               canvasId,
-              comments: project.comments ?? [],
             } as const
           void workspaceRepository
             .saveCanvas(document)
@@ -493,7 +488,6 @@ export default function App({
           projectId: projectId ?? currentSnapshot.projectId,
           version: CANVAS_SNAPSHOT_VERSION,
           canvasId,
-          comments: currentSnapshot.comments ?? [],
         } as const
         void workspaceRepository.saveCanvas(document).catch(() => undefined)
         void thumbnailService.flush(canvasId)
@@ -635,10 +629,7 @@ export default function App({
       setProviderDrawerOpen(false)
       setPopup((current) => current === 'api-integration' ? null : current)
     }
-    if (!capabilities.canPublish) {
-      setDialog((current) => current === 'publish' ? null : current)
-    }
-  }, [capabilities.canManageApi, capabilities.canPublish])
+  }, [capabilities.canManageApi])
 
 
   const openPanel = useCallback((nextPanel: SidePanelKind) => {
@@ -682,7 +673,7 @@ export default function App({
     const state = canvasStore.getState()
     const current = state.snapshot.viewport
     const zoom = Math.min(8, Math.max(0.1, nextZoom))
-    const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+    const center = getStageCenterPoint()
     const flowCenter = {
       x: (center.x - current.x) / current.zoom,
       y: (center.y - current.y) / current.zoom,
@@ -706,6 +697,18 @@ export default function App({
         onNavigateWorkspace('project')
         return
       }
+      void workspaceRepository
+        .createCanvas('未命名画布')
+        .then((canvas) => {
+          onNavigateCanvas?.(canvas.canvasId, canvas.projectId)
+        })
+        .catch((error: unknown) =>
+          notify(
+            error instanceof Error ? error.message : '创建画布失败',
+            'error',
+          ),
+        )
+      return
     }
     if (action === 'settings') {
       setDialog('settings')
@@ -718,31 +721,20 @@ export default function App({
     }
 
     const activeSnapshot = canvasStore.getState().snapshot
-    if (action === 'new') {
-      restoreProjectFrom(
-        ensureMockWorkspace().then((workspace) =>
-          mockApi.createProject(workspace.id, '未命名项目'),
-        ),
-      )
-    }
     if (action === 'duplicate') {
-      if (canvasId) {
-        void workspaceRepository
-          .duplicateCanvas(canvasId)
-          .then((canvas) => {
-            onNavigateCanvas?.(canvas.canvasId, canvas.projectId)
-          })
-          .catch((error: unknown) =>
-            notify(
-              error instanceof Error ? error.message : '复制画布失败',
-              'error',
-            ),
-          )
-        return
-      }
-      restoreProjectFrom(
-        mockApi.cloneProject(activeSnapshot.projectId),
-      )
+      const targetId = canvasId || activeSnapshot.projectId
+      void workspaceRepository
+        .duplicateCanvas(targetId)
+        .then((canvas) => {
+          onNavigateCanvas?.(canvas.canvasId, canvas.projectId)
+        })
+        .catch((error: unknown) =>
+          notify(
+            error instanceof Error ? error.message : '复制画布失败',
+            'error',
+          ),
+        )
+      return
     }
     if (action === 'delete') {
       setDialog('delete')
@@ -812,6 +804,7 @@ export default function App({
                 kind === 'blank-scene'
               ? { width: 520, height: 360 }
               : { width: 420, height: 220 }
+      const stageCenter = getStageCenterPoint()
       const position = addNodePosition
         ? {
             x:
@@ -822,8 +815,8 @@ export default function App({
               size.height / 2,
           }
         : {
-            x: (window.innerWidth / 2 - current.viewport.x) / zoom - 160,
-            y: (window.innerHeight / 2 - current.viewport.y) / zoom - 100,
+            x: (stageCenter.x - current.viewport.x) / zoom - size.width / 2,
+            y: (stageCenter.y - current.viewport.y) / zoom - size.height / 2,
           }
 
       if (
@@ -970,12 +963,17 @@ export default function App({
       const selectedId = selectedIds[0]
       const node = canvasStore.getState().snapshot.nodes.find((n) => n.id === selectedId)
       if (node) {
-        const saved = assetRegistry.registerNodeAsAsset(node, canvasStore.getState().snapshot.projectId)
-        if (saved) {
-          notify(`已将「${saved.name}」存入资产库`, 'success')
-        } else {
-          notify('当前节点不支持存入资产库', 'warning')
-        }
+        void assetRegistry.registerNodeAsAsset(node, canvasStore.getState().snapshot.projectId)
+          .then((saved) => {
+            if (saved) {
+              notify(`已将「${saved.name}」存入资产库`, 'success')
+            } else {
+              notify('当前节点不支持存入资产库', 'warning')
+            }
+          })
+          .catch((err) => {
+            notify(err instanceof Error ? err.message : '保存到资产失败', 'error')
+          })
       }
       return
     }
@@ -1030,7 +1028,24 @@ export default function App({
     if (readOnly && action !== 'copy' && action !== 'save-assets') return
     const state = canvasStore.getState()
     if (action === 'save-assets') {
-      notify('保存到资产暂未接入', 'warning')
+      const selectedNodes = state.snapshot.nodes.filter((node) => state.selectedNodeIds.includes(node.id))
+      const mediaNodes = selectedNodes.filter((node) => node.type === 'image' || node.type === 'video')
+      if (mediaNodes.length === 0) {
+        notify('请选择包含图片、视频或音频的节点', 'info')
+        return
+      }
+      void Promise.all(mediaNodes.map((node) => assetRegistry.registerNodeAsAsset(node, state.snapshot.projectId)))
+        .then((entries) => {
+          const valid = entries.filter(Boolean)
+          if (valid.length > 0) {
+            notify(`已成功保存 ${valid.length} 个素材到资产库`, 'success')
+          } else {
+            notify('未找到可保存的有效媒体内容', 'warning')
+          }
+        })
+        .catch((err) => {
+          notify(err instanceof Error ? err.message : '保存到资产失败', 'error')
+        })
       return
     }
     if (action === 'copy') {
@@ -1250,9 +1265,10 @@ export default function App({
                 const state = canvasStore.getState()
                 const viewport = state.snapshot.viewport
                 const zoom = Math.max(viewport.zoom, 0.01)
+                const stageCenter = getStageCenterPoint()
                 const centerPos = {
-                  x: (window.innerWidth / 2 - viewport.x) / zoom,
-                  y: (window.innerHeight / 2 - viewport.y) / zoom,
+                  x: (stageCenter.x - viewport.x) / zoom,
+                  y: (stageCenter.y - viewport.y) / zoom,
                 }
                 const nodeId = `asset-${asset.type}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
                 if (asset.type === 'video') {
@@ -1315,6 +1331,7 @@ export default function App({
         </div>
       </aside>
       <section
+        ref={canvasStageRef}
         className="canvas-stage"
         onPointerMove={(event) => {
           lastCanvasPointerRef.current = { x: event.clientX, y: event.clientY }
@@ -1342,7 +1359,11 @@ export default function App({
               </button>
             </div>
 
-            <div className="canvas-top-right-pill" data-testid="canvas-top-right-pill">
+            <div
+              className="canvas-top-right-pill"
+              data-collaboration-status={collaborationState.status}
+              data-testid="top-bar"
+            >
               <div
                 className="inspector-top-bar__avatars"
                 onClick={() => {
@@ -1414,9 +1435,12 @@ export default function App({
           </>
         )}
       {hydrated ? (
+        <>
         <CanvasWorkspace
           activeTool={activeTool}
           onToolComplete={() => setActiveTool('select')}
+          editingPathNodeId={editingPathNodeId}
+          onEditingPathNodeChange={setEditingPathNodeId}
           canvasId={canvasId}
           canGenerate={capabilities.canPublish}
           collaboration={canvasCollaboration}
@@ -1466,6 +1490,7 @@ export default function App({
           snapToGrid={preferences.snapToGrid}
           smartSnap={preferences.smartSnap}
         />
+        </>
       ) : (
         <div className="canvas-stage__loading" aria-busy="true" />
       )}
@@ -1533,6 +1558,10 @@ export default function App({
         }}
         onOpenSettings={() => setDialog('shortcuts')}
         onStartResize={startInspectorResize}
+        onStartVectorEdit={(nodeId) =>
+          setEditingPathNodeId((prev) => (prev === nodeId ? null : nodeId))
+        }
+        isEditingVector={Boolean(editingPathNodeId)}
         readOnly={readOnly}
         store={canvasStore}
       />
@@ -1576,16 +1605,10 @@ export default function App({
         selectedNodeIds={selectedNodeIds}
         renameProjectName={renameProjectName}
         setRenameProjectName={setRenameProjectName}
-        publishDescription={publishDescription}
-        setPublishDescription={setPublishDescription}
-        publishVisibility={publishVisibility}
-        setPublishVisibility={setPublishVisibility}
         workspaceRepository={workspaceRepository}
         onNavigateCanvas={onNavigateCanvas}
         onNavigateWorkspace={onNavigateWorkspace}
         notify={notify}
-        runMockAction={runMockAction}
-        restoreProjectFrom={restoreProjectFrom}
       />
       <ToastRegion
         onDismiss={dismissToast}

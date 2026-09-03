@@ -18,13 +18,15 @@ export function useCanvasViewportSync({
   const viewportFrameRef = useRef<number | null>(null)
   const cursorFrameRef = useRef<number | null>(null)
   const pendingCursorPos = useRef<{ x: number; y: number } | null>(null)
+  const lastScaleRef = useRef<string | null>(null)
 
   const writeViewportUi = useCallback((nextViewport: Viewport) => {
     viewportRef.current = nextViewport
-    workspaceRef.current?.style.setProperty(
-      '--canvas-ui-scale',
-      String(1 / Math.max(nextViewport.zoom, CANVAS_MIN_ZOOM)),
-    )
+    const nextScale = String(1 / Math.max(nextViewport.zoom, CANVAS_MIN_ZOOM))
+    if (lastScaleRef.current !== nextScale) {
+      lastScaleRef.current = nextScale
+      workspaceRef.current?.style.setProperty('--canvas-ui-scale', nextScale)
+    }
   }, [workspaceRef])
 
   const scheduleViewportUi = useCallback(

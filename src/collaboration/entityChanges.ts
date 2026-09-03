@@ -1,4 +1,4 @@
-import type { CanvasComment, CanvasEdge, CanvasNode, CanvasSnapshotV2 } from '../model/project.ts'
+import type { CanvasEdge, CanvasNode, CanvasSnapshotV2 } from '../model/project.ts'
 
 export interface CanvasEntityChangeSet {
   origin: 'local' | 'remote'
@@ -13,11 +13,6 @@ export interface CanvasEntityChangeSet {
   }
   nodeOrder?: string[]
   edgeOrder?: string[]
-  comments?: {
-    upserted: CanvasComment[]
-    removed: string[]
-  }
-  commentOrder?: string[]
 }
 
 const sameEntity = (left: unknown, right: unknown) =>
@@ -47,7 +42,6 @@ export function diffCanvasEntities(
 ): CanvasEntityChangeSet {
   const nodes = changedEntities(previous.nodes, next.nodes)
   const edges = changedEntities(previous.edges, next.edges)
-  const comments = changedEntities(previous.comments, next.comments)
   return {
     origin,
     ...(previous.name !== next.name ? { name: next.name } : {}),
@@ -55,10 +49,6 @@ export function diffCanvasEntities(
     edges: { upserted: edges.upserted, removed: edges.removed },
     ...(nodes.order ? { nodeOrder: nodes.order } : {}),
     ...(edges.order ? { edgeOrder: edges.order } : {}),
-    ...(comments.upserted.length || comments.removed.length
-      ? { comments: { upserted: comments.upserted, removed: comments.removed } }
-      : {}),
-    ...(comments.order ? { commentOrder: comments.order } : {}),
   }
 }
 
@@ -66,6 +56,5 @@ export function hasCanvasEntityChanges(changes: CanvasEntityChangeSet): boolean 
   return changes.name !== undefined ||
     changes.nodes.upserted.length > 0 || changes.nodes.removed.length > 0 ||
     changes.edges.upserted.length > 0 || changes.edges.removed.length > 0 ||
-    Boolean(changes.nodeOrder || changes.edgeOrder || changes.commentOrder) ||
-    Boolean(changes.comments && (changes.comments.upserted.length || changes.comments.removed.length))
+    Boolean(changes.nodeOrder || changes.edgeOrder)
 }

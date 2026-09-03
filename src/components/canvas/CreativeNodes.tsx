@@ -111,7 +111,21 @@ function FrameNodeContent({ id, data, selected }: NodeProps<CanvasFlowNode>) {
     zoom = 1
   }
   if (!node || node.type !== 'frame') return null
-  return <article className="canvas-frame-node" style={{ background: node.data.fill, borderColor: node.data.stroke, borderWidth: node.data.strokeWidth, transform: `rotate(${node.data.rotation ?? 0}deg)`, '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))) } as React.CSSProperties}>
+  const frameFilters: string[] = []
+  if (node.data.blur && node.data.blur > 0) frameFilters.push(`blur(${node.data.blur}px)`)
+  if (node.data.shadow) frameFilters.push(`drop-shadow(${node.data.shadow.x}px ${node.data.shadow.y}px ${node.data.shadow.blur}px ${node.data.shadow.color})`)
+  const frameFilterStyle = frameFilters.length > 0 ? frameFilters.join(' ') : undefined
+
+  return <article className="canvas-frame-node" style={{
+    background: node.data.fill,
+    borderColor: node.data.stroke,
+    borderWidth: node.data.strokeWidth,
+    borderStyle: node.data.strokeStyle ?? 'solid',
+    opacity: node.data.opacity !== undefined ? node.data.opacity : undefined,
+    filter: frameFilterStyle,
+    transform: `rotate(${node.data.rotation ?? 0}deg)`,
+    '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))),
+  } as React.CSSProperties}>
     {resizer(id, data, selected)}
     <EditableNodeLabel name={data.name} nodeId={id} onRename={data.onRename} />
     <SelectionChrome data={data} id={id} node={node} selected={selected} />
@@ -129,9 +143,24 @@ function ShapeNodeContent({ id, data, selected }: NodeProps<CanvasFlowNode>) {
     zoom = 1
   }
   if (!node || node.type !== 'shape') return null
-  const style = { fill: node.data.fill, stroke: node.data.stroke, strokeWidth: node.data.strokeWidth, opacity: node.data.opacity }
+  const shapeFilters: string[] = []
+  if (node.data.blur && node.data.blur > 0) shapeFilters.push(`blur(${node.data.blur}px)`)
+  if (node.data.shadow) shapeFilters.push(`drop-shadow(${node.data.shadow.x}px ${node.data.shadow.y}px ${node.data.shadow.blur}px ${node.data.shadow.color})`)
+  const shapeFilterStyle = shapeFilters.length > 0 ? shapeFilters.join(' ') : undefined
+
+  const style = {
+    fill: node.data.fill,
+    stroke: node.data.stroke,
+    strokeWidth: node.data.strokeWidth,
+    strokeDasharray: node.data.strokeStyle === 'dashed' ? '4 4' : undefined,
+    opacity: node.data.opacity,
+  }
   const line = node.data.kind === 'line' || node.data.kind === 'arrow'
-  return <div className="canvas-creative-node canvas-shape-node" style={{ transform: `rotate(${node.data.rotation ?? 0}deg)`, '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))) } as React.CSSProperties}>
+  return <div className="canvas-creative-node canvas-shape-node" style={{
+    transform: `rotate(${node.data.rotation ?? 0}deg)`,
+    filter: shapeFilterStyle,
+    '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))),
+  } as React.CSSProperties}>
     {resizer(id, data, selected)}
     <svg aria-label={data.name} preserveAspectRatio="none" viewBox="0 0 100 100">
       {node.data.kind === 'ellipse' ? <ellipse cx="50" cy="50" rx="49" ry="49" style={style} /> : line ? <line markerEnd={node.data.kind === 'arrow' ? 'url(#canvas-arrow)' : undefined} style={style} x1="1" x2="99" y1="99" y2="1" /> : <rect height="98" rx={node.data.kind === 'rounded-rectangle' || node.data.radius ? node.data.radius ?? 0 : 0} style={style} width="98" x="1" y="1" />}
@@ -146,10 +175,45 @@ export const ShapeNode = memo(ShapeNodeContent)
 function PathNodeContent({ data, selected }: NodeProps<CanvasFlowNode>) {
   const node = data.node as PathModel | undefined
   if (!node || node.type !== 'path') return null
-  return <div className="canvas-creative-node">
-    <NodeResizer color="#0d99ff" isVisible={selected} minHeight={16} minWidth={16} />
-    <svg aria-label={data.name} preserveAspectRatio="none" viewBox={`0 0 ${node.size.width} ${node.size.height}`}><path d={pathData(node)} fill={node.data.closed ? node.data.fill : 'none'} opacity={node.data.opacity} stroke={node.data.stroke} strokeLinecap="round" strokeLinejoin="round" strokeWidth={node.data.strokeWidth} /></svg>
-  </div>
+  const pathFilters: string[] = []
+  if (node.data.blur && node.data.blur > 0) pathFilters.push(`blur(${node.data.blur}px)`)
+  if (node.data.shadow) pathFilters.push(`drop-shadow(${node.data.shadow.x}px ${node.data.shadow.y}px ${node.data.shadow.blur}px ${node.data.shadow.color})`)
+  const pathFilterStyle = pathFilters.length > 0 ? pathFilters.join(' ') : undefined
+
+  return (
+    <div
+      className="canvas-creative-node canvas-path-node"
+      style={{
+        filter: pathFilterStyle,
+        opacity: node.data.opacity,
+        transform: (node.data as { rotation?: number }).rotation
+          ? `rotate(${(node.data as { rotation?: number }).rotation}deg)`
+          : undefined,
+      }}
+    >
+      <NodeResizer
+        color="#0d99ff"
+        isVisible={selected && !data.editingVector}
+        minHeight={16}
+        minWidth={16}
+      />
+      <svg
+        aria-label={data.name}
+        preserveAspectRatio="none"
+        viewBox={`0 0 ${node.size.width} ${node.size.height}`}
+      >
+        <path
+          d={pathData(node)}
+          fill={node.data.closed ? (node.data.fill || 'transparent') : 'none'}
+          stroke={node.data.stroke}
+          strokeDasharray={node.data.strokeStyle === 'dashed' ? '4 4' : undefined}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={node.data.strokeWidth}
+        />
+      </svg>
+    </div>
+  )
 }
 
 export const PathNode = memo(PathNodeContent)

@@ -24,18 +24,13 @@ const snapshot: CanvasSnapshotV2 = {
     },
   ],
   edges: [],
-  comments: [],
 }
 
 describe('canvas thumbnail rendering', () => {
-  it('hashes visual snapshot content deterministically without viewport or comments', () => {
+  it('hashes visual snapshot content deterministically without viewport', () => {
     const changedViewport = {
       ...snapshot,
       viewport: { x: 500, y: -200, zoom: 0.25 },
-      comments: [{
-        id: 'comment', authorId: 'a', authorName: 'A', body: 'note',
-        position: { x: 0, y: 0 }, createdAt: '2026-08-13', replies: [],
-      }],
     }
     expect(computeCanvasThumbnailHash(changedViewport)).toBe(
       computeCanvasThumbnailHash(snapshot),

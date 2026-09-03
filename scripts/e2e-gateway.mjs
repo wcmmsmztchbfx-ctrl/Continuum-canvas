@@ -8,6 +8,7 @@ const dataDir = await mkdtemp(join(tmpdir(), 'libtv-collaboration-e2e-'))
 const gateway = await startGateway({
   dataDir,
   envFile: join(dataDir, '.env.local'),
+  processEnv: { CONTINUUM_E2E: '1' },
   env: {},
   host: '127.0.0.1',
   port: 4274,

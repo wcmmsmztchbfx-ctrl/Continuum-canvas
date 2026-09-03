@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 import {
   calculateImageLod,
   getFastThumbnailUrl,
-  getLodImageUrl,
   getResponsiveImageUrl,
   getVideoPosterUrl,
 } from './imageThumbnailCache'

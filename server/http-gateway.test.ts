@@ -1283,7 +1283,6 @@ describe('HTTP gateway', () => {
         },
       ],
       edges: [],
-      comments: [],
     }
 
     const saveRes = await fetch(`${gateway.origin}/api/canvases/default-project`, {
@@ -1319,5 +1318,89 @@ describe('HTTP gateway', () => {
     expect(commitRes.status).toBe(200)
     const commitData = await json(commitRes)
     expect(commitData.manifest.canvases).toHaveLength(2)
+  })
+
+  it('supports asset listing, protects referenced assets from deletion, and cleans unreferenced assets', async () => {
+    const gateway = await start()
+
+    // 1. Upload two assets
+    const upload1 = await fetch(`${gateway.origin}/api/assets`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'image/png',
+        'x-filename': 'used.png',
+      },
+      body: PNG,
+    })
+    expect(upload1.status).toBe(201)
+    const { asset: asset1 } = await json(upload1)
+
+    const upload2 = await fetch(`${gateway.origin}/api/assets`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'image/png',
+        'x-filename': 'unused.png',
+      },
+      body: PNG,
+    })
+    expect(upload2.status).toBe(201)
+    const { asset: asset2 } = await json(upload2)
+
+    // 2. GET /api/assets lists them
+    const listRes = await fetch(`${gateway.origin}/api/assets`)
+    expect(listRes.status).toBe(200)
+    const { assets } = await json(listRes)
+    expect(assets.some((a: { id: string }) => a.id === asset1.id)).toBe(true)
+    expect(assets.some((a: { id: string }) => a.id === asset2.id)).toBe(true)
+
+    // 3. Put a canvas document referencing asset1
+    const putRes = await fetch(`${gateway.origin}/api/canvases/default-project`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        version: 3,
+        canvasId: 'default-project',
+        projectId: 'default-project',
+        name: '测试画布',
+        viewport: { x: 0, y: 0, zoom: 1 },
+        nodes: [
+          {
+            id: 'node-used',
+            name: '图片节点',
+            type: 'image',
+            position: { x: 0, y: 0 },
+            size: { width: 100, height: 100 },
+            data: { url: asset1.url, assetId: asset1.id },
+          },
+        ],
+        edges: [],
+      }),
+    })
+    expect(putRes.status).toBe(200)
+
+    // 4. Try DELETE /api/assets/:asset1 -> should fail with 409 Conflict
+    const delUsedRes = await fetch(`${gateway.origin}/api/assets/${asset1.id}`, {
+      method: 'DELETE',
+      headers: adminHeaders(gateway),
+    })
+    expect(delUsedRes.status).toBe(409)
+    const errData = await json(delUsedRes)
+    expect(errData.error.message).toContain('无法删除')
+
+    // 5. Try DELETE /api/assets/:asset2 (unreferenced) -> should succeed with 200
+    const delUnusedRes = await fetch(`${gateway.origin}/api/assets/${asset2.id}`, {
+      method: 'DELETE',
+      headers: adminHeaders(gateway),
+    })
+    expect(delUnusedRes.status).toBe(200)
+
+    // 6. POST /api/assets/clean-unreferenced
+    const cleanRes = await fetch(`${gateway.origin}/api/assets/clean-unreferenced`, {
+      method: 'POST',
+      headers: adminHeaders(gateway),
+    })
+    expect(cleanRes.status).toBe(200)
+    const cleanData = await json(cleanRes)
+    expect(cleanData.ok).toBe(true)
   })
 })

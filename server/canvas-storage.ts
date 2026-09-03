@@ -16,7 +16,6 @@ export function defaultInitialCanvas(canvasId: string, projectId = canvasId, nam
     viewport: { x: 0, y: 0, zoom: 1 },
     nodes: [],
     edges: [],
-    comments: [],
   }
 }
 
@@ -27,6 +26,10 @@ export class CanvasPersistenceService {
 
   constructor(options: CanvasStorageOptions) {
     this.#canvasesDir = join(options.dataDir, 'canvases')
+  }
+
+  clear(): void {
+    this.#cache.clear()
   }
 
   async getCanvas(canvasId: string): Promise<CanvasSnapshotV2 | undefined> {

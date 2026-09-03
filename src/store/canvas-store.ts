@@ -13,7 +13,7 @@ export * from './types'
 
 export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
   return createStore<CanvasStoreState>((set, get) => {
-    const history = createHistoryContext(set, get)
+    const history = createHistoryContext(set, get, initialSnapshot)
 
     const historyActions = createHistoryActions(set, get, history)
     const selectionActions = createSelectionActions(set, get)

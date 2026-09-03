@@ -108,6 +108,7 @@ interface NodeGeneratorPanelProps {
   onInteractionEnd?: (nodeId: string, kind: 'settings') => void
   mode?: 'generate' | 'edit'
   onModeChange?: (mode: 'generate' | 'edit') => void
+  editAvailable?: boolean
   editContent?: ReactNode
   versionControl?: ReactNode
   captureFrameAvailable?: boolean
@@ -412,6 +413,7 @@ export function NodeGeneratorPanel({
   unresolvedReferences = false,
   mode = 'generate',
   onModeChange,
+  editAvailable = false,
   editContent,
   versionControl,
   captureFrameAvailable = false,
@@ -1061,8 +1063,9 @@ export function NodeGeneratorPanel({
         ref={panelRef}
       >
         <div className="canvas-node-generator__toolbar">
-          {kind === 'image' && editContent ? <div className="canvas-node-generator__modes" role="tablist" aria-label="图片操作模式"><button aria-selected={mode === 'generate'} onClick={() => onModeChange?.('generate')} role="tab" type="button">生成</button><button aria-selected={mode === 'edit'} onClick={() => onModeChange?.('edit')} role="tab" type="button">编辑</button></div> : null}
+          {kind === 'image' && editAvailable ? <div className="canvas-node-generator__modes" role="tablist" aria-label="图片操作模式"><button aria-selected={mode === 'generate'} onClick={() => onModeChange?.('generate')} role="tab" type="button">生成</button><button aria-selected={mode === 'edit'} onClick={() => onModeChange?.('edit')} role="tab" type="button">编辑</button></div> : null}
           <div className="canvas-node-generator__tools">
+            {versionControl}
             {mode === 'generate' ? tools.map(({ id, label, icon: Icon }) => (
               <button
                 aria-label={id === 'reference' ? '参考拾取模式' : label}
@@ -1083,7 +1086,7 @@ export function NodeGeneratorPanel({
                 <Icon aria-hidden="true" size={12} strokeWidth={1.8} />
                 <span>{label}</span>
               </button>
-            )) : versionControl}
+            )) : null}
             {mode === 'generate' && kind === 'video' && captureFrameAvailable ?
               (['first', 'current', 'last'] as const).map((capture) => {
                 const label = capture === 'first' ? '首帧' : capture === 'last' ? '尾帧' : '当前帧'

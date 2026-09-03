@@ -74,21 +74,11 @@ export function createRemoteSyncActions(
         removedEdgeIds,
         changes.edgeOrder,
       ).filter((edge) => liveNodeIds.has(edge.source) && liveNodeIds.has(edge.target))
-      const currentComments = current.comments ?? []
-      const comments = changes.comments || changes.commentOrder
-        ? mergeEntities(
-            currentComments,
-            changes.comments?.upserted ?? [],
-            new Set(changes.comments?.removed ?? []),
-            changes.commentOrder,
-          )
-        : currentComments
       const selectedNodeIds = currentState.selectedNodeIds.filter((id) => liveNodeIds.has(id))
       const name = changes.name ?? current.name
       const changed = name !== current.name ||
         nodes.length !== current.nodes.length || nodes.some((node, index) => node !== current.nodes[index]) ||
-        edges.length !== current.edges.length || edges.some((edge, index) => edge !== current.edges[index]) ||
-        comments.length !== currentComments.length || comments.some((comment, index) => comment !== currentComments[index])
+        edges.length !== current.edges.length || edges.some((edge, index) => edge !== current.edges[index])
       const selectionChanged = selectedNodeIds.length !== currentState.selectedNodeIds.length ||
         selectedNodeIds.some((id, index) => id !== currentState.selectedNodeIds[index])
       if (!changed && !selectionChanged) return
@@ -96,7 +86,7 @@ export function createRemoteSyncActions(
       const normalizedNodes = reconcileEntities(nodes, normalizeCanvasHierarchy(nodes))
       set({
         ...(changed
-          ? { snapshot: { ...current, name, nodes: normalizedNodes, edges, comments } }
+          ? { snapshot: { ...current, name, nodes: normalizedNodes, edges } }
           : {}),
         ...(selectionChanged ? { selectedNodeIds } : {}),
       })

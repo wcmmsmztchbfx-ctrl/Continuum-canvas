@@ -28,10 +28,20 @@ import {
   Settings,
   Cpu,
   UsersRound,
+  Move,
+  Percent,
+  Palette,
+  RotateCw,
+  CornerUpRight,
+  Minus,
+  MoreHorizontal,
+  Droplets,
+  BoxSelect,
+  Layers,
 } from 'lucide-react'
 
 import type { CanvasStore, CanvasStoreState } from '../../store/canvas-store'
-import type { CanvasNode, TextNode, ImageNodeData, VideoNodeData } from '../../model/project'
+import type { CanvasNode, TextNode, ImageNodeData, VideoNodeData, CanvasNodeEffectShadow } from '../../model/project'
 import { ScrubbableLabel } from './ScrubbableLabel'
 import './inspector.css'
 
@@ -51,6 +61,8 @@ interface InspectorPanelProps {
   onOpenApiManagement?: () => void
   currentNickname?: string
   onStartResize?: (event: React.MouseEvent<HTMLDivElement>) => void
+  onStartVectorEdit?: (nodeId: string) => void
+  isEditingVector?: boolean
 }
 
 import { getCollaboratorColor } from '../../collaboration/colors'
@@ -75,10 +87,14 @@ export function InspectorPanel({
   onOpenApiManagement,
   currentNickname,
   onStartResize,
+  onStartVectorEdit,
+  isEditingVector = false,
 }: InspectorPanelProps) {
   const snapshot = useStore(store, (state: CanvasStoreState) => state.snapshot)
   const selectedNodeIds = useStore(store, (state: CanvasStoreState) => state.selectedNodeIds)
   const [aspectRatioLocked, setAspectRatioLocked] = useState(false)
+  const [canvasNameDraft, setCanvasNameDraft] = useState<string | null>(null)
+  const [nodeNameDraft, setNodeNameDraft] = useState<{ id: string; name: string } | null>(null)
   const pendingColorFrame = useRef<number | null>(null)
 
   const selectedNodes = snapshot.nodes.filter((node: CanvasNode) =>
@@ -86,19 +102,19 @@ export function InspectorPanel({
   )
   const activeNode = selectedNodes.length === 1 ? selectedNodes[0] : null
 
-  // Helpers for node updates
+  // Helpers for node updates with ephemeral live updates (commit = false) and single-step undo (commit = true)
   const patchActive = useCallback(
-    (changes: Parameters<ReturnType<typeof store.getState>['patchNode']>[1]) => {
+    (changes: Parameters<ReturnType<typeof store.getState>['patchNode']>[1], commit = true) => {
       if (!activeNode || readOnly) return
-      store.getState().patchNode(activeNode.id, changes)
+      store.getState().patchNode(activeNode.id, changes, commit)
     },
     [activeNode, readOnly, store],
   )
 
   const updateActiveData = useCallback(
-    (dataChanges: Record<string, unknown>) => {
+    (dataChanges: Record<string, unknown>, commit = true) => {
       if (!activeNode || readOnly) return
-      store.getState().patchNode(activeNode.id, { data: dataChanges })
+      store.getState().patchNode(activeNode.id, { data: dataChanges }, commit)
     },
     [activeNode, readOnly, store],
   )
@@ -111,7 +127,7 @@ export function InspectorPanel({
       }
       pendingColorFrame.current = requestAnimationFrame(() => {
         pendingColorFrame.current = null
-        store.getState().patchNode(activeNode.id, { data: dataChanges })
+        store.getState().patchNode(activeNode.id, { data: dataChanges }, false)
       })
     },
     [activeNode, readOnly, store],
@@ -119,30 +135,30 @@ export function InspectorPanel({
 
   const handleNameChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (!activeNode || readOnly) return
-    store.getState().renameNode(activeNode.id, e.target.value)
+    setNodeNameDraft({ id: activeNode.id, name: e.target.value })
   }
 
-  const handlePosChange = (axis: 'x' | 'y', value: number) => {
+  const handlePosChange = (axis: 'x' | 'y', value: number, commit = true) => {
     if (!activeNode || readOnly || Number.isNaN(value)) return
     patchActive({
       position: {
         ...activeNode.position,
         [axis]: value,
       },
-    })
+    }, commit)
   }
 
-  const handleSizeChange = (dim: 'width' | 'height', value: number) => {
+  const handleSizeChange = (dim: 'width' | 'height', value: number, commit = true) => {
     if (!activeNode || readOnly || Number.isNaN(value) || value <= 0) return
     const currentW = activeNode.size.width
     const currentH = activeNode.size.height
     if (aspectRatioLocked && currentW > 0 && currentH > 0) {
       if (dim === 'width') {
         const nextH = Math.round(value * (currentH / currentW))
-        patchActive({ size: { width: value, height: nextH } })
+        patchActive({ size: { width: value, height: nextH } }, commit)
       } else {
         const nextW = Math.round(value * (currentW / currentH))
-        patchActive({ size: { width: nextW, height: value } })
+        patchActive({ size: { width: nextW, height: value } }, commit)
       }
     } else {
       patchActive({
@@ -150,7 +166,7 @@ export function InspectorPanel({
           ...activeNode.size,
           [dim]: value,
         },
-      })
+      }, commit)
     }
   }
 
@@ -218,7 +234,11 @@ export function InspectorPanel({
   }
 
   const renderTopBar = () => (
-    <div className="inspector-top-bar" data-testid="inspector-top-bar">
+    <div
+      className="inspector-top-bar"
+      data-collaboration-status={collaborationStatus}
+      data-testid="top-bar"
+    >
       {renderAvatars()}
 
       <div className="inspector-top-bar__actions">
@@ -261,6 +281,23 @@ export function InspectorPanel({
 
   // 1. Multi-selection mode
   if (selectedNodes.length > 1) {
+    const hasFill = selectedNodes.some((n) => 'fill' in n.data)
+    const firstFillNode = selectedNodes.find((n) => 'fill' in n.data)
+    const firstFill = firstFillNode ? (firstFillNode.data as { fill?: string }).fill || '#202020' : '#202020'
+    const averageOpacity = Math.round(
+      (selectedNodes.reduce((acc, n) => {
+        const op = (n.data as { opacity?: number }).opacity ?? 1
+        return acc + op
+      }, 0) / selectedNodes.length) * 100
+    )
+
+    const updateSelectedNodesData = (dataChanges: Record<string, unknown>, commit = true) => {
+      if (readOnly) return
+      for (const node of selectedNodes) {
+        store.getState().patchNode(node.id, { data: dataChanges }, commit)
+      }
+    }
+
     return (
       <aside className="inspector-panel" data-testid="inspector-panel">
         {onStartResize && (
@@ -292,9 +329,97 @@ export function InspectorPanel({
           </div>
         </div>
         <div className="inspector-body">
+          {/* Batch Opacity */}
           <div className="inspector-section">
             <div className="inspector-section__header">
-              <span>批量操作</span>
+              <span className="inspector-section__title">
+                <span className="inspector-section__icon"><Percent size={13} /></span>
+                <span>透明度 (Opacity)</span>
+              </span>
+            </div>
+            <div className="inspector-row">
+              <div className="inspector-field">
+                <ScrubbableLabel
+                  label="不透明度"
+                  max={100}
+                  min={0}
+                  onChange={(val) => updateSelectedNodesData({ opacity: Math.min(1, Math.max(0, val / 100)) }, false)}
+                  onChangeEnd={(val) => updateSelectedNodesData({ opacity: Math.min(1, Math.max(0, val / 100)) }, true)}
+                  value={averageOpacity}
+                />
+                <input
+                  aria-label="批量透明度百分比"
+                  className="inspector-field__input"
+                  disabled={readOnly}
+                  max={100}
+                  min={0}
+                  onBlur={(e) =>
+                    updateSelectedNodesData({
+                      opacity: Math.min(1, Math.max(0, (Number(e.target.value) || 0) / 100)),
+                    }, true)
+                  }
+                  onChange={(e) =>
+                    updateSelectedNodesData({
+                      opacity: Math.min(1, Math.max(0, (Number(e.target.value) || 0) / 100)),
+                    }, false)
+                  }
+                  type="number"
+                  value={averageOpacity}
+                />
+                <span style={{ color: '#737373', fontSize: '10px' }}>%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Batch Fill */}
+          {hasFill ? (
+            <div className="inspector-section">
+              <div className="inspector-section__header">
+                <span className="inspector-section__title">
+                  <span className="inspector-section__icon"><Palette size={13} /></span>
+                  <span>批量填充 (Fill)</span>
+                </span>
+              </div>
+              <div className="inspector-color-row">
+                <div className="inspector-color-chip" style={{ background: firstFill }}>
+                  <input
+                    aria-label="批量填充原生颜色"
+                    className="inspector-color-input-native"
+                    disabled={readOnly}
+                    onChange={(e) => {
+                      for (const node of selectedNodes) {
+                        if ('fill' in node.data) {
+                          store.getState().patchNode(node.id, { data: { fill: e.target.value } }, false)
+                        }
+                      }
+                    }}
+                    type="color"
+                    value={firstFill.startsWith('#') ? firstFill : '#202020'}
+                  />
+                </div>
+                <input
+                  aria-label="批量填充颜色十六进制"
+                  className="inspector-color-hex"
+                  disabled={readOnly}
+                  onChange={(e) => {
+                    for (const node of selectedNodes) {
+                      if ('fill' in node.data) {
+                        store.getState().patchNode(node.id, { data: { fill: e.target.value } }, false)
+                      }
+                    }
+                  }}
+                  value={firstFill}
+                />
+              </div>
+            </div>
+          ) : null}
+
+          <div className="inspector-section">
+            <div className="inspector-section__header">
+              <span className="inspector-section__title">
+                <span className="inspector-section__icon"><Folder size={13} /></span>
+                <span>批量操作</span>
+              </span>
             </div>
             <div className="inspector-row">
               <button
@@ -349,11 +474,20 @@ export function InspectorPanel({
                 <input
                   className="inspector-field__input"
                   disabled={readOnly}
-                  onChange={(e) => {
-                    const current = store.getState().snapshot
-                    store.getState().restore(JSON.stringify({ ...current, name: e.target.value }))
+                  onBlur={() => {
+                    if (canvasNameDraft !== null) {
+                      const trimmed = canvasNameDraft.trim()
+                      if (trimmed && trimmed !== snapshot.name) {
+                        store.getState().renameCanvas(trimmed)
+                      }
+                      setCanvasNameDraft(null)
+                    }
                   }}
-                  value={snapshot.name || '画布 1'}
+                  onChange={(e) => setCanvasNameDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                  }}
+                  value={canvasNameDraft ?? (snapshot.name || '画布 1')}
                 />
               </div>
             </div>
@@ -445,8 +579,20 @@ export function InspectorPanel({
             aria-label="节点名称"
             className="inspector-header__name-input"
             disabled={readOnly || isLocked}
+            onBlur={() => {
+              if (nodeNameDraft && nodeNameDraft.id === activeNode.id) {
+                const trimmed = nodeNameDraft.name.trim()
+                if (trimmed && trimmed !== activeNode.name) {
+                  store.getState().renameNode(activeNode.id, trimmed)
+                }
+                setNodeNameDraft(null)
+              }
+            }}
             onChange={handleNameChange}
-            value={activeNode.name}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+            }}
+            value={(nodeNameDraft && nodeNameDraft.id === activeNode.id) ? nodeNameDraft.name : activeNode.name}
           />
         </div>
         <div className="inspector-header__actions">
@@ -487,7 +633,10 @@ export function InspectorPanel({
         {/* Transform Section: X, Y, W, H, Rotation */}
         <div className="inspector-section">
           <div className="inspector-section__header">
-            <span>变换 (Transform)</span>
+            <span className="inspector-section__title">
+              <span className="inspector-section__icon"><Move size={13} /></span>
+              <span>变换 (Transform)</span>
+            </span>
             <button
               aria-label={aspectRatioLocked ? '解锁宽高比' : '锁定宽高比'}
               className={`inspector-icon-btn ${aspectRatioLocked ? 'inspector-icon-btn--active' : ''}`}
@@ -502,29 +651,39 @@ export function InspectorPanel({
             <div className="inspector-field">
               <ScrubbableLabel
                 label="X"
-                onChange={(val) => handlePosChange('x', val)}
+                onChange={(val) => handlePosChange('x', val, false)}
+                onChangeEnd={(val) => handlePosChange('x', val, true)}
                 value={Math.round(activeNode.position.x)}
               />
               <input
                 aria-label="X 坐标"
                 className="inspector-field__input"
                 disabled={readOnly || isLocked}
-                onChange={(e) => handlePosChange('x', Number(e.target.value))}
+                onBlur={(e) => handlePosChange('x', Number(e.target.value), true)}
+                onChange={(e) => handlePosChange('x', Number(e.target.value), false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                }}
                 type="number"
-                value={Math.round(activeNode.position.y ? activeNode.position.x : activeNode.position.x)}
+                value={Math.round(activeNode.position.x)}
               />
             </div>
             <div className="inspector-field">
               <ScrubbableLabel
                 label="Y"
-                onChange={(val) => handlePosChange('y', val)}
+                onChange={(val) => handlePosChange('y', val, false)}
+                onChangeEnd={(val) => handlePosChange('y', val, true)}
                 value={Math.round(activeNode.position.y)}
               />
               <input
                 aria-label="Y 坐标"
                 className="inspector-field__input"
                 disabled={readOnly || isLocked}
-                onChange={(e) => handlePosChange('y', Number(e.target.value))}
+                onBlur={(e) => handlePosChange('y', Number(e.target.value), true)}
+                onChange={(e) => handlePosChange('y', Number(e.target.value), false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                }}
                 type="number"
                 value={Math.round(activeNode.position.y)}
               />
@@ -535,14 +694,19 @@ export function InspectorPanel({
               <ScrubbableLabel
                 label="W"
                 min={1}
-                onChange={(val) => handleSizeChange('width', val)}
+                onChange={(val) => handleSizeChange('width', val, false)}
+                onChangeEnd={(val) => handleSizeChange('width', val, true)}
                 value={Math.round(activeNode.size.width)}
               />
               <input
                 aria-label="宽度"
                 className="inspector-field__input"
                 disabled={readOnly || isLocked}
-                onChange={(e) => handleSizeChange('width', Number(e.target.value))}
+                onBlur={(e) => handleSizeChange('width', Number(e.target.value), true)}
+                onChange={(e) => handleSizeChange('width', Number(e.target.value), false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                }}
                 type="number"
                 value={Math.round(activeNode.size.width)}
               />
@@ -551,14 +715,19 @@ export function InspectorPanel({
               <ScrubbableLabel
                 label="H"
                 min={1}
-                onChange={(val) => handleSizeChange('height', val)}
+                onChange={(val) => handleSizeChange('height', val, false)}
+                onChangeEnd={(val) => handleSizeChange('height', val, true)}
                 value={Math.round(activeNode.size.height)}
               />
               <input
                 aria-label="高度"
                 className="inspector-field__input"
                 disabled={readOnly || isLocked}
-                onChange={(e) => handleSizeChange('height', Number(e.target.value))}
+                onBlur={(e) => handleSizeChange('height', Number(e.target.value), true)}
+                onChange={(e) => handleSizeChange('height', Number(e.target.value), false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                }}
                 type="number"
                 value={Math.round(activeNode.size.height)}
               />
@@ -569,16 +738,22 @@ export function InspectorPanel({
           <div className="inspector-row">
             {'rotation' in activeNode.data ? (
               <div className="inspector-field">
+                <span className="inspector-field__prefix-icon"><RotateCw size={11} /></span>
                 <ScrubbableLabel
                   label="旋转°"
-                  onChange={(val) => updateActiveData({ rotation: val })}
+                  onChange={(val) => updateActiveData({ rotation: val }, false)}
+                  onChangeEnd={(val) => updateActiveData({ rotation: val }, true)}
                   value={Math.round((activeNode.data as { rotation?: number }).rotation ?? 0)}
                 />
                 <input
                   aria-label="旋转角度"
                   className="inspector-field__input"
                   disabled={readOnly || isLocked}
-                  onChange={(e) => updateActiveData({ rotation: Number(e.target.value) || 0 })}
+                  onBlur={(e) => updateActiveData({ rotation: Number(e.target.value) || 0 }, true)}
+                  onChange={(e) => updateActiveData({ rotation: Number(e.target.value) || 0 }, false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                  }}
                   type="number"
                   value={Math.round((activeNode.data as { rotation?: number }).rotation ?? 0)}
                 />
@@ -586,10 +761,12 @@ export function InspectorPanel({
             ) : null}
             {'radius' in activeNode.data || nodeType === 'image' || nodeType === 'video' ? (
               <div className="inspector-field">
+                <span className="inspector-field__prefix-icon"><CornerUpRight size={11} /></span>
                 <ScrubbableLabel
                   label="圆角"
                   min={0}
-                  onChange={(val) => updateActiveData({ radius: Math.max(0, val) })}
+                  onChange={(val) => updateActiveData({ radius: Math.max(0, val) }, false)}
+                  onChangeEnd={(val) => updateActiveData({ radius: Math.max(0, val) }, true)}
                   value={Math.round((activeNode.data as { radius?: number }).radius ?? 0)}
                 />
                 <input
@@ -597,7 +774,11 @@ export function InspectorPanel({
                   className="inspector-field__input"
                   disabled={readOnly || isLocked}
                   min={0}
-                  onChange={(e) => updateActiveData({ radius: Math.max(0, Number(e.target.value) || 0) })}
+                  onBlur={(e) => updateActiveData({ radius: Math.max(0, Number(e.target.value) || 0) }, true)}
+                  onChange={(e) => updateActiveData({ radius: Math.max(0, Number(e.target.value) || 0) }, false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                  }}
                   type="number"
                   value={Math.round((activeNode.data as { radius?: number }).radius ?? 0)}
                 />
@@ -634,6 +815,51 @@ export function InspectorPanel({
           ) : null}
         </div>
 
+        {/* Opacity Section */}
+        <div className="inspector-section">
+          <div className="inspector-section__header">
+            <span className="inspector-section__title">
+              <span className="inspector-section__icon"><Percent size={13} /></span>
+              <span>透明度 (Opacity)</span>
+            </span>
+          </div>
+          <div className="inspector-row">
+            <div className="inspector-field">
+              <ScrubbableLabel
+                label="不透明度"
+                max={100}
+                min={0}
+                onChange={(val) => updateActiveData({ opacity: Math.min(1, Math.max(0, val / 100)) }, false)}
+                onChangeEnd={(val) => updateActiveData({ opacity: Math.min(1, Math.max(0, val / 100)) }, true)}
+                value={Math.round(((activeNode.data as { opacity?: number }).opacity ?? 1) * 100)}
+              />
+              <input
+                aria-label="透明度百分比"
+                className="inspector-field__input"
+                disabled={readOnly || isLocked}
+                max={100}
+                min={0}
+                onBlur={(e) =>
+                  updateActiveData({
+                    opacity: Math.min(1, Math.max(0, (Number(e.target.value) || 0) / 100)),
+                  }, true)
+                }
+                onChange={(e) =>
+                  updateActiveData({
+                    opacity: Math.min(1, Math.max(0, (Number(e.target.value) || 0) / 100)),
+                  }, false)
+                }
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                }}
+                type="number"
+                value={Math.round(((activeNode.data as { opacity?: number }).opacity ?? 1) * 100)}
+              />
+              <span style={{ color: '#737373', fontSize: '10px' }}>%</span>
+            </div>
+          </div>
+        </div>
+
         {/* Media Mode Toggle Section (For Image & Video) */}
         {nodeType === 'image' || nodeType === 'video' ? (
           <div className="inspector-section">
@@ -657,6 +883,55 @@ export function InspectorPanel({
               >
                 <Maximize2 size={11} style={{ marginRight: '4px' }} /> 自由编辑图层
               </button>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Path Specific Section */}
+        {nodeType === 'path' ? (
+          <div className="inspector-section">
+            <div className="inspector-section__header">
+              <span className="inspector-section__title">
+                <span className="inspector-section__icon"><PenTool size={13} /></span>
+                <span>路径 (Path)</span>
+              </span>
+            </div>
+            <div className="inspector-row">
+              <button
+                aria-label={isEditingVector ? '完成矢量编辑' : '编辑路径'}
+                className={`inspector-toggle-btn ${isEditingVector ? 'inspector-toggle-btn--active' : ''}`}
+                disabled={readOnly || isLocked}
+                onClick={() => onStartVectorEdit?.(activeNode.id)}
+                style={{ flex: 1 }}
+                type="button"
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <PenTool size={13} /> {isEditingVector ? '完成矢量编辑 (Done)' : '编辑路径 (Vector Edit)'}
+                </span>
+              </button>
+            </div>
+            <div className="inspector-row" style={{ marginTop: '8px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                  padding: '2px 0',
+                }}
+              >
+                <span style={{ fontSize: '11px', color: '#dedede' }}>路径闭合 (Closed)</span>
+                <label className="inspector-effect-switch">
+                  <input
+                    aria-label="路径闭合开关"
+                    checked={Boolean((activeNode.data as { closed?: boolean }).closed)}
+                    disabled={readOnly || isLocked}
+                    onChange={(e) => updateActiveData({ closed: e.target.checked })}
+                    type="checkbox"
+                  />
+                  <span className="inspector-effect-switch__slider" />
+                </label>
+              </div>
             </div>
           </div>
         ) : null}
@@ -815,7 +1090,10 @@ export function InspectorPanel({
         {'fill' in activeNode.data ? (
           <div className="inspector-section">
             <div className="inspector-section__header">
-              <span>填充 (Fill)</span>
+              <span className="inspector-section__title">
+                <span className="inspector-section__icon"><Palette size={13} /></span>
+                <span>填充 (Fill)</span>
+              </span>
             </div>
             <div className="inspector-color-row">
               <div
@@ -823,6 +1101,7 @@ export function InspectorPanel({
                 style={{ background: (activeNode.data as { fill: string }).fill }}
               >
                 <input
+                  aria-label="填充颜色选择器"
                   className="inspector-color-input-native"
                   disabled={readOnly || isLocked}
                   onChange={(e) => updateActiveDataThrottled({ fill: e.target.value })}
@@ -845,25 +1124,29 @@ export function InspectorPanel({
           </div>
         ) : null}
 
-        {/* Stroke Section (For Frame, Shape, Path, Media) */}
-        {'stroke' in activeNode.data ? (
+        {/* Stroke Section (For Frame, Shape, Path, Media, Text) */}
+        {'stroke' in activeNode.data || nodeType === 'image' || nodeType === 'video' || nodeType === 'text' ? (
           <div className="inspector-section">
             <div className="inspector-section__header">
-              <span>描边 (Stroke)</span>
+              <span className="inspector-section__title">
+                <span className="inspector-section__icon"><Square size={13} /></span>
+                <span>描边 (Stroke)</span>
+              </span>
             </div>
             <div className="inspector-color-row">
               <div
                 className="inspector-color-chip"
-                style={{ background: (activeNode.data as { stroke: string }).stroke }}
+                style={{ background: (activeNode.data as { stroke?: string }).stroke || '#777777' }}
               >
                 <input
+                  aria-label="描边颜色选择器"
                   className="inspector-color-input-native"
                   disabled={readOnly || isLocked}
                   onChange={(e) => updateActiveDataThrottled({ stroke: e.target.value })}
                   type="color"
                   value={
-                    (activeNode.data as { stroke: string }).stroke?.startsWith('#')
-                      ? (activeNode.data as { stroke: string }).stroke
+                    (activeNode.data as { stroke?: string }).stroke?.startsWith('#')
+                      ? (activeNode.data as { stroke?: string }).stroke
                       : '#777777'
                   }
                 />
@@ -873,7 +1156,7 @@ export function InspectorPanel({
                 className="inspector-color-hex"
                 disabled={readOnly || isLocked}
                 onChange={(e) => updateActiveDataThrottled({ stroke: e.target.value })}
-                value={(activeNode.data as { stroke: string }).stroke ?? '#777777'}
+                value={(activeNode.data as { stroke?: string }).stroke ?? '#777777'}
               />
             </div>
             <div className="inspector-row" style={{ marginTop: '8px' }}>
@@ -882,7 +1165,8 @@ export function InspectorPanel({
                   label="线宽"
                   max={64}
                   min={0}
-                  onChange={(val) => updateActiveData({ strokeWidth: Math.max(0, val) })}
+                  onChange={(val) => updateActiveData({ strokeWidth: Math.max(0, val) }, false)}
+                  onChangeEnd={(val) => updateActiveData({ strokeWidth: Math.max(0, val) }, true)}
                   value={(activeNode.data as { strokeWidth?: number }).strokeWidth ?? 1}
                 />
                 <input
@@ -890,49 +1174,298 @@ export function InspectorPanel({
                   className="inspector-field__input"
                   disabled={readOnly || isLocked}
                   min={0}
-                  onChange={(e) => updateActiveData({ strokeWidth: Math.max(0, Number(e.target.value) || 0) })}
+                  onBlur={(e) => updateActiveData({ strokeWidth: Math.max(0, Number(e.target.value) || 0) }, true)}
+                  onChange={(e) => updateActiveData({ strokeWidth: Math.max(0, Number(e.target.value) || 0) }, false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                  }}
                   type="number"
                   value={(activeNode.data as { strokeWidth?: number }).strokeWidth ?? 1}
                 />
+              </div>
+              <div className="inspector-seg-group" style={{ flex: 1 }}>
+                <button
+                  aria-label="实线描边"
+                  className={`inspector-seg-btn ${(activeNode.data as { strokeStyle?: string }).strokeStyle !== 'dashed' ? 'inspector-seg-btn--active' : ''}`}
+                  disabled={readOnly || isLocked}
+                  onClick={() => updateActiveData({ strokeStyle: 'solid' })}
+                  type="button"
+                >
+                  <Minus size={11} style={{ marginRight: '4px' }} /> 实线
+                </button>
+                <button
+                  aria-label="虚线描边"
+                  className={`inspector-seg-btn ${(activeNode.data as { strokeStyle?: string }).strokeStyle === 'dashed' ? 'inspector-seg-btn--active' : ''}`}
+                  disabled={readOnly || isLocked}
+                  onClick={() => updateActiveData({ strokeStyle: 'dashed' })}
+                  type="button"
+                >
+                  <MoreHorizontal size={11} style={{ marginRight: '4px' }} /> 虚线
+                </button>
               </div>
             </div>
           </div>
         ) : null}
 
-        {/* Layer & Opacity Section */}
+        {/* Effects Section (For Frame, Shape, Path, Media, Text) */}
         <div className="inspector-section">
           <div className="inspector-section__header">
-            <span>图层与外观 (Layer & Opacity)</span>
+            <span className="inspector-section__title">
+              <span className="inspector-section__icon"><Sparkles size={13} /></span>
+              <span>效果 (Effects)</span>
+            </span>
           </div>
-          {'opacity' in activeNode.data ? (
-            <div className="inspector-row">
-              <div className="inspector-field">
-                <ScrubbableLabel
-                  label="透明度"
-                  max={100}
-                  min={0}
-                  onChange={(val) => updateActiveData({ opacity: Math.min(1, Math.max(0, val / 100)) })}
-                  value={Math.round(((activeNode.data as { opacity?: number }).opacity ?? 1) * 100)}
-                />
-                <input
-                  aria-label="透明度百分比"
-                  className="inspector-field__input"
-                  disabled={readOnly || isLocked}
-                  max={100}
-                  min={0}
-                  onChange={(e) =>
-                    updateActiveData({
-                      opacity: Math.min(1, Math.max(0, (Number(e.target.value) || 0) / 100)),
-                    })
-                  }
-                  type="number"
-                  value={Math.round(((activeNode.data as { opacity?: number }).opacity ?? 1) * 100)}
-                />
-                <span style={{ color: '#737373', fontSize: '10px' }}>%</span>
+
+          {/* Layer Blur Card */}
+          {(() => {
+            const blurVal = (activeNode.data as { blur?: number }).blur ?? 0
+            const blurActive = blurVal > 0
+            return (
+              <div className={`inspector-effect-card ${blurActive ? 'inspector-effect-card--active' : ''}`}>
+                <div className="inspector-effect-card__header">
+                  <span className="inspector-effect-card__title">
+                    <Droplets size={12} />
+                    <span>高斯模糊 (Blur)</span>
+                  </span>
+                  <label className="inspector-effect-switch">
+                    <input
+                      aria-label="高斯模糊开关"
+                      checked={blurActive}
+                      disabled={readOnly || isLocked}
+                      onChange={(e) => updateActiveData({ blur: e.target.checked ? 8 : 0 })}
+                      type="checkbox"
+                    />
+                    <span className="inspector-effect-switch__slider" />
+                  </label>
+                </div>
+                {blurActive && (
+                  <div className="inspector-effect-card__body">
+                    <div className="inspector-row" style={{ margin: 0 }}>
+                      <div className="inspector-field">
+                        <ScrubbableLabel
+                          label="模糊半径"
+                          max={100}
+                          min={0}
+                          onChange={(val) => updateActiveData({ blur: Math.max(0, val) }, false)}
+                          onChangeEnd={(val) => updateActiveData({ blur: Math.max(0, val) }, true)}
+                          value={blurVal}
+                        />
+                        <input
+                          aria-label="模糊半径数值"
+                          className="inspector-field__input"
+                          disabled={readOnly || isLocked}
+                          max={100}
+                          min={0}
+                          onBlur={(e) => updateActiveData({ blur: Math.max(0, Number(e.target.value) || 0) }, true)}
+                          onChange={(e) => updateActiveData({ blur: Math.max(0, Number(e.target.value) || 0) }, false)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                          }}
+                          type="number"
+                          value={blurVal}
+                        />
+                        <span style={{ color: '#737373', fontSize: '10px' }}>px</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          ) : null}
-          <div className="inspector-row" style={{ marginTop: '8px' }}>
+            )
+          })()}
+
+          {/* Drop Shadow Card */}
+          {(() => {
+            const shadowObj = (activeNode.data as { shadow?: CanvasNodeEffectShadow }).shadow
+            const shadowActive = Boolean(shadowObj)
+            const shadowColor = shadowObj?.color ?? 'rgba(0,0,0,0.45)'
+            return (
+              <div className={`inspector-effect-card ${shadowActive ? 'inspector-effect-card--active' : ''}`}>
+                <div className="inspector-effect-card__header">
+                  <span className="inspector-effect-card__title">
+                    <BoxSelect size={12} />
+                    <span>外投影 (Drop Shadow)</span>
+                  </span>
+                  <label className="inspector-effect-switch">
+                    <input
+                      aria-label="外投影开关"
+                      checked={shadowActive}
+                      disabled={readOnly || isLocked}
+                      onChange={(e) =>
+                        updateActiveData({
+                          shadow: e.target.checked
+                            ? { x: 0, y: 4, blur: 12, color: 'rgba(0,0,0,0.45)' }
+                            : undefined,
+                        })
+                      }
+                      type="checkbox"
+                    />
+                    <span className="inspector-effect-switch__slider" />
+                  </label>
+                </div>
+                {shadowActive && (
+                  <div className="inspector-effect-card__body">
+                    <div className="inspector-row">
+                      <div className="inspector-field">
+                        <ScrubbableLabel
+                          label="X 偏移"
+                          max={100}
+                          min={-100}
+                          onChange={(val) =>
+                            updateActiveData({
+                              shadow: { ...shadowObj!, x: val },
+                            }, false)
+                          }
+                          onChangeEnd={(val) =>
+                            updateActiveData({
+                              shadow: { ...shadowObj!, x: val },
+                            }, true)
+                          }
+                          value={shadowObj?.x ?? 0}
+                        />
+                        <input
+                          aria-label="阴影 X 偏移"
+                          className="inspector-field__input"
+                          disabled={readOnly || isLocked}
+                          max={100}
+                          min={-100}
+                          onBlur={(e) =>
+                            updateActiveData({
+                              shadow: { ...shadowObj!, x: Number(e.target.value) || 0 },
+                            }, true)
+                          }
+                          onChange={(e) =>
+                            updateActiveData({
+                              shadow: { ...shadowObj!, x: Number(e.target.value) || 0 },
+                            }, false)
+                          }
+                          type="number"
+                          value={shadowObj?.x ?? 0}
+                        />
+                      </div>
+                      <div className="inspector-field">
+                        <ScrubbableLabel
+                          label="Y 偏移"
+                          max={100}
+                          min={-100}
+                          onChange={(val) =>
+                            updateActiveData({
+                              shadow: { ...shadowObj!, y: val },
+                            }, false)
+                          }
+                          onChangeEnd={(val) =>
+                            updateActiveData({
+                              shadow: { ...shadowObj!, y: val },
+                            }, true)
+                          }
+                          value={shadowObj?.y ?? 4}
+                        />
+                        <input
+                          aria-label="阴影 Y 偏移"
+                          className="inspector-field__input"
+                          disabled={readOnly || isLocked}
+                          max={100}
+                          min={-100}
+                          onBlur={(e) =>
+                            updateActiveData({
+                              shadow: { ...shadowObj!, y: Number(e.target.value) || 0 },
+                            }, true)
+                          }
+                          onChange={(e) =>
+                            updateActiveData({
+                              shadow: { ...shadowObj!, y: Number(e.target.value) || 0 },
+                            }, false)
+                          }
+                          type="number"
+                          value={shadowObj?.y ?? 4}
+                        />
+                      </div>
+                    </div>
+                    <div className="inspector-row" style={{ margin: 0 }}>
+                      <div className="inspector-field">
+                        <ScrubbableLabel
+                          label="模糊度"
+                          max={100}
+                          min={0}
+                          onChange={(val) =>
+                            updateActiveData({
+                              shadow: { ...shadowObj!, blur: Math.max(0, val) },
+                            }, false)
+                          }
+                          onChangeEnd={(val) =>
+                            updateActiveData({
+                              shadow: { ...shadowObj!, blur: Math.max(0, val) },
+                            }, true)
+                          }
+                          value={shadowObj?.blur ?? 12}
+                        />
+                        <input
+                          aria-label="阴影模糊半径"
+                          className="inspector-field__input"
+                          disabled={readOnly || isLocked}
+                          max={100}
+                          min={0}
+                          onBlur={(e) =>
+                            updateActiveData({
+                              shadow: { ...shadowObj!, blur: Math.max(0, Number(e.target.value) || 0) },
+                            }, true)
+                          }
+                          onChange={(e) =>
+                            updateActiveData({
+                              shadow: { ...shadowObj!, blur: Math.max(0, Number(e.target.value) || 0) },
+                            }, false)
+                          }
+                          type="number"
+                          value={shadowObj?.blur ?? 12}
+                        />
+                        <span style={{ color: '#737373', fontSize: '10px' }}>px</span>
+                      </div>
+                    </div>
+                    <div className="inspector-color-row" style={{ marginTop: '4px' }}>
+                      <div
+                        className="inspector-color-chip"
+                        style={{ background: shadowColor }}
+                      >
+                        <input
+                          aria-label="阴影颜色选择器"
+                          className="inspector-color-input-native"
+                          disabled={readOnly || isLocked}
+                          onChange={(e) =>
+                            updateActiveDataThrottled({
+                              shadow: { ...shadowObj!, color: e.target.value },
+                            })
+                          }
+                          type="color"
+                          value={shadowColor.startsWith('#') ? shadowColor : '#000000'}
+                        />
+                      </div>
+                      <input
+                        aria-label="阴影颜色值"
+                        className="inspector-color-hex"
+                        disabled={readOnly || isLocked}
+                        onChange={(e) =>
+                          updateActiveDataThrottled({
+                            shadow: { ...shadowObj!, color: e.target.value },
+                          })
+                        }
+                        value={shadowColor}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+        </div>
+
+        {/* Layer Order Section */}
+        <div className="inspector-section">
+          <div className="inspector-section__header">
+            <span className="inspector-section__title">
+              <span className="inspector-section__icon"><Layers size={13} /></span>
+              <span>图层层级 (Layer Order)</span>
+            </span>
+          </div>
+          <div className="inspector-row">
             <button
               aria-label="置于顶层"
               className="inspector-toggle-btn"

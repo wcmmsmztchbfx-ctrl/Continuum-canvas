@@ -967,6 +967,14 @@ export class CollaborationService {
     room.document.destroy()
   }
 
+  async reset(): Promise<void> {
+    for (const roomId of [...this.rooms.keys()]) {
+      await this.closeRoom({ roomId, force: true }).catch(() => {})
+    }
+    this.rooms.clear()
+    this.activeRoomIdsByScope.clear()
+  }
+
   documentForRoom(roomId: string): Y.Doc {
     return this.room(roomId).document.doc
   }

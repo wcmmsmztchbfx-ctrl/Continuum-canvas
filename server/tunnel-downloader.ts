@@ -79,7 +79,7 @@ function fetchStreamWithRedirects(
       let parsed: URL
       try {
         parsed = new URL(currentUrl)
-      } catch (err) {
+      } catch {
         reject(new Error(`Invalid URL: ${currentUrl}`))
         return
       }

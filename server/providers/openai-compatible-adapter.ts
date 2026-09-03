@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { GenerationRequest, ProviderCatalog } from '../../src/contracts/generation.ts'
 import type { ImageRequestMode } from '../../src/contracts/catalog.ts'
-import { mapOpenAICompatibleCatalog, VIDEO_MODEL_PATTERN } from '../catalog.ts'
+import { IMAGE_MODEL_PATTERN, mapOpenAICompatibleCatalog, VIDEO_MODEL_PATTERN } from '../catalog.ts'
 import {
   ProviderRequestRejectedError,
   type LocalReference,
@@ -120,6 +120,14 @@ export class OpenAICompatibleAdapter {
 
   async syncCatalog(signal?: AbortSignal): Promise<ProviderCatalog> {
     const payload = await this.request('/models', {}, signal)
+    const root = isRecord(payload) ? payload : {}
+    const entries = Array.isArray(root.data) ? root.data : []
+    const hasMedia = entries.some((e: any) => isRecord(e) && typeof e.id === 'string' && (IMAGE_MODEL_PATTERN.test(e.id) || VIDEO_MODEL_PATTERN.test(e.id)))
+    if (entries.length > 0 && !hasMedia) {
+      throw new ProviderRequestRejectedError(
+        '未能从该 OpenAI 兼容端点找到可用的生图或生视频模型。请检查 Base URL 或服务商所开放的模型权限。',
+      )
+    }
     const catalog = mapOpenAICompatibleCatalog(this.providerId, payload, this.now().toISOString())
     if (catalog.models.length === 0) {
       throw new ProviderRequestRejectedError(

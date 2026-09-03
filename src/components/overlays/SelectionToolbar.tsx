@@ -1,5 +1,4 @@
 import {
-  Archive,
   Copy,
   CopyPlus,
   Group,
@@ -49,15 +48,7 @@ export function SelectionToolbar({
         <LayoutGrid aria-hidden="true" focusable="false" />
       </button>
       <span aria-hidden="true" className="selection-toolbar__divider" />
-      <button
-        aria-label="保存到资产"
-        onClick={() => onAction('save-assets')}
-        title="保存到资产"
-        type="button"
-      >
-        <Archive aria-hidden="true" focusable="false" />
-        <span>保存到资产</span>
-      </button>
+
       <button
         aria-label="创建副本"
         onClick={() => onAction('duplicate')}

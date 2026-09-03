@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest'
 import type { CanvasSnapshotInput } from './canvasInvariants'
 import {
   checkSpatialCollisions,
-  checkTopologyIntegrity,
-  checkContentCompleteness,
   verifyCanvasInvariants,
   buildHealingPrompt,
   calculateSafeNodePosition,

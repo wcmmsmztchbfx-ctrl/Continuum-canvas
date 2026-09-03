@@ -44,8 +44,6 @@ export function createNodesActions(
   | 'updateTextNode'
   | 'addImageVersion'
   | 'setImageVersion'
-  | 'addComment'
-  | 'updateComment'
   | 'toggleNodeFlag'
   | 'layoutNodes'
 > {
@@ -61,7 +59,6 @@ export function createNodesActions(
       const positions = new Map(moves.map((move) => [move.id, move.position]))
       let changed = false
 
-      const deltas = new Map<string, Point>()
       const next: ProjectSnapshot = {
         ...current,
         nodes: current.nodes.map((candidate) => {
@@ -74,12 +71,7 @@ export function createNodesActions(
             return candidate
           }
           changed = true
-          deltas.set(candidate.id, { x: position.x - candidate.position.x, y: position.y - candidate.position.y })
           return { ...candidate, position }
-        }),
-        comments: current.comments?.map((comment) => {
-          const delta = comment.nodeId ? deltas.get(comment.nodeId) : undefined
-          return delta ? { ...comment, position: { x: comment.position.x + delta.x, y: comment.position.y + delta.y } } : comment
         }),
       }
       if (changed) history.commitDocument(next)
@@ -389,12 +381,7 @@ export function createNodesActions(
         removals,
       )
 
-      const comments = current.comments?.map((comment) =>
-        comment.nodeId && ids.has(comment.nodeId)
-          ? { ...comment, nodeDeleted: true, nodeId: undefined }
-          : comment,
-      )
-      history.commitDocument({ ...current, nodes, edges, comments })
+      history.commitDocument({ ...current, nodes, edges })
       set((state) => ({
         selectedNodeIds: state.selectedNodeIds.filter((id) => !ids.has(id)),
       }))
@@ -741,7 +728,7 @@ export function createNodesActions(
       history.commitDocument({ ...current, nodes: current.nodes.map((candidate) => candidate.id === nodeId ? { ...candidate, locked } as CanvasNode : candidate) })
     },
 
-    patchNode: (nodeId, changes) => {
+    patchNode: (nodeId, changes, commit = true) => {
       const current = get().snapshot
       const node = current.nodes.find((candidate) => candidate.id === nodeId)
       if (!node) return
@@ -752,34 +739,52 @@ export function createNodesActions(
         ...(changes.size !== undefined ? { size: changes.size } : {}),
         ...(changes.data !== undefined ? { data: { ...node.data, ...changes.data } } : {}),
       }
-      history.commitDocument({
+      const nextSnapshot = {
         ...current,
         nodes: current.nodes.map((candidate) =>
           candidate.id === nodeId ? (nextNode as CanvasNode) : candidate,
         ),
-      })
+      }
+      if (commit) {
+        history.commitDocument(nextSnapshot)
+      } else {
+        set({ snapshot: nextSnapshot })
+      }
     },
 
-    updateTextNode: (nodeId, text) => {
+    updateTextNode: (nodeId, text, commit = true) => {
       const current = get().snapshot
       const node = current.nodes.find((candidate) => candidate.id === nodeId)
       if (!node || node.type !== 'text' || node.data.text === text) return
 
-      history.commitDocument({
+      const nextSnapshot = {
         ...current,
         nodes: current.nodes.map((candidate) =>
           candidate.id === nodeId && candidate.type === 'text'
             ? { ...candidate, data: { ...candidate.data, text } }
             : candidate,
         ),
-      })
+      }
+      if (commit) {
+        history.commitDocument(nextSnapshot)
+      } else {
+        set({ snapshot: nextSnapshot })
+      }
     },
 
     addImageVersion: (nodeId, version) => {
       const current = get().snapshot
       const node = current.nodes.find((candidate) => candidate.id === nodeId)
       if (!node || node.type !== 'image') return
-      const versions = node.data.versions ?? []
+      const versions = node.data.versions?.length
+        ? node.data.versions
+        : [{
+            id: `original:${node.id}`,
+            url: node.data.url,
+            ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
+            createdAt: '1970-01-01T00:00:00.000Z',
+            label: '原始版本',
+          }]
       if (versions.some((candidate) => candidate.id === version.id)) return
       history.commitDocument({ ...current, nodes: current.nodes.map((candidate) =>
         candidate.id === nodeId && candidate.type === 'image' ? {
@@ -802,19 +807,7 @@ export function createNodesActions(
       ) })
     },
 
-    addComment: (comment) => {
-      const current = get().snapshot
-      if (current.comments?.some((candidate) => candidate.id === comment.id)) return
-      history.commitDocument({ ...current, comments: [...(current.comments ?? []), comment] })
-    },
 
-    updateComment: (commentId, updater) => {
-      const current = get().snapshot
-      const comments = current.comments ?? []
-      const index = comments.findIndex((comment) => comment.id === commentId)
-      if (index < 0) return
-      history.commitDocument({ ...current, comments: comments.map((comment) => comment.id === commentId ? updater(comment) : comment) })
-    },
 
     toggleNodeFlag: (nodeId, flag) => {
       const current = get().snapshot

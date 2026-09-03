@@ -9,7 +9,6 @@ import {
 } from '../model/project.ts'
 import type {
   CanvasEdge,
-  CanvasComment,
   CanvasNode,
   CanvasSnapshotV2,
   ProjectSnapshotV1,
@@ -20,21 +19,19 @@ const META_KEY = 'meta'
 const VIEWPORT_KEY = 'viewport'
 const NODES_KEY = 'nodes'
 const EDGES_KEY = 'edges'
-const COMMENTS_KEY = 'comments'
 const NODE_TOMBSTONES_KEY = 'nodeTombstones'
 const EDGE_TOMBSTONES_KEY = 'edgeTombstones'
 const NODE_DELETION_BACKUPS_KEY = 'nodeDeletionBackups'
 const EDGE_DELETION_BACKUPS_KEY = 'edgeDeletionBackups'
 const NODE_ORDER_KEY = 'nodeOrder'
 const EDGE_ORDER_KEY = 'edgeOrder'
-const COMMENT_ORDER_KEY = 'commentOrder'
 const ORDER_FIELD = '__collaborationOrder'
 const MAP_ROOT_KEYS = [
-  META_KEY, VIEWPORT_KEY, NODES_KEY, EDGES_KEY, COMMENTS_KEY,
+  META_KEY, VIEWPORT_KEY, NODES_KEY, EDGES_KEY,
   NODE_TOMBSTONES_KEY, EDGE_TOMBSTONES_KEY,
   NODE_DELETION_BACKUPS_KEY, EDGE_DELETION_BACKUPS_KEY,
 ] as const
-const ARRAY_ROOT_KEYS = [NODE_ORDER_KEY, EDGE_ORDER_KEY, COMMENT_ORDER_KEY] as const
+const ARRAY_ROOT_KEYS = [NODE_ORDER_KEY, EDGE_ORDER_KEY] as const
 const COLLABORATIVE_ROOT_KEYS = new Set<string>([...MAP_ROOT_KEYS, ...ARRAY_ROOT_KEYS])
 
 export const COLLABORATIVE_DECODE_LIMITS = Object.freeze({
@@ -180,10 +177,8 @@ function initializeDocument(doc: Y.Doc, snapshot: SnapshotInput): void {
   const viewport = doc.getMap<unknown>(VIEWPORT_KEY)
   const nodes = doc.getMap<YRecord>(NODES_KEY)
   const edges = doc.getMap<YRecord>(EDGES_KEY)
-  const comments = doc.getMap<YRecord>(COMMENTS_KEY)
   const nodeOrder = doc.getArray<string>(NODE_ORDER_KEY)
   const edgeOrder = doc.getArray<string>(EDGE_ORDER_KEY)
-  const commentOrder = doc.getArray<string>(COMMENT_ORDER_KEY)
 
   doc.transact(() => {
     meta.set('version', COLLABORATIVE_CANVAS_DOCUMENT_VERSION)
@@ -203,14 +198,8 @@ function initializeDocument(doc: Y.Doc, snapshot: SnapshotInput): void {
       record.set(ORDER_FIELD, normalized.edges.indexOf(edge))
       edges.set(edge.id, record)
     }
-    for (const comment of normalized.comments) {
-      const record = encodeRecord(comment as unknown as Record<string, unknown>, ['comment'])
-      record.set(ORDER_FIELD, normalized.comments.indexOf(comment))
-      comments.set(comment.id, record)
-    }
     nodeOrder.insert(0, normalized.nodes.map((node) => node.id))
     edgeOrder.insert(0, normalized.edges.map((edge) => edge.id))
-    commentOrder.insert(0, normalized.comments.map((comment) => comment.id))
   }, null)
 }
 
@@ -372,7 +361,6 @@ export function applyCollaborativeCanvasSnapshot(
     normalized.edges,
     ['edge'],
   )
-  syncOrderedRecords(doc.getMap<YRecord>(COMMENTS_KEY), normalized.comments, ['comment'])
 }
 
 export function applyCollaborativeSnapshotChange(
@@ -417,24 +405,6 @@ export function applyCollaborativeSnapshotChange(
   }
   applyOrderChange(nodes, doc.getArray<string>(NODE_ORDER_KEY), previous.nodes.map((node) => node.id), next.nodes.map((node) => node.id))
   applyOrderChange(edges, doc.getArray<string>(EDGE_ORDER_KEY), previous.edges.map((edge) => edge.id), next.edges.map((edge) => edge.id))
-  const comments = doc.getMap<YRecord>(COMMENTS_KEY)
-  const previousComments = new Map(previous.comments.map((comment) => [comment.id, comment]))
-  const nextComments = new Map(next.comments.map((comment) => [comment.id, comment]))
-  for (const [id, before] of previousComments) {
-    const after = nextComments.get(id)
-    if (!after) comments.delete(id)
-    else {
-      const current = comments.get(id)
-      if (current instanceof Y.Map) applyRecordChange(current, before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, ['comment'])
-    }
-  }
-  for (const [id, comment] of nextComments) if (!previousComments.has(id)) comments.set(id, encodeRecord(comment as unknown as Record<string, unknown>, ['comment']))
-  applyOrderChange(
-    comments,
-    doc.getArray<string>(COMMENT_ORDER_KEY),
-    (previous.comments ?? []).map((comment) => comment.id),
-    (next.comments ?? []).map((comment) => comment.id),
-  )
 }
 
 export function applyCollaborativeEntityChanges(
@@ -494,16 +464,7 @@ export function applyCollaborativeEntityChanges(
   }
   if (changes.edgeOrder) applyOrderChange(edges, doc.getArray<string>(EDGE_ORDER_KEY), [], changes.edgeOrder)
 
-  if (changes.comments || changes.commentOrder) {
-    const comments = doc.getMap<YRecord>(COMMENTS_KEY)
-    for (const id of changes.comments?.removed ?? []) comments.delete(id)
-    for (const comment of changes.comments?.upserted ?? []) {
-      const current = comments.get(comment.id)
-      if (current instanceof Y.Map) syncRecord(current, comment as unknown as Record<string, unknown>, ['comment'])
-      else comments.set(comment.id, encodeRecord(comment as unknown as Record<string, unknown>, ['comment']))
-    }
-    if (changes.commentOrder) applyOrderChange(comments, doc.getArray<string>(COMMENT_ORDER_KEY), [], changes.commentOrder)
-  }
+
 }
 
 function installDeletionUndoRestoration(doc: Y.Doc): () => void {
@@ -728,12 +689,10 @@ export function createCollaborativeCanvasDocument(
       doc.getMap(VIEWPORT_KEY),
       doc.getMap(NODES_KEY),
       doc.getMap(EDGES_KEY),
-      doc.getMap(COMMENTS_KEY),
       doc.getMap(NODE_TOMBSTONES_KEY),
       doc.getMap(EDGE_TOMBSTONES_KEY),
       doc.getArray(NODE_ORDER_KEY),
       doc.getArray(EDGE_ORDER_KEY),
-      doc.getArray(COMMENT_ORDER_KEY),
     ],
     { trackedOrigins: new Set([localOrigin]) },
   )
@@ -799,11 +758,6 @@ export function exportCollaborativeCanvasSnapshot(
     )
       .filter((edge) => !doc.getMap<boolean>(EDGE_TOMBSTONES_KEY).has(edge.id))
       .filter((edge) => liveNodeIds.has(edge.source) && liveNodeIds.has(edge.target)),
-    comments: orderedRecords<CanvasComment>(
-      doc.getMap<YRecord>(COMMENTS_KEY),
-      doc.getArray<string>(COMMENT_ORDER_KEY),
-      budget,
-    ),
   }
   return parseCanvasSnapshot(JSON.stringify(candidate))
 }

@@ -2,29 +2,10 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { GenerationRequest } from '../src/contracts/generation.ts'
 import { JimengAdapter } from './providers/jimeng-adapter.ts'
 
 async function tempDirectory() {
   return mkdtemp(join(tmpdir(), 'continuum-jimeng-'))
-}
-
-function makeRequest(overrides: Partial<GenerationRequest> = {}): GenerationRequest {
-  return {
-    clientRequestId: 'client-jm-1',
-    projectId: 'project-1',
-    providerId: 'jimeng',
-    catalogVersion: 'v1',
-    mediaType: 'image',
-    channel: 1,
-    model: 'jimeng-image-v3.0',
-    prompt: '唯美二次元少女',
-    aspectRatio: '1:1',
-    quality: '1K',
-    n: 1,
-    references: [],
-    ...overrides,
-  }
 }
 
 describe('JimengAdapter', () => {

@@ -217,6 +217,13 @@ export interface MediaSource {
   capture?: 'first' | 'current' | 'last'
 }
 
+export interface CanvasNodeEffectShadow {
+  color: string
+  x: number
+  y: number
+  blur: number
+}
+
 export interface ImageNodeData {
   url: string
   thumbnailUrl?: string
@@ -235,6 +242,9 @@ export interface ImageNodeData {
   radius?: number
   stroke?: string
   strokeWidth?: number
+  strokeStyle?: 'solid' | 'dashed'
+  blur?: number
+  shadow?: CanvasNodeEffectShadow
   objectFit?: 'cover' | 'contain' | 'fill'
   rotation?: number
 }
@@ -257,6 +267,9 @@ export interface VideoNodeData {
   radius?: number
   stroke?: string
   strokeWidth?: number
+  strokeStyle?: 'solid' | 'dashed'
+  blur?: number
+  shadow?: CanvasNodeEffectShadow
   objectFit?: 'cover' | 'contain' | 'fill'
   rotation?: number
 }
@@ -277,6 +290,13 @@ export interface TextNodeData {
   textAlign?: 'left' | 'center' | 'right'
   lineHeight?: number
   letterSpacing?: number
+  opacity?: number
+  rotation?: number
+  stroke?: string
+  strokeWidth?: number
+  strokeStyle?: 'solid' | 'dashed'
+  blur?: number
+  shadow?: CanvasNodeEffectShadow
 }
 
 export type TextNode = BaseNode<'text', TextNodeData>
@@ -293,6 +313,10 @@ export interface FrameNodeData {
   fill: string
   stroke: string
   strokeWidth: number
+  strokeStyle?: 'solid' | 'dashed'
+  opacity?: number
+  blur?: number
+  shadow?: CanvasNodeEffectShadow
   rotation?: number
   locked?: boolean
   hidden?: boolean
@@ -305,7 +329,10 @@ export interface ShapeNodeData {
   fill: string
   stroke: string
   strokeWidth: number
+  strokeStyle?: 'solid' | 'dashed'
   opacity: number
+  blur?: number
+  shadow?: CanvasNodeEffectShadow
   radius?: number
   rotation?: number
   locked?: boolean
@@ -328,7 +355,10 @@ export interface PathNodeData {
   fill: string
   stroke: string
   strokeWidth: number
+  strokeStyle?: 'solid' | 'dashed'
   opacity: number
+  blur?: number
+  shadow?: CanvasNodeEffectShadow
   locked?: boolean
   hidden?: boolean
 }
@@ -343,31 +373,6 @@ export type CanvasNode =
   | FrameNode
   | ShapeNode
   | PathNode
-
-export interface CanvasCommentReply {
-  id: string
-  authorId: string
-  authorName: string
-  body: string
-  createdAt: string
-  editedAt?: string
-}
-
-export interface CanvasComment {
-  id: string
-  authorId: string
-  authorName: string
-  body: string
-  position: Point
-  nodeId?: string
-  nodeDeleted?: boolean
-  createdAt: string
-  editedAt?: string
-  resolvedAt?: string
-  resolvedBy?: string
-  replies: CanvasCommentReply[]
-}
-
 export interface CanvasEdge {
   id: string
   source: string
@@ -392,7 +397,6 @@ export interface ProjectSnapshotV1 {
   viewport: Viewport
   nodes: CanvasNode[]
   edges: CanvasEdge[]
-  comments?: CanvasComment[]
 }
 
 export type ProjectSnapshot = ProjectSnapshotV1
@@ -405,7 +409,6 @@ export interface CanvasSnapshotV2 {
   viewport: Viewport
   nodes: CanvasNode[]
   edges: CanvasEdge[]
-  comments: CanvasComment[]
 }
 
 type UnknownRecord = Record<string, unknown>
@@ -678,6 +681,26 @@ function hasOptionalVideoGenerationSettings(record: UnknownRecord) {
   return isMediaGenerationSettings(settings) && settings.kind === 'video'
 }
 
+function hasOptionalStrokeStyle(record: UnknownRecord): boolean {
+  return record.strokeStyle === undefined || ['solid', 'dashed'].includes(String(record.strokeStyle))
+}
+
+function hasOptionalBlur(record: UnknownRecord): boolean {
+  return record.blur === undefined || (isFiniteNumber(record.blur) && record.blur >= 0)
+}
+
+function hasOptionalShadow(record: UnknownRecord): boolean {
+  if (record.shadow === undefined) return true
+  if (!isRecord(record.shadow)) return false
+  return (
+    validColor(record.shadow.color) &&
+    isFiniteNumber(record.shadow.x) &&
+    isFiniteNumber(record.shadow.y) &&
+    isFiniteNumber(record.shadow.blur) &&
+    record.shadow.blur >= 0
+  )
+}
+
 function isCanvasNode(value: unknown): boolean {
   if (
     !isRecord(value) ||
@@ -713,7 +736,10 @@ function isCanvasNode(value: unknown): boolean {
         (value.data.stroke === undefined || validColor(value.data.stroke)) &&
         (value.data.strokeWidth === undefined || (isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0)) &&
         (value.data.objectFit === undefined || ['cover', 'contain', 'fill'].includes(String(value.data.objectFit))) &&
-        (value.data.rotation === undefined || isFiniteNumber(value.data.rotation))
+        (value.data.rotation === undefined || isFiniteNumber(value.data.rotation)) &&
+        hasOptionalStrokeStyle(value.data) &&
+        hasOptionalBlur(value.data) &&
+        hasOptionalShadow(value.data)
       )
     case 'video':
       return (
@@ -735,7 +761,10 @@ function isCanvasNode(value: unknown): boolean {
         (value.data.stroke === undefined || validColor(value.data.stroke)) &&
         (value.data.strokeWidth === undefined || (isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0)) &&
         (value.data.objectFit === undefined || ['cover', 'contain', 'fill'].includes(String(value.data.objectFit))) &&
-        (value.data.rotation === undefined || isFiniteNumber(value.data.rotation))
+        (value.data.rotation === undefined || isFiniteNumber(value.data.rotation)) &&
+        hasOptionalStrokeStyle(value.data) &&
+        hasOptionalBlur(value.data) &&
+        hasOptionalShadow(value.data)
       )
     case 'text':
       return (
@@ -753,7 +782,14 @@ function isCanvasNode(value: unknown): boolean {
         (value.data.fontWeight === undefined || (isFiniteNumber(value.data.fontWeight) && value.data.fontWeight > 0)) &&
         (value.data.color === undefined || validColor(value.data.color)) &&
         (value.data.textAlign === undefined || ['left', 'center', 'right'].includes(String(value.data.textAlign))) &&
-        (value.data.lineHeight === undefined || (isFiniteNumber(value.data.lineHeight) && value.data.lineHeight > 0))
+        (value.data.lineHeight === undefined || (isFiniteNumber(value.data.lineHeight) && value.data.lineHeight > 0)) &&
+        (value.data.opacity === undefined || (isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1)) &&
+        (value.data.rotation === undefined || isFiniteNumber(value.data.rotation)) &&
+        (value.data.stroke === undefined || validColor(value.data.stroke)) &&
+        (value.data.strokeWidth === undefined || (isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0)) &&
+        hasOptionalStrokeStyle(value.data) &&
+        hasOptionalBlur(value.data) &&
+        hasOptionalShadow(value.data)
       )
     case 'group':
       return (
@@ -770,6 +806,10 @@ function isCanvasNode(value: unknown): boolean {
         validColor(value.data.fill) && validColor(value.data.stroke) &&
         isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0 &&
         (value.data.rotation === undefined || isFiniteNumber(value.data.rotation)) &&
+        (value.data.opacity === undefined || (isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1)) &&
+        hasOptionalStrokeStyle(value.data) &&
+        hasOptionalBlur(value.data) &&
+        hasOptionalShadow(value.data) &&
         (value.data.locked === undefined || typeof value.data.locked === 'boolean') &&
         (value.data.hidden === undefined || typeof value.data.hidden === 'boolean')
     case 'shape':
@@ -777,6 +817,9 @@ function isCanvasNode(value: unknown): boolean {
         validColor(value.data.fill) && validColor(value.data.stroke) &&
         isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0 &&
         isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1 &&
+        hasOptionalStrokeStyle(value.data) &&
+        hasOptionalBlur(value.data) &&
+        hasOptionalShadow(value.data) &&
         (value.data.radius === undefined || (isFiniteNumber(value.data.radius) && value.data.radius >= 0)) &&
         (value.data.rotation === undefined || isFiniteNumber(value.data.rotation)) &&
         (value.data.locked === undefined || typeof value.data.locked === 'boolean') &&
@@ -788,6 +831,9 @@ function isCanvasNode(value: unknown): boolean {
         validColor(value.data.fill) && validColor(value.data.stroke) &&
         isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth > 0 &&
         isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1 &&
+        hasOptionalStrokeStyle(value.data) &&
+        hasOptionalBlur(value.data) &&
+        hasOptionalShadow(value.data) &&
         (value.data.locked === undefined || typeof value.data.locked === 'boolean') &&
         (value.data.hidden === undefined || typeof value.data.hidden === 'boolean')
     default:
@@ -1072,23 +1118,6 @@ function hasSaneViewport(viewport: UnknownRecord): boolean {
   )
 }
 
-function isCanvasCommentReply(value: unknown): value is CanvasCommentReply {
-  return isRecord(value) && typeof value.id === 'string' &&
-    typeof value.authorId === 'string' && typeof value.authorName === 'string' &&
-    typeof value.body === 'string' && typeof value.createdAt === 'string' &&
-    hasOptionalString(value, 'editedAt')
-}
-
-function isCanvasComment(value: unknown): value is CanvasComment {
-  return isRecord(value) && typeof value.id === 'string' &&
-    typeof value.authorId === 'string' && typeof value.authorName === 'string' &&
-    typeof value.body === 'string' && isPoint(value.position) &&
-    hasOptionalString(value, 'nodeId') &&
-    (value.nodeDeleted === undefined || typeof value.nodeDeleted === 'boolean') &&
-    typeof value.createdAt === 'string' && hasOptionalString(value, 'editedAt') &&
-    hasOptionalString(value, 'resolvedAt') && hasOptionalString(value, 'resolvedBy') &&
-    Array.isArray(value.replies) && value.replies.every(isCanvasCommentReply)
-}
 
 function legacyVersionId(nodeId: string): string {
   return `original:${nodeId}`
@@ -1314,7 +1343,6 @@ export function upgradeProjectSnapshot(
     canvasId,
     name: '画布 1',
     nodes: migrateImageVersions(snapshot.nodes),
-    comments: snapshot.comments ?? [],
   }
 }
 
@@ -1331,12 +1359,11 @@ export function parseCanvasSnapshot(serialized: string): CanvasSnapshotV2 {
   }
 
   if (isRecord(value) && value.version === LEGACY_CANVAS_SNAPSHOT_VERSION) {
-    const legacy = value as unknown as Omit<CanvasSnapshotV2, 'version' | 'comments'> & { version: 2 }
+    const legacy = value as unknown as Omit<CanvasSnapshotV2, 'version'> & { version: 2 }
     value = {
       ...legacy,
       version: CANVAS_SNAPSHOT_VERSION,
       nodes: Array.isArray(legacy.nodes) ? migrateImageVersions(legacy.nodes) : legacy.nodes,
-      comments: [],
     }
   }
 
@@ -1368,9 +1395,6 @@ export function parseCanvasSnapshot(serialized: string): CanvasSnapshotV2 {
     ) ||
     !Array.isArray(value.edges) ||
     !value.edges.every(isCanvasEdge) ||
-    !Array.isArray(value.comments) ||
-    !value.comments.every(isCanvasComment) ||
-    new Set((value.comments as CanvasComment[]).map((comment) => comment.id)).size !== value.comments.length ||
     !hasValidGraph(
       value.nodes as CanvasNode[],
       value.edges as CanvasEdge[],

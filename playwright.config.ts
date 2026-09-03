@@ -15,7 +15,7 @@ export default defineConfig({
       name: 'chrome-desktop',
       use: {
         ...devices['Desktop Chrome'],
-        channel: 'chrome',
+        channel: process.env.CI ? undefined : 'chrome',
         viewport: { width: 1440, height: 900 },
       },
     },
@@ -25,5 +25,8 @@ export default defineConfig({
     url: 'http://127.0.0.1:4273',
     reuseExistingServer: false,
     timeout: 30_000,
+  },
+  expect: {
+    toHaveScreenshot: { animations: 'disabled', maxDiffPixelRatio: 0.01 },
   },
 })

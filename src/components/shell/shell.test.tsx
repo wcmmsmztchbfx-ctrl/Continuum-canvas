@@ -8,8 +8,6 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   BottomStatusBar,
-  ModeSwitch,
-  StoryboardView,
   ToolDock,
   TopBar,
   WorkspaceMenu,
@@ -50,15 +48,6 @@ describe('shell controls', () => {
     expect(html).toContain('data-tooltip="工作区与画布"')
   })
 
-  it('exposes a controlled workflow/storyboard mode switch', () => {
-    const onChange = vi.fn()
-
-    const html = markup(<ModeSwitch value="workflow" onChange={onChange} />)
-
-    expect(html).toMatch(/aria-label="工作流"[^>]*aria-pressed="true"/)
-    expect(html).toMatch(/aria-label="故事板"[^>]*aria-pressed="false"/)
-  })
-
   it('renders collaboration and Agent commands without membership state', () => {
     const html = markup(
       <TopBar />,
@@ -81,13 +70,10 @@ describe('shell controls', () => {
 
   it('composes all primary commands in the top bar', () => {
     const onCollaboration = vi.fn()
-    const onModeChange = vi.fn()
 
     const html = markup(
       <TopBar
-        mode="workflow"
         onCollaboration={onCollaboration}
-        onModeChange={onModeChange}
       />,
     )
 
@@ -130,23 +116,6 @@ describe('shell controls', () => {
     expect(html).not.toContain('角色库')
   })
 
-  it('renders storyboard text, image, video, and reference sections', () => {
-    const html = markup(
-      <StoryboardView
-        nodes={[
-          { id: 'text-1', name: '旁白', type: 'text' },
-          { id: 'image-1', name: '画面', type: 'image' },
-          { id: 'video-1', name: '镜头', type: 'video' },
-        ]}
-        open
-      />,
-    )
-    expect(html).toContain('aria-label="故事板视图"')
-    expect(html).toContain('>文本<')
-    expect(html).toContain('>图片<')
-    expect(html).toContain('>视频<')
-    expect(html).toContain('>添加参考<')
-  })
 
   it('renders canvas status and accessible status actions', () => {
     const onAssetManager = vi.fn()
@@ -175,18 +144,11 @@ describe('reference geometry and styling', () => {
     )
   })
 
-  it('matches the 2552 by 1308 workspace and mode anchors', () => {
+  it('matches the 2552 by 1308 workspace anchors', () => {
     expect(cssRule('.workspace-menu')).toMatch(/left:\s*16px/)
     expect(cssRule('.workspace-menu')).toMatch(/top:\s*20px/)
     expect(cssRule('.workspace-menu')).toMatch(/width:\s*234px/)
     expect(cssRule('.workspace-menu')).toMatch(/height:\s*40px/)
-
-    expect(cssRule('.mode-switch')).toMatch(/left:\s*50%/)
-    expect(cssRule('.mode-switch')).toMatch(/top:\s*19px/)
-    expect(cssRule('.mode-switch')).toMatch(/width:\s*180px/)
-    expect(cssRule('.mode-switch')).toMatch(/height:\s*42px/)
-    expect(cssRule('.mode-switch__option')).toMatch(/width:\s*83px/)
-    expect(cssRule('.mode-switch__option')).toMatch(/height:\s*32px/)
   })
 
   it('matches the supplied top-right cluster dimensions', () => {
@@ -215,11 +177,6 @@ describe('reference geometry and styling', () => {
     expect(cssRule('.workspace-menu')).toMatch(/border-radius:\s*8px/)
     expect(cssRule('.workspace-menu__title')).toMatch(/font-size:\s*16px/)
     expect(cssRule('.workspace-menu__title')).toMatch(/line-height:\s*24\.8px/)
-    expect(cssRule('.mode-switch__option')).toMatch(/font-size:\s*13px/)
-    expect(cssRule('.mode-switch__option')).toMatch(/line-height:\s*20\.15px/)
-    expect(cssRule('.mode-switch__option[aria-pressed="true"]')).toContain(
-      'background: rgb(54, 54, 54)',
-    )
     expect(cssRule('.shell-icon-button')).toContain(
       'background: rgba(38, 38, 38, 0.8)',
     )

@@ -63,7 +63,7 @@ describe('assetRegistry service', () => {
     expect(searchForest[0].name).toBe('背景_森林.png')
   })
 
-  it('registers canvas image and video nodes directly into the asset library', () => {
+  it('registers canvas image and video nodes directly into the asset library', async () => {
     const imgNode: CanvasNode = {
       id: 'node-img-1',
       type: 'image',
@@ -73,7 +73,7 @@ describe('assetRegistry service', () => {
       data: { url: '/assets/sample.png' },
     }
 
-    const saved = assetRegistry.registerNodeAsAsset(imgNode, 'p1')
+    const saved = await assetRegistry.registerNodeAsAsset(imgNode, 'p1')
     expect(saved).not.toBeNull()
     expect(saved?.name).toBe('我的立绘')
     expect(saved?.type).toBe('image')
@@ -83,12 +83,12 @@ describe('assetRegistry service', () => {
     expect(list).toHaveLength(1)
   })
 
-  it('deletes assets in bulk', () => {
+  it('deletes assets in bulk', async () => {
     const a1 = assetRegistry.addAsset({ name: '1.png', type: 'image', url: '/1' })
     const a2 = assetRegistry.addAsset({ name: '2.png', type: 'image', url: '/2' })
     const a3 = assetRegistry.addAsset({ name: '3.png', type: 'image', url: '/3' })
 
-    assetRegistry.deleteAssets([a1.id, a2.id])
+    await assetRegistry.deleteAssets([a1.id, a2.id])
     const remaining = assetRegistry.listAssets()
     expect(remaining).toHaveLength(1)
     expect(remaining[0].id).toBe(a3.id)

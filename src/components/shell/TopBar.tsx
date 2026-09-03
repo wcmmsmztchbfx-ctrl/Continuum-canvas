@@ -1,7 +1,6 @@
 import { UsersRound } from 'lucide-react'
 
 import { AgentButton } from './AgentButton'
-import type { ShellMode } from './ModeSwitch'
 import { TopBarFeatureButton } from './TopBarFeatureButton'
 
 export interface TopBarProps {
@@ -11,10 +10,8 @@ export interface TopBarProps {
     displayName: string
     color: string
   }>
-  mode?: ShellMode
   onAgent?: () => void
   onCollaboration?: () => void
-  onModeChange?: (mode: ShellMode) => void
 }
 
 export function TopBar({

@@ -114,13 +114,30 @@ CANVAS_GATEWAY_PORT=5180 CANVAS_DATA_DIR=/var/lib/libtv-canvas npm run server
 
 供应商 API 只返回密钥是否已配置和掩码，不返回明文。gateway 的启动错误与上游错误会映射为受控错误码，不把密钥、上游 URL 或原始异常正文写入响应。`.env.example` 中的密钥值为空，不能直接调用真实供应商。
 
-## 验证
+## 测试与合并门禁
+
+PR 门禁运行零警告 lint、前端与服务端单元测试、真实性能门禁、生产构建和核心 Smoke：
 
 ```bash
-npm run test:server
-npm test
 npm run lint
+npm test
+npm run test:server
+npm run test:performance
 npm run build
+npm run test:e2e:smoke
 ```
 
-端到端测试使用 `npm run test:e2e`。视觉参考与当前截图位于 `tests/visual/reference` 和 `tests/visual/current`，测量说明见 `docs/reference-matrix.md`。
+Nightly 独立运行多人协作、离线恢复、复杂画布和 Continuum 自有视觉回归：
+
+```bash
+npm run test:nightly
+```
+
+视觉测试只允许通过显式命令更新基线，普通测试不会写入受版本控制的截图：
+
+```bash
+npm run test:e2e:visual
+npm run test:e2e:update-visual
+```
+
+E2E 使用本地有效 PNG、H.264 MP4 和 Fake Provider，并阻止浏览器访问非本机 HTTP 服务。测试失败产物位于 `test-results/`；GitHub Actions 会保存 trace、截图、视频和服务端日志。`CONTINUUM_E2E` 只由专用 E2E 网关进程设置，生产环境的重置路由固定返回 `404`。

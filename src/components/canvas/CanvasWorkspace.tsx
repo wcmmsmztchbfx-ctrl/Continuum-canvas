@@ -28,6 +28,8 @@ import {
   type NodeSize,
   type Point,
   type Viewport,
+  type PathAnchor,
+  type PathNode as PathModel,
 } from '../../model/project'
 import type { InteractionPreview, NodeLease, NodeLeaseKind, PresenceState } from '../../contracts/collaboration'
 import { selectCatalogModel } from '../../contracts/catalog'
@@ -62,12 +64,15 @@ import { FrameNode, PathNode, ShapeNode } from './CreativeNodes'
 import { canEditReferencesWithCatalog, resolveVideoMode } from './generationUi'
 import { CollaborationPresenceLayer } from './CollaborationPresenceLayer'
 import { ImageEditorWorkspace } from './ImageEditorModal'
-import { snapRect, snapResizeRect, unionRect, type ResizeDirection, type SnapDistance, type SnapGuide, type SnapRect, type SnapState } from './smartSnapping'
+import { rotatedBounds, snapRect, snapResizeRect, unionRect, type ResizeDirection, type SnapDistance, type SnapGuide, type SnapRect, type SnapState } from './smartSnapping'
 import { stabilizeProjectedEdges, stabilizeProjectedNodes } from './flowProjection'
 import { useCanvasDrop } from './useCanvasDrop'
 import { SnapOverlay } from './CanvasSnapOverlay'
 import { BrushPreview } from './CanvasBrushOverlay'
 import { CreationPreview } from './CanvasCreationPreview'
+import { CanvasPenOverlay } from './CanvasPenOverlay'
+import { CanvasPathEditorOverlay } from './CanvasPathEditorOverlay'
+import { computePathBounds, normalizePathAnchors } from './pathUtils'
 import { LiveSelectionToolbar } from './LiveSelectionToolbar'
 import { useCanvasGeneration } from './useCanvasGeneration'
 import { useCanvasViewportSync } from './useCanvasViewportSync'
@@ -117,10 +122,12 @@ export interface CanvasWorkspaceProps {
   onPaneContextMenu?: (position: { x: number; y: number }) => void
   onPaneDoubleClick?: (position: { x: number; y: number }) => void
   onPaneClick?: () => void
-  onToolComplete?: (tool: 'frame' | 'shape' | 'text', nodeId: string) => void
+  onToolComplete?: (tool: 'frame' | 'shape' | 'text' | 'pen', nodeId: string) => void
   onSelectionAction?: (action: SelectionAction) => void
   onGenerationError?: (message: string) => void
   onImageEditingStateChange?: (state: { nodeId?: string; dirty: boolean; requestSelect?: (nodeId: string | null) => boolean }) => void
+  editingPathNodeId?: string | null
+  onEditingPathNodeChange?: (nodeId: string | null) => void
   collaboration?: CanvasWorkspaceCollaboration
 }
 
@@ -230,8 +237,17 @@ export function CanvasWorkspace({
   onSelectionAction,
   onGenerationError,
   onImageEditingStateChange,
+  editingPathNodeId: propEditingPathNodeId,
+  onEditingPathNodeChange,
   collaboration,
 }: CanvasWorkspaceProps) {
+  const [internalEditingPathNodeId, setInternalEditingPathNodeId] = useState<string | null>(null)
+  const currentEditingPathNodeId = propEditingPathNodeId !== undefined ? propEditingPathNodeId : internalEditingPathNodeId
+  const setEditingPathNodeId = useCallback((id: string | null) => {
+    if (onEditingPathNodeChange) onEditingPathNodeChange(id)
+    else setInternalEditingPathNodeId(id)
+  }, [onEditingPathNodeChange])
+
   const collaborationRef = useRef(collaboration)
   collaborationRef.current = collaboration
   const providerState = useOptionalProviderCatalog()
@@ -374,6 +390,39 @@ export function CanvasWorkspace({
       store.getState().selectNode(id)
     }
   }, [store])
+
+  const editingPathNode = useMemo(() => {
+    if (!currentEditingPathNodeId) return null
+    const n = snapshot.nodes.find((node) => node.id === currentEditingPathNodeId)
+    return n && n.type === 'path' ? (n as PathModel) : null
+  }, [currentEditingPathNodeId, snapshot.nodes])
+
+  const handleCommitPenPath = useCallback((anchors: PathAnchor[], closed: boolean) => {
+    if (anchors.length < 2) return
+    const bounds = computePathBounds(anchors, 16)
+    const normalized = normalizePathAnchors(anchors, { x: bounds.minX, y: bounds.minY })
+    const id = createCanvasId('t')
+    const node: PathModel = {
+      id,
+      type: 'path',
+      name: '路径',
+      position: { x: bounds.minX, y: bounds.minY },
+      size: { width: bounds.width, height: bounds.height },
+      data: {
+        kind: 'pen',
+        anchors: normalized,
+        closed,
+        fill: closed ? '#202020' : 'transparent',
+        stroke: '#ffffff',
+        strokeWidth: 2,
+        strokeStyle: 'solid',
+        opacity: 1,
+      },
+    }
+    store.getState().addNode(node)
+    store.getState().selectNode(id)
+    onToolComplete?.('pen', id)
+  }, [onToolComplete, store])
 
   const captureFrame = useCallback(async (nodeId: string, video: HTMLVideoElement, capture: 'first' | 'current' | 'last') => {
     const source = store.getState().snapshot.nodes.find((node) => node.id === nodeId)
@@ -530,9 +579,9 @@ export function CanvasWorkspace({
     [onNodeResize, readOnly, store],
   )
   const handleTextChange = useCallback(
-    (nodeId: string, text: string) => {
+    (nodeId: string, text: string, commit = true) => {
       if (readOnly || !ownsInteraction(nodeId, 'text')) return
-      store.getState().updateTextNode(nodeId, text)
+      store.getState().updateTextNode(nodeId, text, commit)
     },
     [ownsInteraction, readOnly, store],
   )
@@ -1065,9 +1114,11 @@ export function CanvasWorkspace({
     const projected = persistentNodes.map((node) => {
       const geometry = transientGeometry.get(node.id)
       const dropTarget = node.id === frameDropTargetId
-      if (!geometry && !dropTarget) return node
+      const isEditingVector = node.id === currentEditingPathNodeId
+      if (!geometry && !dropTarget && !isEditingVector) return node
       return {
         ...node,
+        data: isEditingVector ? { ...node.data, editingVector: true } : node.data,
         ...(geometry?.position ? { position: geometry.position } : {}),
         ...(geometry?.width !== undefined ? { width: geometry.width } : {}),
         ...(geometry?.height !== undefined ? { height: geometry.height } : {}),
@@ -1088,7 +1139,7 @@ export function CanvasWorkspace({
       }
     })
     return pendingConnection ? [...projected, pendingConnection.node] : projected
-  }, [frameDropTargetId, pendingConnection, persistentNodes, transientGeometry])
+  }, [currentEditingPathNodeId, frameDropTargetId, pendingConnection, persistentNodes, transientGeometry])
   const flowNodesRef = useRef(flowNodes)
   flowNodesRef.current = flowNodes
   const flowEdges = useMemo(() => {
@@ -1171,14 +1222,27 @@ export function CanvasWorkspace({
       if (!model || model.hidden || model.locked) continue
       const internal = flowInstance?.getInternalNode(node.id)
       const position = internal?.internals.positionAbsolute ?? node.position
-      result.push({
+      const baseRect: SnapRect = {
         id: node.id,
         x: position.x,
         y: position.y,
         width: model.size.width,
         height: model.size.height,
         kind: model.type === 'frame' ? 'frame' : 'node',
-      })
+      }
+      const nodeRotation = 'rotation' in model.data && typeof model.data.rotation === 'number' ? model.data.rotation : 0
+      result.push(nodeRotation ? rotatedBounds(baseRect, nodeRotation) : baseRect)
+
+      if (model.type === 'frame' && model.size.width > 64 && model.size.height > 64) {
+        result.push({
+          id: `${node.id}-inner`,
+          x: position.x + 16,
+          y: position.y + 16,
+          width: model.size.width - 32,
+          height: model.size.height - 32,
+          kind: 'frame',
+        })
+      }
     }
     return result
   }, [flowInstance, store])
@@ -1820,7 +1884,7 @@ export function CanvasWorkspace({
           } catch {}
         }
         const isInteractiveOverlay = event.target instanceof Element &&
-          event.target.closest('.canvas-minimap, .comments-panel, .layers-panel, .canvas-video-scrubber, .canvas-video-preview__toggle, button, input, select, textarea, [role="button"], [role="toolbar"]') !== null
+          event.target.closest('.canvas-minimap, .layers-panel, .canvas-video-scrubber, .canvas-video-preview__toggle, button, input, select, textarea, [role="button"], [role="toolbar"]') !== null
         if (event.button === 0 && !readOnly && activeTool === 'brush' && flowInstance && !isInteractiveOverlay) {
           event.stopPropagation()
           const startPoint = flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
@@ -1958,11 +2022,8 @@ export function CanvasWorkspace({
           return
         }
 
-        if (activeTool === 'pen' && flowInstance) {
-          event.preventDefault()
-          const point = flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
-          commitPath([...penPoints.current, point], 'pen')
-          penPoints.current = []
+        if (currentEditingPathNodeId) {
+          setEditingPathNodeId(null)
           return
         }
 
@@ -1976,6 +2037,12 @@ export function CanvasWorkspace({
         edges={flowEdges}
         nodeTypes={canvasNodeTypes}
         edgeTypes={canvasEdgeTypes}
+        onNodeDoubleClick={(_event, node) => {
+          if (readOnly) return
+          if (node.type === 'path') {
+            setEditingPathNodeId(node.id)
+          }
+        }}
         defaultViewport={project.viewport}
         minZoom={CANVAS_MIN_ZOOM}
         maxZoom={CANVAS_MAX_ZOOM}
@@ -2028,17 +2095,21 @@ export function CanvasWorkspace({
           const rawDx = initialPrimary ? node.position.x - initialPrimary.position.x : 0
           const rawDy = initialPrimary ? node.position.y - initialPrimary.position.y : 0
 
+          const modelById = new Map(store.getState().snapshot.nodes.map((n) => [n.id, n]))
           const rects = nodes.map((item) => {
             const init = initialGeometries.get(item.id)
             const baseX = init?.positionAbsolute.x ?? item.position.x
             const baseY = init?.positionAbsolute.y ?? item.position.y
-            return {
+            const baseRect: SnapRect = {
               id: item.id,
               x: baseX + rawDx,
               y: baseY + rawDy,
               width: item.width ?? (Number(item.style?.width) || 0),
               height: item.height ?? (Number(item.style?.height) || 0),
             }
+            const model = modelById.get(item.id)
+            const itemRotation = model && 'rotation' in model.data && typeof model.data.rotation === 'number' ? model.data.rotation : 0
+            return itemRotation ? rotatedBounds(baseRect, itemRotation) : baseRect
           })
           const selection = unionRect(rects)
           const keyboard = event as MouseEvent
@@ -2137,6 +2208,11 @@ export function CanvasWorkspace({
           })
           const snapDx = snapped.rect.x - selection.x
           const snapDy = snapped.rect.y - selection.y
+          const finalCenter = {
+            x: snapped.rect.x + snapped.rect.width / 2,
+            y: snapped.rect.y + snapped.rect.height / 2,
+          }
+          const targetFrameId = deepestFrameAt(finalCenter, nodes.map((item) => item.id))
 
           store.getState().moveNodesInHierarchy(nodes.map((item) => {
             const before = initial.get(item.id)
@@ -2149,7 +2225,7 @@ export function CanvasWorkspace({
                   }
                 : item.position,
             }
-          }), drag.targetFrameId)
+          }), targetFrameId)
           collaboration?.clearPreview?.()
           collaboration?.clearInteraction?.()
           collaboration?.releaseLease?.()
@@ -2269,19 +2345,18 @@ export function CanvasWorkspace({
           event.stopPropagation()
           store.getState().selectEdge(edge.id, event.shiftKey)
         }}
-        onPaneClick={(event) => {
+        onPaneClick={() => {
           cancelPendingConnection()
           setReferencePickTargetId(null)
-          if (activeTool === 'brush') {
+          if (activeTool === 'brush' || activeTool === 'pen') {
             return
           }
           if (suppressPaneClick.current) {
             suppressPaneClick.current = false
             return
           }
-          if (!readOnly && flowInstance && activeTool === 'pen') {
-            penPoints.current.push(flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }))
-            return
+          if (currentEditingPathNodeId) {
+            setEditingPathNodeId(null)
           }
           if (imageEditorDirty && editingImageNodeId) { setPendingImageSelection({ requested: true, nodeId: null }); setPendingImageMode('generate'); return }
           store.getState().selectNode(null)
@@ -2309,6 +2384,23 @@ export function CanvasWorkspace({
         {creationPreview ? <CreationPreview preview={creationPreview} /> : null}
         {snapOverlay.guides.length || snapOverlay.distances.length ? <SnapOverlay distances={snapOverlay.distances} guides={snapOverlay.guides} /> : null}
         {brushPreview.length > 1 ? <BrushPreview points={brushPreview} /> : null}
+        {activeTool === 'pen' && flowInstance ? (
+          <CanvasPenOverlay
+            onCancel={() => onToolComplete?.('pen', '')}
+            onCommitPath={handleCommitPenPath}
+            screenToFlowPosition={flowInstance.screenToFlowPosition}
+          />
+        ) : null}
+        {editingPathNode && flowInstance ? (
+          <CanvasPathEditorOverlay
+            node={editingPathNode}
+            onExit={() => setEditingPathNodeId(null)}
+            onUpdateNode={(changes, commit = true) => {
+              store.getState().patchNode(editingPathNode.id, changes, commit)
+            }}
+            screenToFlowPosition={flowInstance.screenToFlowPosition}
+          />
+        ) : null}
         {collaboration ? (
           <CollaborationPresenceLayer presence={collaboration.presence} />
         ) : null}

@@ -1,0 +1,31 @@
+import { expect, test } from "../../fixtures/e2e-env"
+
+test.describe("16 - Image Editor & Versioning", () => {
+  test("image editor retains non-destructive derivative versions", async ({ page }) => {
+    await page.goto("/canvas?spaceId=local&projectId=reference")
+    await expect(page.getByTestId("app-shell")).toHaveAttribute("data-hydrated", "true")
+
+    const imageNode = page.locator(".react-flow__node[data-id='i-Ia5V4APL5X']")
+    await expect(imageNode).toBeVisible()
+    await imageNode.click()
+    const panel = page.locator(".canvas-node-generator").first()
+    await expect(panel).toBeVisible()
+    await panel.getByRole("tab", { name: "编辑" }).click()
+    await expect(panel.getByLabel("裁剪比例")).toBeVisible()
+    const download = imageNode.getByRole("link", { name: /下载图片/ })
+    const originalSrc = await download.getAttribute("href")
+    await panel.getByLabel("裁剪比例").selectOption("1:1")
+    await panel.getByRole("button", { name: "旋转" }).click()
+    await panel.getByRole("button", { name: "保存新版本" }).click()
+    const versions = panel.getByLabel("图片版本")
+    await expect(versions).toBeVisible()
+    await expect(versions.locator("option")).toHaveCount(2)
+    const editedSrc = await download.getAttribute("href")
+    expect(editedSrc).not.toBe(originalSrc)
+    await versions.selectOption({ index: 0 })
+    await expect(download).toHaveAttribute("href", originalSrc!)
+    await page.reload()
+    await imageNode.click()
+    await expect(page.getByLabel("图片版本").locator("option")).toHaveCount(2)
+  })
+})

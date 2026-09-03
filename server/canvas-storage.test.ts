@@ -22,7 +22,6 @@ const testCanvas: CanvasSnapshotV2 = {
     },
   ],
   edges: [],
-  comments: [],
 }
 
 describe('CanvasPersistenceService', () => {

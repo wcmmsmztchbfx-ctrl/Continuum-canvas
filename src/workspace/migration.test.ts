@@ -38,7 +38,6 @@ describe('legacy workspace migration', () => {
         name: '画布 1',
         nodes: expect.arrayContaining(legacy.nodes.map((node) => expect.objectContaining({ id: node.id, position: node.position }))),
         edges: legacy.edges,
-        comments: [],
       }),
     ])
   })

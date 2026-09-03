@@ -22,11 +22,6 @@ export type {
 } from './KeyboardShortcutsDialog'
 export { LayoutDecisionBar } from './LayoutDecisionBar'
 export type { LayoutDecisionBarProps } from './LayoutDecisionBar'
-export { PublishDialog } from './PublishDialog'
-export type {
-  PublishDialogProps,
-  PublishVisibility,
-} from './PublishDialog'
 export { SelectionToolbar } from './SelectionToolbar'
 export type {
   SelectionAction,
