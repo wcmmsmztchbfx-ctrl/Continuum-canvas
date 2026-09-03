@@ -19,6 +19,7 @@ interface ExplicitMainOptions {
   dataDir?: string
   host?: string
   port?: number
+  adminPort?: number
   assetImportTimeoutMs?: number
   generationMaxRunTimeMs?: number
   publicOrigin?: string
@@ -63,6 +64,12 @@ export async function resolveMainOptions(
     port: explicit.port
       ?? validPort(env.CANVAS_GATEWAY_PORT ?? env.GATEWAY_PORT)
       ?? (production ? 4173 : 4174),
+    // The administration API is deliberately loopback-only. In production
+    // it lives beside the static gateway on 4174; during Vite development it
+    // uses 4175 so the 4174 gateway remains available to the proxy.
+    adminPort: explicit.adminPort
+      ?? validPort(env.CANVAS_ADMIN_PORT ?? env.ADMIN_PORT)
+      ?? (production ? 4174 : 4175),
     assetImportTimeoutMs: resolveAssetImportTimeoutMs(
       explicit.assetImportTimeoutMs ?? env.CANVAS_ASSET_IMPORT_TIMEOUT_MS,
     ),
@@ -82,6 +89,7 @@ interface SignalSource {
 
 interface MainHandle {
   origin: string
+  adminOrigin?: string
   close(): Promise<void>
 }
 
@@ -94,6 +102,7 @@ export async function runMain(options: {
   dataDir?: string
   host?: string
   port?: number
+  adminPort?: number
   assetImportTimeoutMs?: number
   generationMaxRunTimeMs?: number
   publicOrigin?: string
@@ -114,6 +123,7 @@ export async function runMain(options: {
     dataDir: options.dataDir,
     host: options.host,
     port: options.port,
+    adminPort: options.adminPort,
     assetImportTimeoutMs: options.assetImportTimeoutMs,
     generationMaxRunTimeMs: options.generationMaxRunTimeMs,
     publicOrigin: options.publicOrigin,
@@ -129,6 +139,7 @@ export async function runMain(options: {
   signals.once('SIGINT', shutdown)
   signals.once('SIGTERM', shutdown)
   options.log?.(`Canvas gateway listening at ${handle.origin}`)
+  if (handle.adminOrigin) options.log?.(`Canvas administration listening at ${handle.adminOrigin}`)
   return handle
 }
 

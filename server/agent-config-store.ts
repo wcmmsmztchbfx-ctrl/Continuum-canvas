@@ -134,6 +134,8 @@ export class AgentConfigStore {
   private readonly filePath: string
   private readonly env: Record<string, string | undefined>
   private readonly envFile?: string
+  private readonly secretFile?: string
+  private secrets: Record<string, string>
   private providers: AgentProviderRecord[]
 
   private constructor(
@@ -141,17 +143,23 @@ export class AgentConfigStore {
     env: Record<string, string | undefined>,
     providers: AgentProviderRecord[],
     envFile?: string,
+    secretFile?: string,
+    secrets: Record<string, string> = {},
   ) {
     this.filePath = filePath
     this.env = env
     this.providers = providers
     this.envFile = envFile
+    this.secretFile = secretFile
+    this.secrets = secrets
   }
 
   static async open(options: {
     dataDir: string
     env?: Record<string, string | undefined>
     envFile?: string
+    secretFile?: string
+    seed?: { providers: AgentProviderRecord[]; secrets?: Record<string, string> }
   }): Promise<AgentConfigStore> {
     await mkdir(options.dataDir, { recursive: true })
     const filePath = join(options.dataDir, 'agent-providers.json')
@@ -175,13 +183,46 @@ export class AgentConfigStore {
       // First run — start with empty list; user adds via presets
     }
 
+    if (loadedProviders.length === 0 && options.seed?.providers) {
+      loadedProviders = options.seed.providers.map((provider) => ({ ...provider }))
+    }
+
     // Ensure at most one preferred
     if (loadedProviders.length > 0 && !loadedProviders.some((p) => p.preferred)) {
       loadedProviders[0]!.preferred = true
     }
 
-    const store = new AgentConfigStore(filePath, options.env ?? process.env, loadedProviders, options.envFile)
+    let secrets: Record<string, string> = {}
+    if (options.secretFile) {
+      let secretFileExists = true
+      try {
+        const parsed: unknown = JSON.parse(await readFile(options.secretFile, 'utf8'))
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          secrets = Object.fromEntries(Object.entries(parsed).filter(([id, value]) =>
+            /^[a-z][a-z0-9-]{0,63}$/.test(id) && typeof value === 'string' && value.length > 0,
+          ))
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') secretFileExists = false
+        else throw error
+      }
+      if (!secretFileExists && options.seed?.secrets) {
+        secrets = Object.fromEntries(Object.entries(options.seed.secrets).filter(([id, value]) =>
+          /^[a-z][a-z0-9-]{0,63}$/.test(id) && typeof value === 'string' && value.length > 0,
+        ))
+      }
+    }
+
+    const store = new AgentConfigStore(
+      filePath,
+      options.env ?? process.env,
+      loadedProviders,
+      options.envFile,
+      options.secretFile,
+      secrets,
+    )
     await store.persist()
+    if (options.secretFile) await store.persistSecrets()
     return store
   }
 
@@ -202,27 +243,53 @@ export class AgentConfigStore {
     })
   }
 
+  private async persistSecrets(): Promise<void> {
+    if (!this.secretFile) return
+    await atomicWriteJson(this.secretFile, this.secrets)
+  }
+
+  listRecords(): AgentProviderRecord[] {
+    return this.providers.map((provider) => ({ ...provider }))
+  }
+
+  listSecrets(): Record<string, string> {
+    return Object.fromEntries(this.providers.flatMap((provider) => {
+      const secret = this.getSecret(provider.id)
+      return secret ? [[provider.id, secret]] : []
+    }))
+  }
+
   getSecret(id: string): string | undefined {
     const provider = this.providers.find((p) => p.id === id)
     if (!provider) return undefined
     const key = provider.secretEnvName || `AGENT_LLM_${provider.id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_KEY`
-    return this.env[key]?.trim() || undefined
+    return (this.secretFile ? this.secrets[id] : this.env[key])?.trim() || undefined
   }
 
   async setSecret(id: string, secret: string): Promise<void> {
     const provider = this.providers.find((p) => p.id === id)
     if (!provider) return
     const key = provider.secretEnvName || `AGENT_LLM_${provider.id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_KEY`
-    this.env[key] = secret.trim()
-    await this.persistEnvSecret(key, secret.trim())
+    if (this.secretFile) {
+      this.secrets[id] = secret.trim()
+      await this.persistSecrets()
+    } else {
+      this.env[key] = secret.trim()
+      await this.persistEnvSecret(key, secret.trim())
+    }
   }
 
   async deleteSecret(id: string): Promise<void> {
     const provider = this.providers.find((p) => p.id === id)
     if (!provider) return
     const key = provider.secretEnvName || `AGENT_LLM_${provider.id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_KEY`
-    delete this.env[key]
-    await this.persistEnvSecret(key)
+    if (this.secretFile) {
+      delete this.secrets[id]
+      await this.persistSecrets()
+    } else {
+      delete this.env[key]
+      await this.persistEnvSecret(key)
+    }
   }
 
   toPublic(record: AgentProviderRecord): PublicAgentProvider {

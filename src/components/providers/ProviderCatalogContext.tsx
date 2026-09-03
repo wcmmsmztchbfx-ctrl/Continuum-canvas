@@ -20,10 +20,12 @@ import {
   gatewayClient,
   isMissingCatalogError,
   type GatewayRequestOptions,
+  type CanvasApiScope,
   type ProviderUpdate,
 } from '../../services/gatewayClient'
 
 export interface ProviderGateway {
+  setCanvasApiScope?: (scope?: CanvasApiScope) => void
   listProviders: (
     options?: GatewayRequestOptions,
   ) => Promise<ProviderMetadata[]>
@@ -150,9 +152,11 @@ function replaceProvider(
 export function ProviderCatalogProvider({
   children,
   gateway = gatewayClient,
+  canvasScope,
 }: {
   children: ReactNode
   gateway?: ProviderGateway
+  canvasScope?: CanvasApiScope
 }) {
   const [providers, setProviders] = useState<ProviderMetadata[]>([])
   const providersRef = useRef<ProviderMetadata[]>([])
@@ -350,9 +354,20 @@ export function ProviderCatalogProvider({
   useEffect(() => {
     const controller = new AbortController()
     lifecycleRef.current = controller
+    gateway.setCanvasApiScope?.(canvasScope)
+    providersRef.current = []
+    catalogsRef.current = {}
+    catalogLoadErrorsRef.current.clear()
+    automaticSyncCompletedAtRef.current.clear()
+    syncInFlightRef.current.clear()
+    setProviders([])
+    setCatalogs({})
+    setSelectedProviderId(undefined)
+    setError(undefined)
+    setLoading(true)
     void refreshProviders()
     return () => controller.abort()
-  }, [refreshProviders])
+  }, [canvasScope?.canvasId, canvasScope?.projectId, gateway, refreshProviders])
 
   const selectProvider = useCallback(
     async (providerId: string) => {

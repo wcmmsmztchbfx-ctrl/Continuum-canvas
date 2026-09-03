@@ -179,7 +179,7 @@ function parseGenerationRequest(
   options: { allowLegacyProject?: boolean } = {},
 ): PersistedGenerationRequest | undefined {
   if (!isRecord(value) || !hasOnlyKeys(value, [
-    'clientRequestId', 'projectId', 'canvasId', 'targetNodeId', 'providerId', 'catalogVersion', 'mediaType', 'channel', 'model', 'prompt',
+    'clientRequestId', 'projectId', 'canvasId', 'workspaceNamespace', 'targetNodeId', 'providerId', 'catalogVersion', 'mediaType', 'channel', 'model', 'prompt',
     'quality', 'aspectRatio', 'n', 'duration', 'generateAudio', 'mode', 'references',
   ])) return undefined
   if (!isNonEmptyString(value.clientRequestId, 256)) return undefined
@@ -187,6 +187,8 @@ function parseGenerationRequest(
     if (!options.allowLegacyProject) return undefined
   } else if (!isNonEmptyString(value.projectId, 256)) return undefined
   if (value.canvasId !== undefined && !isNonEmptyString(value.canvasId, 256)) return undefined
+  if (value.workspaceNamespace !== undefined &&
+    (!isNonEmptyString(value.workspaceNamespace, 128) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.workspaceNamespace))) return undefined
   if (value.targetNodeId !== undefined && !isNonEmptyString(value.targetNodeId, 256)) return undefined
   if (!isNonEmptyString(value.providerId, 64) || !/^[a-z0-9][a-z0-9-]*$/.test(value.providerId)) return undefined
   if (!isNonEmptyString(value.catalogVersion, 256)) return undefined
@@ -209,6 +211,7 @@ function parseGenerationRequest(
     clientRequestId: value.clientRequestId,
     ...(typeof value.projectId === 'string' ? { projectId: value.projectId } : {}),
     ...(typeof value.canvasId === 'string' ? { canvasId: value.canvasId } : {}),
+    ...(typeof value.workspaceNamespace === 'string' ? { workspaceNamespace: value.workspaceNamespace } : {}),
     ...(typeof value.targetNodeId === 'string' ? { targetNodeId: value.targetNodeId } : {}),
     providerId: value.providerId,
     catalogVersion: value.catalogVersion,
@@ -867,8 +870,8 @@ export class GenerationRunner {
     history?: GenerationHistoryStore
     assets: AssetStore
     lock: DataDirectoryLockHandle
-    adapterFor: (providerId: string) => ProviderAdapter
-    catalogFor: (providerId: string) => ProviderCatalog | Promise<ProviderCatalog>
+    adapterFor: (providerId: string, request?: PersistedGenerationRequest) => ProviderAdapter | Promise<ProviderAdapter>
+    catalogFor: (providerId: string, request?: PersistedGenerationRequest) => ProviderCatalog | Promise<ProviderCatalog>
     schedule?: Schedule
     cancelSchedule?: (handle: ScheduleHandle) => void
     pollDelayMs?: () => number
@@ -884,8 +887,8 @@ export class GenerationRunner {
     history?: GenerationHistoryStore
     assets: AssetStore
     lock: DataDirectoryLockHandle
-    adapterFor: (providerId: string) => ProviderAdapter
-    catalogFor: (providerId: string) => ProviderCatalog | Promise<ProviderCatalog>
+    adapterFor: (providerId: string, request?: PersistedGenerationRequest) => ProviderAdapter | Promise<ProviderAdapter>
+    catalogFor: (providerId: string, request?: PersistedGenerationRequest) => ProviderCatalog | Promise<ProviderCatalog>
     schedule?: Schedule
     cancelSchedule?: (handle: ScheduleHandle) => void
     pollDelayMs?: () => number
@@ -940,7 +943,7 @@ export class GenerationRunner {
     collaboration?: GenerationJobCollaborationContext,
   ): Promise<GenerationJob> {
     if (this.closed) throw new Error('Generation runner is closed')
-    validateGenerationRequest(request, await this.options.catalogFor(request.providerId))
+    validateGenerationRequest(request, await this.options.catalogFor(request.providerId, request))
     if (request.references.some((reference) => reference.url) && !this.options.assets.canImportRemote()) {
       throw new RemoteReferenceImportError()
     }
@@ -966,7 +969,7 @@ export class GenerationRunner {
       return job
     }
     if (this.hasExceededRunTime(job)) return this.failTimedOut(id)
-    const adapter = this.options.adapterFor(job.request.providerId)
+    const adapter = await this.options.adapterFor(job.request.providerId, job.request)
     let upstream: UpstreamTaskStatus | undefined
     try {
       const statuses = await this.retry(() => adapter.getGenerationStatus([job.upstreamTaskId as string], this.signal))
@@ -1030,7 +1033,7 @@ export class GenerationRunner {
   }
 
   private async stageAndCreate(job: GenerationJob): Promise<GenerationJob> {
-    const adapter = this.options.adapterFor(job.request.providerId)
+    const adapter = await this.options.adapterFor(job.request.providerId, job.request)
     await this.options.jobs.update(job.id, { status: 'uploading', error: undefined })
     let references: StagedReference[]
     try {

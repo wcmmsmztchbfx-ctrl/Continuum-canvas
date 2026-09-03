@@ -28,6 +28,7 @@ import {
 import {
   createGatewayRuntime,
   type AdapterFactory,
+  type CanvasProviderScope,
   type GatewayRuntime,
   ProviderOperationError,
   ProviderUnavailableError,
@@ -58,6 +59,16 @@ import {
   LocalAdminService,
   localAdminTokenFromCookie,
 } from './local-admin-service.ts'
+import { CanvasPersistenceService } from './canvas-storage.ts'
+import { workstationWorkspaceManifest, WorkspaceService } from './workspace-service.ts'
+import {
+  WORKSTATION_USER_COOKIE,
+  normalizeWorkstationDisplayName,
+  parseWorkstationCookieValue,
+  workstationCookieValue,
+  workstationDataDir,
+  workstationUserId,
+} from './workstation.ts'
 
 
 class ApiError extends Error {
@@ -89,6 +100,8 @@ class BodyLimitError extends ApiError {
 const JSON_LIMIT = 1024 * 1024
 const RAW_LIMIT = 100 * 1024 * 1024
 const COLLABORATION_ROOM_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
+const WORKSTATION_COOKIE = WORKSTATION_USER_COOKIE
+const ADMIN_REQUEST = Symbol('continuum-admin-request')
 const LOOPBACK_ADDRESSES = new BlockList()
 LOOPBACK_ADDRESSES.addSubnet('127.0.0.0', 8, 'ipv4')
 LOOPBACK_ADDRESSES.addAddress('::1', 'ipv6')
@@ -104,6 +117,43 @@ const STATIC_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
   '.ico': 'image/x-icon',
+}
+
+function requestCookieValue(request: IncomingMessage, name: string): string | undefined {
+  const header = request.headers.cookie
+  if (!header) return undefined
+  for (const part of header.split(';')) {
+    const separator = part.indexOf('=')
+    if (separator <= 0) continue
+    if (part.slice(0, separator).trim() !== name) continue
+    return part.slice(separator + 1).trim()
+  }
+  return undefined
+}
+
+function workstationIdentityFromRequest(request: IncomingMessage) {
+  return parseWorkstationCookieValue(requestCookieValue(request, WORKSTATION_COOKIE))
+}
+
+function markAdminRequest(request: IncomingMessage): void {
+  Object.defineProperty(request, ADMIN_REQUEST, { value: true })
+}
+
+function isAdminRequest(request: IncomingMessage): boolean {
+  return Boolean((request as IncomingMessage & { [ADMIN_REQUEST]?: boolean })[ADMIN_REQUEST])
+}
+
+function setWorkstationCookie(
+  response: ServerResponse,
+  userId: string,
+  displayName: string,
+  secure: boolean,
+): void {
+  response.setHeader('set-cookie', [
+    `${WORKSTATION_COOKIE}=${workstationCookieValue(userId, displayName)}`,
+    'Path=/', 'HttpOnly', 'SameSite=Lax',
+    ...(secure ? ['Secure'] : []),
+  ].join('; '))
 }
 
 function sendJson(response: ServerResponse, status: number, payload: unknown, head = false): void {
@@ -211,11 +261,18 @@ function authorizeSensitiveRequest(
   localAdminAllowed: boolean,
   requiredRole: 'owner' | 'editor',
   allowLanApi: boolean = false,
-): { kind: 'local-admin' } | { kind: 'collaboration'; roomId: string; session: ReturnType<GatewayRuntime['collaboration']['authorizeSession']> } {
+  allowWorkstation = false,
+): { kind: 'local-admin' } | { kind: 'workstation'; userId: string } | { kind: 'collaboration'; roomId: string; session: ReturnType<GatewayRuntime['collaboration']['authorizeSession']> } {
   const cookieRooms = collaborationRoomIdsFromCookieHeader(request.headers.cookie)
   const header = request.headers['x-collaboration-room']
   const roomId = typeof header === 'string' ? header : ''
   if (header === undefined) {
+    // The administration listener is already bound to 127.0.0.1. The user
+    // explicitly chose port/IP restriction as its boundary, so do not add a
+    // second password/token prompt on that listener.
+    if (isAdminRequest(request)) return { kind: 'local-admin' }
+    const workstationIdentity = allowWorkstation ? workstationIdentityFromRequest(request) : undefined
+    if (workstationIdentity) return { kind: 'workstation', userId: workstationIdentity.userId }
     if (isAuthorizedAdminAddress(request.socket.remoteAddress, localAdminAllowed, allowLanApi)) {
       localAdmin.authorize(localAdminTokenFromCookie(request.headers.cookie))
       return { kind: 'local-admin' }
@@ -244,8 +301,17 @@ function authorizeProviderWrite(
   localAdmin: LocalAdminService,
   localAdminAllowed: boolean,
   allowLanApi: boolean = false,
-): void {
-  authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'owner', allowLanApi)
+  allowWorkstation = false,
+): ReturnType<typeof authorizeSensitiveRequest> {
+  return authorizeSensitiveRequest(
+    request,
+    runtime,
+    localAdmin,
+    localAdminAllowed,
+    'editor',
+    allowLanApi,
+    allowWorkstation,
+  )
 }
 
 function authorizeCanvasWrite(
@@ -255,10 +321,11 @@ function authorizeCanvasWrite(
   localAdminAllowed: boolean,
   allowLanApi: boolean,
   scope: { projectId: string; canvasId: string },
+  allowWorkstation = false,
 ): ReturnType<typeof authorizeSensitiveRequest> {
   const activeRoom = runtime.collaboration.getActiveRoomForScope(scope.projectId, scope.canvasId)
   if (!activeRoom) {
-    return authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'editor', allowLanApi)
+    return authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'editor', allowLanApi, allowWorkstation)
   }
   const header = request.headers['x-collaboration-room']
   if (typeof header !== 'string' || header !== activeRoom.roomId) {
@@ -818,6 +885,70 @@ interface SystemSettingsState {
   operationMode: CollaborationOperationMode
 }
 
+interface WorkstationIdentity {
+  userId: string
+  displayName: string
+}
+
+function collaborationRoomIdFromRequest(request: IncomingMessage): string | undefined {
+  const value = request.headers['x-collaboration-room']
+  if (typeof value !== 'string' || !COLLABORATION_ROOM_ID.test(value)) return undefined
+  return value
+}
+
+function providerScopeFromRequest(
+  runtime: GatewayRuntime,
+  request: IncomingMessage,
+  url: URL,
+  workspaceNamespace?: string,
+): CanvasProviderScope | undefined {
+  const roomId = collaborationRoomIdFromRequest(request)
+  if (roomId) {
+    try {
+      const room = runtime.collaboration.getRoomScope(roomId)
+      const namespace = runtime.collaboration.getRoomWorkspaceNamespace(roomId)
+      return {
+        projectId: room.projectId,
+        canvasId: room.canvasId,
+        ...(namespace ? { workspaceNamespace: namespace } : {}),
+      }
+    } catch {
+      // Leave authorization of an unknown room to the route's normal
+      // collaboration guard so callers receive the expected 403 response.
+      return undefined
+    }
+  }
+  const projectId = url.searchParams.get('projectId')
+  const canvasId = url.searchParams.get('canvasId')
+  if (projectId === null || canvasId === null) return undefined
+  if (!projectId || !canvasId || projectId.length > 256 || canvasId.length > 256) return undefined
+  return {
+    projectId,
+    canvasId,
+    ...(workspaceNamespace ? { workspaceNamespace } : {}),
+  }
+}
+
+function isManagementApiPath(pathname: string): boolean {
+  return pathname === '/api/local-admin/session' ||
+    pathname.startsWith('/api/system/') ||
+    pathname.startsWith('/api/collaboration/tunnel')
+}
+
+function requireWorkstationIdentity(
+  request: IncomingMessage,
+  systemSettings: SystemSettingsState,
+): WorkstationIdentity {
+  if (systemSettings.operationMode !== 'workstation') {
+    throw new ApiError(409, 'workstation_mode_required', 'Workstation mode is not enabled')
+  }
+  const identity = workstationIdentityFromRequest(request)
+  if (!identity) {
+    throw new ApiError(401, 'workstation_session_required', 'A workstation nickname is required')
+  }
+  return identity
+}
+
 async function routeApi(
   runtime: GatewayRuntime,
   localAdmin: LocalAdminService,
@@ -831,6 +962,10 @@ async function routeApi(
   localAdminRecoveryAllowed: boolean,
   frontendPort: number = 4173,
   systemSettings: SystemSettingsState = { allowLanApiManagement: false, operationMode: 'solo' },
+  workspace: WorkspaceService = runtime.workspace,
+  canvases: CanvasPersistenceService = runtime.canvases,
+  workspaceNamespace?: string,
+  adminPortOnly = false,
 ): Promise<boolean> {
   const method = request.method ?? 'GET'
   const path = url.pathname
@@ -858,9 +993,67 @@ async function routeApi(
     sendJson(response, 200, { ok: true, created: result.created })
     return true
   }
+  if (method === 'GET' && path === '/api/access/context') {
+    const requiresNickname = systemSettings.operationMode === 'host' || systemSettings.operationMode === 'workstation'
+    const identity = requiresNickname
+      ? workstationIdentityFromRequest(request)
+      : undefined
+    sendJson(response, 200, {
+      operationMode: systemSettings.operationMode,
+      connection: isLoopbackRemoteAddress(request.socket.remoteAddress) ? 'local' : 'lan',
+      workstation: {
+        authenticated: !requiresNickname || Boolean(identity),
+        ...(identity ? { userId: identity.userId, displayName: identity.displayName } : {}),
+      },
+      canManageSettings: isAdminRequest(request) ||
+        (!adminPortOnly && isLoopbackRemoteAddress(request.socket.remoteAddress) && localAdminAllowed),
+    })
+    return true
+  }
+  if (path === '/api/workstation/session') {
+    if (method === 'GET') {
+      const identity = systemSettings.operationMode === 'host' || systemSettings.operationMode === 'workstation'
+        ? workstationIdentityFromRequest(request)
+        : undefined
+      sendJson(response, 200, {
+        authenticated: Boolean(identity),
+        ...(identity ? { userId: identity.userId, displayName: identity.displayName } : {}),
+      })
+      return true
+    }
+    if (method === 'POST') {
+      if (systemSettings.operationMode !== 'workstation' && systemSettings.operationMode !== 'host') {
+        throw new ApiError(409, 'nickname_mode_required', 'A nickname entry mode is not enabled')
+      }
+      const body = record(await readJson(request))
+      strictKeys(body, ['displayName'])
+      if (typeof body.displayName !== 'string') {
+        throw new ApiError(400, 'invalid_input', 'displayName is required')
+      }
+      let displayName: string
+      try {
+        displayName = normalizeWorkstationDisplayName(body.displayName)
+      } catch {
+        throw new ApiError(400, 'invalid_input', 'displayName must contain between 1 and 32 characters')
+      }
+      const userId = workstationUserId(displayName)
+      // The cookie is a signed-by-derivation, nickname-only session. It is
+      // intentionally not an account system; the isolated folder is selected
+      // from the normalized nickname and no password is stored.
+      setWorkstationCookie(response, userId, displayName, secureCollaborationCookies)
+      sendJson(response, 200, { authenticated: true, userId, displayName })
+      return true
+    }
+  }
   if (method === 'POST' && path === '/api/collaboration/rooms') {
     const body = collaborationRoomInput(await readJson(request))
-    const enabled = await runtime.collaboration.enableRoom(body)
+    const identity = systemSettings.operationMode === 'workstation'
+      ? requireWorkstationIdentity(request, systemSettings)
+      : undefined
+    const enabled = await runtime.collaboration.enableRoom({
+      ...body,
+      ...(identity ? { workspaceNamespace: identity.userId } : {}),
+    })
     setCollaborationCookie(
       response,
       enabled.room.roomId,
@@ -1082,13 +1275,13 @@ async function routeApi(
     if (body.allowLanApiManagement !== undefined && typeof body.allowLanApiManagement !== 'boolean') {
       throw new ApiError(400, 'invalid_input', 'allowLanApiManagement must be a boolean')
     }
-    if (body.operationMode !== undefined && body.operationMode !== 'solo' && body.operationMode !== 'host') {
-      throw new ApiError(400, 'invalid_input', 'operationMode must be solo or host')
+    if (body.operationMode !== undefined && body.operationMode !== 'solo' && body.operationMode !== 'host' && body.operationMode !== 'workstation') {
+      throw new ApiError(400, 'invalid_input', 'operationMode must be solo, host, or workstation')
     }
     if (typeof body.allowLanApiManagement === 'boolean') {
       systemSettings.allowLanApiManagement = body.allowLanApiManagement
     }
-    if (body.operationMode === 'solo' || body.operationMode === 'host') {
+    if (body.operationMode === 'solo' || body.operationMode === 'host' || body.operationMode === 'workstation') {
       systemSettings.operationMode = body.operationMode
     }
     const settingsPath = join(runtime.dataDir, 'system-settings.json')
@@ -1138,70 +1331,97 @@ async function routeApi(
     sendJson(response, 200, status)
     return true
   }
+  const canvasProviderScope = providerScopeFromRequest(runtime, request, url, workspaceNamespace)
+  const allowWorkstationProvider = systemSettings.operationMode === 'workstation'
   if (method === 'GET' && path === '/api/providers') {
-    sendJson(response, 200, { providers: runtime.providers.listPublic() })
+    sendJson(response, 200, { providers: await runtime.listProviders(canvasProviderScope) })
     return true
   }
 
   const providerMatch = /^\/api\/providers\/([a-z][a-z0-9-]{0,47})$/.exec(path)
   if (providerMatch && method === 'PUT') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
-    const provider = await runtime.updateProvider(providerInput(providerMatch[1], await readJson(request)))
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
+    const provider = await runtime.updateProvider(providerInput(providerMatch[1], await readJson(request)), canvasProviderScope)
     sendJson(response, 200, { provider })
     return true
   }
   if (providerMatch && method === 'DELETE') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
-    const deleted = await runtime.deleteProvider(providerMatch[1])
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
+    const deleted = await runtime.deleteProvider(providerMatch[1], canvasProviderScope)
     sendJson(response, 200, { ok: deleted })
     return true
   }
   const secretMatch = /^\/api\/providers\/([a-z][a-z0-9-]{0,47})\/secret$/.exec(path)
   if (secretMatch && method === 'GET') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
-    const secret = await runtime.getProviderSecret(secretMatch[1])
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
+    const secret = await runtime.getProviderSecret(secretMatch[1], canvasProviderScope)
     sendJson(response, 200, { apiKey: secret ?? '' })
     return true
   }
   if (secretMatch && method === 'PUT') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
     const body = record(await readJson(request))
     strictKeys(body, ['apiKey'])
     if (typeof body.apiKey !== 'string' || !body.apiKey.trim() || body.apiKey.length > 16_384) {
       throw new ApiError(400, 'invalid_input', 'API key is invalid')
     }
-    sendJson(response, 200, await runtime.setProviderSecret(secretMatch[1], body.apiKey))
+    sendJson(response, 200, await runtime.setProviderSecret(secretMatch[1], body.apiKey, canvasProviderScope))
     return true
   }
   if (secretMatch && method === 'DELETE') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
-    sendJson(response, 200, await runtime.deleteProviderSecret(secretMatch[1]))
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
+    sendJson(response, 200, await runtime.deleteProviderSecret(secretMatch[1], canvasProviderScope))
     return true
   }
   const testMatch = /^\/api\/providers\/([a-z][a-z0-9-]{0,47})\/test$/.exec(path)
   if (testMatch && method === 'POST') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
     await rejectUnexpectedBody(request)
-    sendJson(response, 200, { ok: true, provider: await runtime.testProvider(testMatch[1]) })
+    sendJson(response, 200, { ok: true, provider: await runtime.testProvider(testMatch[1], canvasProviderScope) })
     return true
   }
   const syncMatch = /^\/api\/providers\/([a-z][a-z0-9-]{0,47})\/sync$/.exec(path)
   if (syncMatch && method === 'POST') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
     await rejectUnexpectedBody(request)
-    sendJson(response, 200, { catalog: await runtime.syncProvider(syncMatch[1]) })
+    sendJson(response, 200, { catalog: await runtime.syncProvider(syncMatch[1], canvasProviderScope) })
     return true
   }
 
   // Agent Providers REST API
+  const agentConfig = await runtime.getAgentConfig(canvasProviderScope)
   if (method === 'GET' && path === '/api/agent/providers') {
-    const providers = runtime.agentConfig.listPublic()
+    const providers = agentConfig.listPublic()
     sendJson(response, 200, { providers })
     return true
   }
 
   if (method === 'POST' && path === '/api/agent/providers') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
     const body = record(await readJson(request))
     const id = typeof body.id === 'string' ? body.id : ''
     const name = typeof body.name === 'string' ? body.name : ''
@@ -1211,7 +1431,7 @@ async function routeApi(
       sendJson(response, 400, { error: { message: '供应商 ID、名称、接口地址与模型名称均为必填项' } })
       return true
     }
-    const updated = await runtime.agentConfig.upsert({
+    const updated = await agentConfig.upsert({
       id,
       name,
       baseUrl,
@@ -1226,9 +1446,12 @@ async function routeApi(
 
   const agentProviderPreferredMatch = path.match(/^\/api\/agent\/providers\/([^/]+)\/preferred$/)
   if (method === 'POST' && agentProviderPreferredMatch) {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
     const targetId = decodeURIComponent(agentProviderPreferredMatch[1]!)
-    const updated = await runtime.agentConfig.setPreferred(targetId)
+    const updated = await agentConfig.setPreferred(targetId)
     if (!updated) {
       sendJson(response, 404, { error: { message: '未找到该 Agent 供应商' } })
       return true
@@ -1239,46 +1462,61 @@ async function routeApi(
 
   const agentProviderSecretMatch = path.match(/^\/api\/agent\/providers\/([^/]+)\/secret$/)
   if (method === 'GET' && agentProviderSecretMatch) {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
     const targetId = decodeURIComponent(agentProviderSecretMatch[1]!)
-    const secret = runtime.agentConfig.getSecret(targetId)
+    const secret = agentConfig.getSecret(targetId)
     sendJson(response, 200, { secret: secret || '' })
     return true
   }
 
   if (method === 'POST' && agentProviderSecretMatch) {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
     const targetId = decodeURIComponent(agentProviderSecretMatch[1]!)
     const body = record(await readJson(request))
     const secret = typeof body.secret === 'string' ? body.secret : ''
-    await runtime.agentConfig.setSecret(targetId, secret)
-    const updated = runtime.agentConfig.getPublic(targetId)
+    await agentConfig.setSecret(targetId, secret)
+    const updated = agentConfig.getPublic(targetId)
     sendJson(response, 200, { ok: true, provider: updated })
     return true
   }
 
   if (method === 'DELETE' && agentProviderSecretMatch) {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
     const targetId = decodeURIComponent(agentProviderSecretMatch[1]!)
-    await runtime.agentConfig.deleteSecret(targetId)
-    const updated = runtime.agentConfig.getPublic(targetId)
+    await agentConfig.deleteSecret(targetId)
+    const updated = agentConfig.getPublic(targetId)
     sendJson(response, 200, { ok: true, provider: updated })
     return true
   }
 
   const agentProviderItemMatch = path.match(/^\/api\/agent\/providers\/([^/]+)$/)
   if (method === 'DELETE' && agentProviderItemMatch) {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
     const targetId = decodeURIComponent(agentProviderItemMatch[1]!)
-    const deleted = await runtime.agentConfig.delete(targetId)
+    const deleted = await agentConfig.delete(targetId)
     sendJson(response, 200, { ok: deleted })
     return true
   }
 
   if (method === 'POST' && path === '/api/agent/test') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
     const body = record(await readJson(request))
-    const result = await runtime.agentConfig.testConnection({
+    const result = await agentConfig.testConnection({
       baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : '',
       model: typeof body.model === 'string' ? body.model : '',
       secret: typeof body.secret === 'string' ? body.secret : undefined,
@@ -1289,7 +1527,7 @@ async function routeApi(
   }
 
   if (method === 'GET' && path === '/api/agent/status') {
-    const preferred = runtime.agentConfig.getPreferred()
+    const preferred = agentConfig.getPreferred()
     if (preferred && preferred.enabled && preferred.secretConfigured) {
       sendJson(response, 200, {
         configured: true,
@@ -1301,7 +1539,7 @@ async function routeApi(
       return true
     }
 
-    const list = runtime.agentConfig.listPublic()
+    const list = agentConfig.listPublic()
     const found = list.find((p) => p.enabled && p.secretConfigured)
     if (found) {
       sendJson(response, 200, {
@@ -1322,23 +1560,26 @@ async function routeApi(
   }
 
   if (method === 'POST' && path === '/api/agent/chat') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    const authorization = authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, allowWorkstationProvider)
+    if (!canvasProviderScope && authorization.kind !== 'local-admin') {
+      throw new ApiError(400, 'canvas_scope_required', 'Provider configuration must be attached to a canvas')
+    }
     const body = record(await readJson(request))
     const messages = Array.isArray(body.messages) ? body.messages : []
     const tools = Array.isArray(body.tools) ? body.tools : undefined
     const stream = body.stream === true
     const explicitProviderId = typeof body.providerId === 'string' ? body.providerId : undefined
 
-    let chosen = explicitProviderId ? runtime.agentConfig.getPublic(explicitProviderId) : runtime.agentConfig.getPreferred()
-    let secret = chosen ? runtime.agentConfig.getSecret(chosen.id) : undefined
+    let chosen = explicitProviderId ? agentConfig.getPublic(explicitProviderId) : agentConfig.getPreferred()
+    let secret = chosen ? agentConfig.getSecret(chosen.id) : undefined
 
     if (!chosen || !secret || !chosen.enabled) {
       // fallback to any configured and enabled in agentConfig
-      const list = runtime.agentConfig.listPublic()
+      const list = agentConfig.listPublic()
       const found = list.find((p) => p.enabled && p.secretConfigured)
       if (found) {
         chosen = found
-        secret = runtime.agentConfig.getSecret(found.id)
+        secret = agentConfig.getSecret(found.id)
       }
     }
 
@@ -1402,7 +1643,7 @@ async function routeApi(
   if (method === 'GET' && path === '/api/catalog') {
     const providerId = url.searchParams.get('providerId')
     if (!providerId) throw new ApiError(400, 'invalid_input', 'providerId is required')
-    const catalog = runtime.catalogs.get(providerId)
+    const catalog = await runtime.getProviderCatalog(providerId, canvasProviderScope)
     if (!catalog) throw new RuntimeNotFoundError('Catalog not found')
     sendJson(response, 200, { catalog })
     return true
@@ -1491,7 +1732,7 @@ async function routeApi(
     const input = canvasAssetReferenceInput(await readJson(request))
     authorizeCanvasWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, {
       projectId: input.projectId, canvasId: canvasReferenceId,
-    })
+    }, systemSettings.operationMode === 'workstation')
     for (const assetId of input.assetIds) {
       if (!runtime.assets.get(assetId)) throw new RuntimeNotFoundError('Asset not found')
     }
@@ -1510,7 +1751,7 @@ async function routeApi(
     const canvasId = canvasReferenceId
     authorizeCanvasWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, {
       projectId, canvasId,
-    })
+    }, systemSettings.operationMode === 'workstation')
     if (runtime.jobs.activityForCanvas({ projectId, canvasId }).active) {
       throw new ApiError(409, 'canvas_busy', 'Canvas has active generation jobs')
     }
@@ -1525,7 +1766,29 @@ async function routeApi(
     return true
   }
   if (method === 'GET' && path === '/api/workspace/manifest') {
-    const manifest = await runtime.workspace.getManifest()
+    const roomId = collaborationRoomIdFromRequest(request)
+    let manifest = await workspace.getManifest()
+    // An invitation URL may be opened before the collaboration session is
+    // exchanged. In that case expose only the invited canvas, never the whole
+    // owner's workstation manifest.
+    if (roomId) {
+      try {
+        const room = runtime.collaboration.getRoomScope(roomId)
+        const project = manifest.projects.find((item) => item.projectId === room.projectId)
+        const canvas = manifest.canvases.find((item) => item.canvasId === room.canvasId)
+        if (!canvas || canvas.projectId !== room.projectId) {
+          throw new CollaborationAuthorizationError('Canvas is outside the collaboration room')
+        }
+        manifest = {
+          ...manifest,
+          projects: project ? [project] : [],
+          canvases: [canvas],
+          pendingOperations: [],
+        }
+      } catch {
+        throw new CollaborationAuthorizationError('Collaboration room is unavailable')
+      }
+    }
     sendJson(response, 200, { manifest })
     return true
   }
@@ -1537,6 +1800,7 @@ async function routeApi(
     }
     const authorization = authorizeSensitiveRequest(
       request, runtime, localAdmin, localAdminAllowed, 'editor', systemSettings.allowLanApiManagement,
+      systemSettings.operationMode === 'workstation',
     )
     const documents = Array.isArray(body.putDocuments) ? body.putDocuments : []
     if (authorization.kind === 'collaboration' && authorization.session.role !== 'owner') {
@@ -1561,7 +1825,7 @@ async function routeApi(
         snapshot.canvasId !== authorization.session.canvasId) {
         throw new CollaborationAuthorizationError('Workspace document is outside the collaboration scope')
       }
-      const currentManifest = await runtime.workspace.getManifest()
+      const currentManifest = await workspace.getManifest()
       const currentCanvas = currentManifest.canvases.find((canvas) =>
         canvas.canvasId === authorization.session.canvasId,
       )
@@ -1578,19 +1842,19 @@ async function routeApi(
       scopedCanvas.updatedAt = new Date().toISOString()
       body.manifest = scopedManifest
     }
-    const manifest = await runtime.workspace.commit(body as import('../src/workspace/model.ts').WorkspaceCommit)
+    const manifest = await workspace.commit(body as import('../src/workspace/model.ts').WorkspaceCommit)
     if (Array.isArray(body.putDocuments)) {
       for (const doc of body.putDocuments) {
         if (doc && typeof doc.serialized === 'string') {
           const snapshot = parseCanvasSnapshot(doc.serialized)
-          await runtime.canvases.saveCanvas(snapshot)
+          await canvases.saveCanvas(snapshot)
         }
       }
     }
     if (Array.isArray(body.deleteCanvasIds)) {
       for (const canvasId of body.deleteCanvasIds) {
         if (typeof canvasId === 'string') {
-          await runtime.canvases.deleteCanvas(canvasId)
+          await canvases.deleteCanvas(canvasId)
         }
       }
     }
@@ -1600,7 +1864,14 @@ async function routeApi(
   const canvasPathMatch = /^\/api\/canvases\/([A-Za-z0-9._:-]+)$/.exec(path)
   if (canvasPathMatch && method === 'GET') {
     const canvasId = canvasPathMatch[1]
-    const canvas = await runtime.canvases.getCanvas(canvasId)
+    const roomId = collaborationRoomIdFromRequest(request)
+    if (roomId) {
+      const room = runtime.collaboration.getRoomScope(roomId)
+      if (room.canvasId !== canvasId) {
+        throw new CollaborationAuthorizationError('Canvas is outside the collaboration room')
+      }
+    }
+    const canvas = await canvases.getCanvas(canvasId)
     if (!canvas) {
       throw new ApiError(404, 'canvas_not_found', `Canvas ${canvasId} not found`)
     }
@@ -1617,31 +1888,45 @@ async function routeApi(
     }
     authorizeCanvasWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement, {
       projectId: snapshot.projectId, canvasId,
-    })
-    await runtime.canvases.saveCanvas(snapshot)
+    }, systemSettings.operationMode === 'workstation')
+    await canvases.saveCanvas(snapshot)
     sendJson(response, 200, { canvas: snapshot })
     return true
   }
   const canvasAgentChatMatch = /^\/api\/canvases\/([A-Za-z0-9._:-]+)\/agent-chat$/.exec(path)
   if (canvasAgentChatMatch && method === 'GET') {
     const canvasId = canvasAgentChatMatch[1]
-    const messages = await runtime.canvases.getAgentChat(canvasId)
+    const messages = await canvases.getAgentChat(canvasId)
     sendJson(response, 200, { messages })
     return true
   }
   if (canvasAgentChatMatch && method === 'PUT') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    authorizeProviderWrite(
+      request,
+      runtime,
+      localAdmin,
+      localAdminAllowed,
+      systemSettings.allowLanApiManagement,
+      systemSettings.operationMode === 'workstation',
+    )
     const canvasId = canvasAgentChatMatch[1]
     const body = await readJson(request) as { messages?: unknown[] }
     const messages = Array.isArray(body?.messages) ? body.messages : []
-    await runtime.canvases.saveAgentChat(canvasId, messages)
+    await canvases.saveAgentChat(canvasId, messages)
     sendJson(response, 200, { ok: true })
     return true
   }
   if (canvasAgentChatMatch && method === 'DELETE') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed, systemSettings.allowLanApiManagement)
+    authorizeProviderWrite(
+      request,
+      runtime,
+      localAdmin,
+      localAdminAllowed,
+      systemSettings.allowLanApiManagement,
+      systemSettings.operationMode === 'workstation',
+    )
     const canvasId = canvasAgentChatMatch[1]
-    await runtime.canvases.clearAgentChat(canvasId)
+    await canvases.clearAgentChat(canvasId)
     sendJson(response, 200, { ok: true })
     return true
   }
@@ -1695,7 +1980,16 @@ async function routeApi(
   }
   if (method === 'POST' && path === '/api/generation-jobs') {
     const input = record(await readJson(request))
-    const authorization = authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'editor')
+    const authorization = authorizeSensitiveRequest(
+      request, runtime, localAdmin, localAdminAllowed, 'editor', false,
+      systemSettings.operationMode === 'workstation',
+    )
+    if (authorization.kind === 'workstation') {
+      input.workspaceNamespace = authorization.userId
+    } else if (authorization.kind === 'collaboration') {
+      const namespace = runtime.collaboration.getRoomWorkspaceNamespace(authorization.roomId)
+      if (namespace) input.workspaceNamespace = namespace
+    }
     let job
     if (authorization.kind === 'collaboration') {
       if (
@@ -1729,6 +2023,7 @@ async function routeApi(
 
 export interface GatewayHandle {
   readonly origin: string
+  readonly adminOrigin?: string
   readonly dataDir: string
   readonly runtime: GatewayRuntime
   close(): Promise<void>
@@ -1748,6 +2043,7 @@ export async function startGateway(options: {
   log?: (entry: { event: string; message: string }) => void
   host?: string
   port?: number
+  adminPort?: number
   distDir?: string
   rawBodyLimit?: number
   localHostOnly?: boolean
@@ -1797,7 +2093,7 @@ export async function startGateway(options: {
   const normalizedOperationMode = configuredOperationMode?.trim().toLowerCase()
   const systemSettings: SystemSettingsState = {
     allowLanApiManagement: options.allowInsecureLan ?? (process.env.CANVAS_ALLOW_INSECURE_LAN?.toLowerCase() === 'true'),
-    operationMode: normalizedOperationMode === 'host' || normalizedOperationMode === 'solo'
+    operationMode: normalizedOperationMode === 'host' || normalizedOperationMode === 'solo' || normalizedOperationMode === 'workstation'
       ? normalizedOperationMode
       : runtime.collaboration.hasActiveRooms() ? 'host' : 'solo',
   }
@@ -1808,11 +2104,72 @@ export async function startGateway(options: {
     if (typeof parsed?.allowLanApiManagement === 'boolean') {
       systemSettings.allowLanApiManagement = parsed.allowLanApiManagement
     }
-    if (parsed?.operationMode === 'host' || parsed?.operationMode === 'solo') {
+    if (parsed?.operationMode === 'host' || parsed?.operationMode === 'solo' || parsed?.operationMode === 'workstation') {
       systemSettings.operationMode = parsed.operationMode
     }
   } catch {}
-  const server = createServer(async (request, response) => {
+  const workstationStores = new Map<string, {
+    workspace: WorkspaceService
+    canvases: CanvasPersistenceService
+  }>()
+  const scopedWorkspace = (namespace: string) => {
+    const existing = workstationStores.get(namespace)
+    if (existing) return existing
+    const created = {
+      workspace: new WorkspaceService({
+        dataDir: workstationDataDir(runtime.dataDir, namespace),
+        initialManifest: () => workstationWorkspaceManifest(namespace),
+      }),
+      canvases: new CanvasPersistenceService({ dataDir: workstationDataDir(runtime.dataDir, namespace) }),
+    }
+    workstationStores.set(namespace, created)
+    return created
+  }
+  const needsWorkstationSession = (pathname: string): boolean => (
+    pathname === '/api/workspace/manifest' || pathname === '/api/workspace/commit' ||
+    pathname.startsWith('/api/canvases/') || pathname.startsWith('/api/collaboration/') ||
+    pathname === '/api/providers' || pathname.startsWith('/api/providers/') ||
+    pathname === '/api/catalog' || pathname.startsWith('/api/agent/')
+  )
+  const resolveRequestWorkspace = (request: IncomingMessage, url: URL) => {
+    // The loopback-only administration listener intentionally operates on the
+    // service-wide workspace. It must remain usable while workstation mode is
+    // enabled, without asking the administrator to create a nickname session.
+    if (isAdminRequest(request)) {
+      return { workspace: runtime.workspace, canvases: runtime.canvases, workspaceNamespace: undefined }
+    }
+    if (!needsWorkstationSession(url.pathname)) {
+      return { workspace: runtime.workspace, canvases: runtime.canvases, workspaceNamespace: undefined }
+    }
+    const roomId = collaborationRoomIdFromRequest(request)
+    let roomNamespace: string | undefined
+    if (roomId) {
+      try {
+        roomNamespace = runtime.collaboration.getRoomWorkspaceNamespace(roomId)
+      } catch {
+        // Unknown collaboration ids are rejected by the route authorization;
+        // they must not be mistaken for a missing workstation session here.
+      }
+    }
+    if (roomNamespace) {
+      // Workstation mode still requires the nickname gate for invitation
+      // links. The room header selects the owner's namespace only after the
+      // visitor has established their lightweight workstation session.
+      if (systemSettings.operationMode === 'workstation' && !workstationIdentityFromRequest(request)) {
+        throw new ApiError(401, 'workstation_session_required', 'A workstation nickname is required')
+      }
+      return { ...scopedWorkspace(roomNamespace), workspaceNamespace: roomNamespace }
+    }
+    if (systemSettings.operationMode !== 'workstation') {
+      return { workspace: runtime.workspace, canvases: runtime.canvases, workspaceNamespace: undefined }
+    }
+    const namespace = workstationIdentityFromRequest(request)?.userId
+    if (!namespace) {
+      throw new ApiError(401, 'workstation_session_required', 'A workstation nickname is required')
+    }
+    return { ...scopedWorkspace(namespace), workspaceNamespace: namespace }
+  }
+  const handleRequest = async (request: IncomingMessage, response: ServerResponse) => {
     const clientAbort = new AbortController()
     const abortClient = () => {
       if (!clientAbort.signal.aborted) {
@@ -1826,6 +2183,10 @@ export async function startGateway(options: {
     response.once('close', abortIncompleteResponse)
     const signal = AbortSignal.any([runtime.signal, clientAbort.signal])
     try {
+      if (systemSettings.operationMode === 'solo' &&
+        !isLoopbackRemoteAddress(request.socket.remoteAddress) && !isAdminRequest(request)) {
+        throw new ApiError(403, 'solo_local_only', 'Personal mode is limited to the local machine')
+      }
       if (localHostOnly && !isAllowedRemoteAddress(request.socket.remoteAddress, Boolean(dynamicPublicOrigin), localHostOnly)) {
         throw new ApiError(403, 'remote_not_allowed', 'Remote address is not allowed')
       }
@@ -1841,6 +2202,11 @@ export async function startGateway(options: {
       const apiPath = classifyApiPath(url.pathname)
       if (apiPath.encoded) throw new ApiError(400, 'invalid_api_path', 'Encoded API paths are not allowed')
       if (apiPath.reserved) {
+        if (!isAdminRequest(request) &&
+          !isLoopbackRemoteAddress(request.socket.remoteAddress) &&
+          isManagementApiPath(url.pathname)) {
+          throw new ApiError(403, 'local_admin_only', 'This administration endpoint is loopback-only')
+        }
         if (
           request.method === 'POST' || request.method === 'PUT' ||
           request.method === 'PATCH' || request.method === 'DELETE'
@@ -1851,6 +2217,7 @@ export async function startGateway(options: {
         const frontendPort = options.distDir
           ? (options.port ?? 4173)
           : (Number(process.env.CANVAS_VITE_PORT) || 4173)
+        const requestWorkspace = resolveRequestWorkspace(request, url)
         await routeApi(
           runtime,
           localAdmin,
@@ -1860,11 +2227,16 @@ export async function startGateway(options: {
           options.rawBodyLimit ?? RAW_LIMIT,
           signal,
           (dynamicPublicOrigin ?? publicOrigin)?.toLowerCase().startsWith('https://') ?? false,
-          (localHostOnly && isLoopbackHost(host)) ||
+          isAdminRequest(request) ||
+            (localHostOnly && isLoopbackHost(host)) ||
             (loopbackBrowserOrigin && isLoopbackRemoteAddress(request.socket.remoteAddress)),
           loopbackBrowserOrigin || (systemSettings.allowLanApiManagement && isPrivateLanRemoteAddress(request.socket.remoteAddress)),
           frontendPort,
           systemSettings,
+          requestWorkspace.workspace,
+          requestWorkspace.canvases,
+          requestWorkspace.workspaceNamespace,
+          options.adminPort !== undefined,
         )
         return
       }
@@ -1884,7 +2256,8 @@ export async function startGateway(options: {
       request.removeListener('aborted', abortClient)
       response.removeListener('close', abortIncompleteResponse)
     }
-  })
+  }
+  const server = createServer(handleRequest)
   const collaborationWebSocket = attachCollaborationWebSocket({
     server,
     service: runtime.collaboration,
@@ -1892,6 +2265,7 @@ export async function startGateway(options: {
     maxMessageBytes: options.collaborationMaxMessageBytes,
     heartbeatMs: options.collaborationHeartbeatMs,
     validateRequest: (request) => {
+      if (systemSettings.operationMode === 'solo' && !isLoopbackRemoteAddress(request.socket.remoteAddress)) return false
       if (!localHostOnly) return true
       const remoteAllowed = isAllowedRemoteAddress(request.socket.remoteAddress, Boolean(dynamicPublicOrigin), localHostOnly)
       return remoteAllowed && isAllowedHost(request, dynamicAllowedOrigins, dynamicPublicOrigin)
@@ -1923,9 +2297,52 @@ export async function startGateway(options: {
     await runtime.close()
     throw new Error('Gateway did not acquire a TCP port')
   }
+  let adminServer: ReturnType<typeof createServer> | undefined
+  let adminOrigin: string | undefined
+  if (options.adminPort !== undefined) {
+    adminServer = createServer((request, response) => {
+      // The listener itself is bound to loopback. Marking the request lets the
+      // shared dispatcher grant the loopback administrator capability even
+      // when the public gateway is bound to 0.0.0.0 for LAN users.
+      markAdminRequest(request)
+      return handleRequest(request, response)
+    })
+    adminServer.on('clientError', (_error, socket) => {
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
+    })
+    adminServer.keepAliveTimeout = 65_000
+    adminServer.headersTimeout = 66_000
+    try {
+      await new Promise<void>((resolveListen, reject) => {
+        adminServer?.once('error', reject)
+        adminServer?.listen(options.adminPort, '127.0.0.1', () => {
+          adminServer?.off('error', reject)
+          resolveListen()
+        })
+      })
+    } catch (error) {
+      if (adminServer.listening) await new Promise<void>((resolveClose) => {
+        adminServer?.close(() => resolveClose())
+      })
+      await collaborationWebSocket.close().catch(() => {})
+      await runtime.close().catch(() => {})
+      throw error
+    }
+    const adminAddress = adminServer.address()
+    if (!adminAddress || typeof adminAddress === 'string') {
+      if (adminServer.listening) await new Promise<void>((resolveClose) => {
+        adminServer?.close(() => resolveClose())
+      })
+      await collaborationWebSocket.close().catch(() => {})
+      await runtime.close()
+      throw new Error('Administration gateway did not acquire a TCP port')
+    }
+    adminOrigin = formatGatewayOrigin('127.0.0.1', adminAddress.port)
+  }
   let closing: Promise<void> | undefined
   return {
     origin: formatGatewayOrigin(host, address.port),
+    ...(adminOrigin ? { adminOrigin } : {}),
     dataDir: runtime.dataDir,
     runtime,
     close() {
@@ -1933,9 +2350,15 @@ export async function startGateway(options: {
         const serverClosed = new Promise<void>((resolveClose, reject) => {
           server.close((error) => error ? reject(error) : resolveClose())
         })
+        const adminServerClosed = adminServer
+          ? new Promise<void>((resolveClose, reject) => {
+              adminServer?.close((error) => error ? reject(error) : resolveClose())
+            })
+          : Promise.resolve()
         const results = await Promise.allSettled([
           collaborationWebSocket.close(),
           runtime.close(),
+          adminServerClosed,
         ])
         server.closeIdleConnections()
         server.closeAllConnections()

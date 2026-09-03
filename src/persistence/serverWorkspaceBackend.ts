@@ -41,7 +41,10 @@ export function createServerWorkspaceBackend(
   return {
     async initializeFromLegacy(create: (legacyProjects: readonly string[]) => WorkspaceInitialization): Promise<void> {
       try {
-        const response = await fetch(`${baseUrl}/api/workspace/manifest`)
+        const headers = new Headers()
+        const roomId = collaborationRoomFromLocation()
+        if (roomId) headers.set('x-collaboration-room', roomId)
+        const response = await fetch(`${baseUrl}/api/workspace/manifest`, { headers })
         if (response.ok) {
           const data = await response.json() as { manifest?: unknown }
           if (data.manifest) return
@@ -54,7 +57,10 @@ export function createServerWorkspaceBackend(
 
     async getManifest(): Promise<string | undefined> {
       try {
-        const response = await fetch(`${baseUrl}/api/workspace/manifest`)
+        const headers = new Headers()
+        const roomId = collaborationRoomFromLocation()
+        if (roomId) headers.set('x-collaboration-room', roomId)
+        const response = await fetch(`${baseUrl}/api/workspace/manifest`, { headers })
         if (response.ok) {
           const data = await response.json() as { manifest?: unknown }
           if (data.manifest) {
@@ -74,7 +80,10 @@ export function createServerWorkspaceBackend(
 
     async getCanvasDocument(canvasId: string): Promise<string | undefined> {
       try {
-        const response = await fetch(`${baseUrl}/api/canvases/${encodeURIComponent(canvasId)}`)
+        const headers = new Headers()
+        const roomId = collaborationRoomFromLocation()
+        if (roomId) headers.set('x-collaboration-room', roomId)
+        const response = await fetch(`${baseUrl}/api/canvases/${encodeURIComponent(canvasId)}`, { headers })
         if (response.ok) {
           const data = await response.json() as { canvas?: unknown }
           if (data.canvas) {

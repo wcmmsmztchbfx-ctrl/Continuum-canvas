@@ -32,6 +32,11 @@ export interface GatewayRequestOptions {
   signal?: AbortSignal
 }
 
+export interface CanvasApiScope {
+  projectId: string
+  canvasId: string
+}
+
 export interface GatewayClientOptions {
   baseUrl?: string
   fetchImpl?: typeof fetch
@@ -206,6 +211,8 @@ function isPersistedGenerationRequest(value: unknown): value is PersistedGenerat
     typeof value.clientRequestId === 'string' &&
     (value.projectId === undefined || typeof value.projectId === 'string') &&
     (value.canvasId === undefined || typeof value.canvasId === 'string') &&
+    (value.workspaceNamespace === undefined ||
+      (typeof value.workspaceNamespace === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.workspaceNamespace))) &&
     typeof value.providerId === 'string' &&
     typeof value.catalogVersion === 'string' &&
     (value.mediaType === 'image' || value.mediaType === 'video') &&
@@ -350,6 +357,8 @@ export class GatewayClient {
   private readonly fetchImpl: typeof fetch
   private readonly timeoutMs: number
   private collaborationRoomId?: string
+  private canvasApiScope?: CanvasApiScope
+  private workstationSession = false
   private localAdminSessionReady = false
   private localAdminSessionFlight?: Promise<void>
 
@@ -361,6 +370,27 @@ export class GatewayClient {
 
   setCollaborationRoomId(roomId?: string): void {
     this.collaborationRoomId = roomId
+  }
+
+  setCanvasApiScope(scope?: CanvasApiScope): void {
+    this.canvasApiScope = scope
+  }
+
+  /**
+   * Workstation users are authorized by the nickname cookie for canvas-scoped
+   * writes; they must not be forced through the loopback-only admin handshake.
+   */
+  setWorkstationSession(active: boolean): void {
+    this.workstationSession = active
+  }
+
+  private scopedPath(path: string): string {
+    if (!this.canvasApiScope || !(
+      path === '/api/providers' || path.startsWith('/api/providers/') ||
+      path === '/api/catalog' || path.startsWith('/api/agent/')
+    )) return path
+    const separator = path.includes('?') ? '&' : '?'
+    return `${path}${separator}projectId=${encodeURIComponent(this.canvasApiScope.projectId)}&canvasId=${encodeURIComponent(this.canvasApiScope.canvasId)}`
   }
 
   private async request<T>(
@@ -377,7 +407,7 @@ export class GatewayClient {
       if (this.collaborationRoomId) {
         headers.set('x-collaboration-room', this.collaborationRoomId)
       }
-      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      const response = await this.fetchImpl(`${this.baseUrl}${this.scopedPath(path)}`, {
         ...init,
         headers,
         credentials: init.credentials ?? 'same-origin',
@@ -438,7 +468,9 @@ export class GatewayClient {
   }
 
   private async ensureSensitiveAccess(options?: GatewayRequestOptions): Promise<void> {
-    if (!this.collaborationRoomId) await this.ensureLocalAdminSession(options)
+    if (!this.collaborationRoomId && !this.workstationSession) {
+      await this.ensureLocalAdminSession(options)
+    }
   }
 
   async listProviders(options?: GatewayRequestOptions): Promise<ProviderMetadata[]> {

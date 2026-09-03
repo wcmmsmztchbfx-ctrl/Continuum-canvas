@@ -32,19 +32,19 @@ describe('collaborationCapabilities', () => {
       canEdit: true, canPublish: true, canManageApi: true, canManageMembers: true,
     })
     expect(collaborationCapabilities(state('synced', 'editor'))).toEqual({
-      canEdit: true, canPublish: true, canManageApi: false, canManageMembers: false,
+      canEdit: true, canPublish: true, canManageApi: true, canManageMembers: false,
     })
     expect(collaborationCapabilities(state('synced', 'viewer'))).toEqual({
       canEdit: false, canPublish: false, canManageApi: false, canManageMembers: false,
     })
   })
 
-  it('keeps offline owners and editors locally editable while restricting remote collaborator API management', () => {
+  it('keeps offline owners and editors locally editable while keeping member management owner-only', () => {
     expect(collaborationCapabilities(state('offline', 'owner'))).toEqual({
       canEdit: true, canPublish: false, canManageApi: true, canManageMembers: true,
     })
     expect(collaborationCapabilities(state('offline', 'editor'))).toEqual({
-      canEdit: true, canPublish: false, canManageApi: false, canManageMembers: false,
+      canEdit: true, canPublish: false, canManageApi: true, canManageMembers: false,
     })
     expect(collaborationCapabilities(state('offline', 'viewer'))).toEqual({
       canEdit: false, canPublish: false, canManageApi: false, canManageMembers: false,

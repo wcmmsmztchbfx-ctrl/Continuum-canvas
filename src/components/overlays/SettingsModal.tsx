@@ -6,8 +6,8 @@ import type { ControlledOverlayProps } from './primitives'
 export type SettingsTab = 'storage' | 'language' | 'startup' | 'about'
 
 export interface SettingsModalProps extends ControlledOverlayProps {
-  appMode?: 'host' | 'solo'
-  onAppModeChange?: (mode: 'host' | 'solo') => void
+  appMode?: 'host' | 'solo' | 'workstation'
+  onAppModeChange?: (mode: 'host' | 'solo' | 'workstation') => void
   onNotify?: (message: string, tone?: 'info' | 'success' | 'warning' | 'error') => void
 }
 
@@ -42,8 +42,8 @@ export function SettingsModal({
   const [language, setLanguage] = useState<string>(() => {
     return localStorage.getItem('continuum_language') || 'zh-CN'
   })
-  const [appMode, setAppMode] = useState<'host' | 'solo'>(() => {
-    return controlledAppMode || (localStorage.getItem('continuum_app_mode') as 'host' | 'solo') || 'solo'
+  const [appMode, setAppMode] = useState<'host' | 'solo' | 'workstation'>(() => {
+    return controlledAppMode || (localStorage.getItem('continuum_app_mode') as 'host' | 'solo' | 'workstation') || 'solo'
   })
   const [allowLanApiManagement, setAllowLanApiManagement] = useState<boolean>(() => {
     return localStorage.getItem('continuum_allow_lan_api') !== 'false'
@@ -75,7 +75,7 @@ export function SettingsModal({
           setAllowLanApiManagement(data.allowLanApiManagement)
           localStorage.setItem('continuum_allow_lan_api', String(data.allowLanApiManagement))
         }
-        if (data && (data.operationMode === 'host' || data.operationMode === 'solo')) {
+        if (data && (data.operationMode === 'host' || data.operationMode === 'solo' || data.operationMode === 'workstation')) {
           setAppMode(data.operationMode)
           localStorage.setItem('continuum_app_mode', data.operationMode)
           onAppModeChange?.(data.operationMode)
@@ -117,16 +117,18 @@ export function SettingsModal({
     onNotify?.(newLang === 'zh-CN' ? '已切换至简体中文' : 'Switched to English', 'success')
   }
 
-  const handleAppModeChange = async (newMode: 'host' | 'solo') => {
+  const handleAppModeChange = async (newMode: 'host' | 'solo' | 'workstation') => {
     if (newMode === appMode) return
     const previousMode = appMode
     setAppMode(newMode)
     localStorage.setItem('continuum_app_mode', newMode)
     onAppModeChange?.(newMode)
-    onNotify?.(
-      newMode === 'host'
-        ? '已切换为主机模式：进入画布将自动开启多人协作'
-        : '已切换为个人模式：进入画布无需输入昵称，不开启多人协作',
+      onNotify?.(
+        newMode === 'host'
+        ? '已切换为服务器模式：进入画布将自动加入局域网协作'
+        : newMode === 'workstation'
+          ? '已切换为工作站模式：每个昵称使用独立画布目录，并可按画布邀请协作者'
+          : '已切换为个人模式：进入画布无需输入昵称，不开启多人协作',
       'success',
     )
     try {
@@ -147,7 +149,7 @@ export function SettingsModal({
       }
       if (!response.ok) throw new Error('只有本机管理员可以修改全局协同模式')
       const data = await response.json() as { operationMode?: unknown }
-      const serverMode = data.operationMode === 'host' || data.operationMode === 'solo'
+      const serverMode = data.operationMode === 'host' || data.operationMode === 'solo' || data.operationMode === 'workstation'
         ? data.operationMode
         : newMode
       if (serverMode !== newMode) {
@@ -427,8 +429,8 @@ export function SettingsModal({
                       {appMode === 'host' && <span className="canvas-settings__radio-dot" />}
                     </span>
                     <div className="canvas-settings__radio-content">
-                      <span className="canvas-settings__radio-title">主机模式 (多人协作)</span>
-                      <span className="canvas-settings__radio-desc">首次进入同一画布的局域网用户会输入协作昵称并加入当前房间；已有会话自动恢复。适合团队/局域网共享创作。</span>
+                      <span className="canvas-settings__radio-title">服务器模式 (多人协作)</span>
+                      <span className="canvas-settings__radio-desc">所有访问者先输入协作昵称；同一画布的局域网用户加入服务端中继房间。适合团队/局域网共享创作。</span>
                     </div>
                   </div>
 
@@ -442,6 +444,19 @@ export function SettingsModal({
                     <div className="canvas-settings__radio-content">
                       <span className="canvas-settings__radio-title">个人模式 (单人创作)</span>
                       <span className="canvas-settings__radio-desc">进入画布无需输入昵称，不自动加入已有协作房间；适合个人创作。</span>
+                    </div>
+                  </div>
+
+                  <div
+                    className="canvas-settings__radio-row"
+                    onClick={() => handleAppModeChange('workstation')}
+                  >
+                    <span className={`canvas-settings__radio ${appMode === 'workstation' ? 'canvas-settings__radio--checked' : ''}`}>
+                      {appMode === 'workstation' && <span className="canvas-settings__radio-dot" />}
+                    </span>
+                    <div className="canvas-settings__radio-content">
+                      <span className="canvas-settings__radio-title">工作站模式 (用户隔离)</span>
+                      <span className="canvas-settings__radio-desc">所有访问者先输入昵称；每个昵称拥有独立画布目录，也可以像个人模式一样邀请协作者。</span>
                     </div>
                   </div>
                 </div>
@@ -462,7 +477,7 @@ export function SettingsModal({
                   <span className="canvas-settings__checkbox-label">允许局域网管理员配置与保存 API Key</span>
                 </div>
                 <p className="canvas-settings__hint">
-                  开启后，局域网内仅已认证的本机管理员可在供应商管理中配置生图/视频模型及 Agent 大模型的 API Key 与接口参数；协作者仍不能修改供应商权限。
+                  这里控制服务端级别的 API 管理入口；画布内的 API 配置按画布作用域保存，远程查看者不能修改，编辑者可以修改当前获授权画布。
                 </p>
               </div>
 

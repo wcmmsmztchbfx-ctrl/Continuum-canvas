@@ -23,7 +23,7 @@ export function collaborationCapabilities(
     return {
       canEdit: state.status === 'synced' || state.status === 'offline',
       canPublish: state.status === 'synced',
-      canManageApi: false,
+      canManageApi: true,
       canManageMembers: false,
     }
   }

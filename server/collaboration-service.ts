@@ -25,6 +25,7 @@ const MAX_SESSION_RECORDS_PER_MEMBER = 12
 const MAX_ACTIVE_INVITES = 20
 const SERVER_TASK_ORIGIN = 'server-task'
 const LOCAL_ASSET_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
+const WORKSPACE_NAMESPACE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 
 export class CollaborationInputError extends Error {
   readonly code = 'invalid_collaboration_input'
@@ -87,6 +88,8 @@ interface StoredRoomMetadata {
   createdAt: string
   updatedAt: string
   enabled: boolean
+  /** Workspace namespace that owns the room (used by workstation mode). */
+  workspaceNamespace?: string
   closedAt?: string
   invites: StoredInvite[]
   members: StoredMember[]
@@ -145,7 +148,10 @@ export interface CollaborationServiceOptions {
   maxCandidateUpdateBytes?: number
   maxDocumentBytes?: number
   persistence?: CollaborationPersistence
-  onSnapshotSaved?: (snapshot: CanvasSnapshotV2) => Promise<void> | void
+  onSnapshotSaved?: (
+    snapshot: CanvasSnapshotV2,
+    context?: { workspaceNamespace?: string },
+  ) => Promise<void> | void
 }
 
 export class CollaborationPersistenceError extends Error {
@@ -298,7 +304,7 @@ function parseStoredRoomMetadata(value: unknown, expectedRoomId: string): Stored
     'version', 'roomId', 'canvasId', 'projectId', 'ownerId', 'recoverySecretDigest',
     'createdAt', 'updatedAt', 'enabled', 'invites', 'members', 'sessions',
   ]
-  if (!isRecord(value) || !hasExactKeys(value, roomKeys, ['closedAt']) ||
+  if (!isRecord(value) || !hasExactKeys(value, roomKeys, ['closedAt', 'workspaceNamespace']) ||
     value.version !== 1 || value.roomId !== expectedRoomId ||
     typeof value.roomId !== 'string' || !ROOM_ID.test(value.roomId) ||
     typeof value.canvasId !== 'string' || !SCOPE_ID.test(value.canvasId) ||
@@ -307,6 +313,8 @@ function parseStoredRoomMetadata(value: unknown, expectedRoomId: string): Stored
     !isDigest(value.recoverySecretDigest) || !isTimestamp(value.createdAt) ||
     !isTimestamp(value.updatedAt) || typeof value.enabled !== 'boolean' ||
     (value.closedAt !== undefined && !isTimestamp(value.closedAt)) ||
+    (value.workspaceNamespace !== undefined &&
+      (typeof value.workspaceNamespace !== 'string' || !WORKSPACE_NAMESPACE.test(value.workspaceNamespace))) ||
     !Array.isArray(value.invites) || !Array.isArray(value.members) || !Array.isArray(value.sessions)) {
     throw new Error('Invalid collaboration room metadata')
   }
@@ -446,7 +454,10 @@ export class CollaborationService {
   private readonly maxCandidateUpdateBytes: number
   private readonly maxDocumentBytes: number
   private readonly persistence: CollaborationPersistence
-  private readonly onSnapshotSaved?: (snapshot: CanvasSnapshotV2) => Promise<void> | void
+  private readonly onSnapshotSaved?: (
+    snapshot: CanvasSnapshotV2,
+    context?: { workspaceNamespace?: string },
+  ) => Promise<void> | void
   private readonly persistenceErrorListeners = new Set<(
     roomId: string,
     error: CollaborationPersistenceError,
@@ -600,7 +611,9 @@ export class CollaborationService {
     await this.persistence.writeBytes(join(room.directory, 'updates.bin'), new Uint8Array())
     await this.persistence.writeJson(join(room.directory, 'canvas.snapshot.json'), canvasSnapshot)
     try {
-      await this.onSnapshotSaved?.(canvasSnapshot)
+      await this.onSnapshotSaved?.(canvasSnapshot, {
+        workspaceNamespace: room.metadata.workspaceNamespace,
+      })
     } catch {
       // Snapshot mirror failures do not fail collaboration persistence
     }
@@ -653,6 +666,7 @@ export class CollaborationService {
     snapshot: CanvasSnapshotV2
     deviceId: string
     displayName: string
+    workspaceNamespace?: string
   }): Promise<{
     room: PublicCollaborationRoom
     session: CollaborationSession
@@ -670,6 +684,7 @@ export class CollaborationService {
     snapshot: CanvasSnapshotV2
     deviceId: string
     displayName: string
+    workspaceNamespace?: string
   }): Promise<{
     room: PublicCollaborationRoom
     session: CollaborationSession
@@ -683,6 +698,9 @@ export class CollaborationService {
     assertIdentifier(input.projectId, 'projectId', SCOPE_ID)
     assertIdentifier(input.deviceId, 'deviceId', DEVICE_ID)
     assertDisplayName(input.displayName)
+    if (input.workspaceNamespace !== undefined && !WORKSPACE_NAMESPACE.test(input.workspaceNamespace)) {
+      throw new CollaborationInputError('Workspace namespace is invalid')
+    }
     if (input.snapshot.canvasId !== input.canvasId || input.snapshot.projectId !== input.projectId) {
       throw new CollaborationInputError('Snapshot scope does not match collaboration scope')
     }
@@ -710,6 +728,7 @@ export class CollaborationService {
       ownerId, recoverySecretDigest: digest(recoverySecret), createdAt, updatedAt: createdAt,
       enabled: true, invites: [], members: [member],
       sessions: [{ id: sessionId, memberId: ownerId, tokenDigest: digest(sessionToken), createdAt }],
+      ...(input.workspaceNamespace ? { workspaceNamespace: input.workspaceNamespace } : {}),
     }
     const directory = join(this.dataDir, roomId)
     await mkdir(directory, { recursive: false })
@@ -739,6 +758,21 @@ export class CollaborationService {
     const room = this.rooms.get(roomId)
     if (!room || !room.metadata.enabled) return undefined
     return publicRoom(room.metadata)
+  }
+
+  /**
+   * Returns the workspace namespace that owns a room. The room id is already
+   * an explicit collaboration capability in the current LAN deployment, so
+   * this lookup intentionally does not require a second session token.
+   */
+  getRoomWorkspaceNamespace(roomId: string): string | undefined {
+    return this.room(roomId).metadata.workspaceNamespace
+  }
+
+  /** Return the public canvas scope for an existing room before a session is exchanged. */
+  getRoomScope(roomId: string): Pick<PublicCollaborationRoom, 'roomId' | 'canvasId' | 'projectId'> {
+    const metadata = this.room(roomId).metadata
+    return { roomId: metadata.roomId, canvasId: metadata.canvasId, projectId: metadata.projectId }
   }
 
   hasActiveRooms(): boolean {

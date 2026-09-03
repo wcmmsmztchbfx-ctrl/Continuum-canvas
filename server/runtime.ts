@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { GenerationRequest, ProviderCatalog, ProviderMetadata } from '../src/contracts/generation.ts'
 import { AssetStore } from './asset-store.ts'
@@ -46,6 +47,7 @@ import { WorkspaceService } from './workspace-service.ts'
 import { TunnelService } from './tunnel-service.ts'
 import { CanvasPersistenceService } from './canvas-storage.ts'
 import { AgentConfigStore } from './agent-config-store.ts'
+import { workstationDataDir } from './workstation.ts'
 
 export type AdapterFactory = (provider: ProviderMetadata, apiKey: string) => ProviderAdapter
 
@@ -196,6 +198,34 @@ function providerRecord(provider: ProviderMetadata, patch: Partial<ProviderRecor
   }
 }
 
+/** Identity of the canvas whose API configuration is being used. */
+export interface CanvasProviderScope {
+  projectId: string
+  canvasId: string
+  workspaceNamespace?: string
+}
+
+export function providerScopeForRequest(
+  request: { projectId?: string; canvasId?: string; workspaceNamespace?: string },
+): CanvasProviderScope | undefined {
+  if (!request.projectId || !request.canvasId) return undefined
+  return {
+    projectId: request.projectId,
+    canvasId: request.canvasId,
+    ...(request.workspaceNamespace ? { workspaceNamespace: request.workspaceNamespace } : {}),
+  }
+}
+
+function providerScopeKey(scope: CanvasProviderScope): string {
+  return createHash('sha256')
+    .update(JSON.stringify({
+      projectId: scope.projectId,
+      canvasId: scope.canvasId,
+      workspaceNamespace: scope.workspaceNamespace ?? '',
+    }))
+    .digest('hex')
+}
+
 export interface GatewayRuntime {
   readonly dataDir: string
   readonly signal: AbortSignal
@@ -212,14 +242,17 @@ export interface GatewayRuntime {
   readonly tunnel: TunnelService
   readonly agentConfig: AgentConfigStore
   trackOperation<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
-  adapterFor(providerId: string): ProviderAdapter
-  updateProvider(record: ProviderRecord): Promise<ProviderMetadata>
-  getProviderSecret(providerId: string): Promise<string | undefined>
-  setProviderSecret(providerId: string, apiKey: string): Promise<ProviderMetadata>
-  deleteProviderSecret(providerId: string): Promise<ProviderMetadata>
-  deleteProvider(providerId: string): Promise<boolean>
-  testProvider(providerId: string): Promise<ProviderMetadata>
-  syncProvider(providerId: string): Promise<ProviderCatalog>
+  listProviders(scope?: CanvasProviderScope): Promise<ProviderMetadata[]>
+  getProviderCatalog(providerId: string, scope?: CanvasProviderScope): Promise<ProviderCatalog | undefined>
+  getAgentConfig(scope?: CanvasProviderScope): Promise<AgentConfigStore>
+  adapterFor(providerId: string, scope?: CanvasProviderScope): ProviderAdapter | Promise<ProviderAdapter>
+  updateProvider(record: ProviderRecord, scope?: CanvasProviderScope): Promise<ProviderMetadata>
+  getProviderSecret(providerId: string, scope?: CanvasProviderScope): Promise<string | undefined>
+  setProviderSecret(providerId: string, apiKey: string, scope?: CanvasProviderScope): Promise<ProviderMetadata>
+  deleteProviderSecret(providerId: string, scope?: CanvasProviderScope): Promise<ProviderMetadata>
+  deleteProvider(providerId: string, scope?: CanvasProviderScope): Promise<boolean>
+  testProvider(providerId: string, scope?: CanvasProviderScope): Promise<ProviderMetadata>
+  syncProvider(providerId: string, scope?: CanvasProviderScope): Promise<ProviderCatalog>
   submit(
     request: GenerationRequest,
     collaboration?: GenerationJobCollaborationContext,
@@ -260,6 +293,37 @@ export async function createGatewayRuntime(options: {
   try {
     const providers = await ProviderRegistry.open({ dataDir, env, envFile })
     const catalogs = await CatalogCache.open({ dataDir })
+    type ScopedProviderContext = { providers: ProviderRegistry; catalogs: CatalogCache }
+    const scopedProviderContexts = new Map<string, Promise<ScopedProviderContext>>()
+    const providerContextFor = (scope?: CanvasProviderScope):
+      ScopedProviderContext | Promise<ScopedProviderContext> => {
+      if (!scope) return { providers, catalogs }
+      const key = providerScopeKey(scope)
+      const existing = scopedProviderContexts.get(key)
+      if (existing) return existing
+      const scopeDir = join(dataDir, 'canvas-providers', key)
+      const context = (async () => {
+        const scopedProviders = await ProviderRegistry.open({
+          dataDir: scopeDir,
+          env: {},
+          secretFile: join(scopeDir, 'provider-secrets.json'),
+          seed: {
+            records: providers.listRecords(),
+            secrets: providers.listSecrets(),
+          },
+        })
+        const scopedCatalogs = await CatalogCache.open({
+          dataDir: scopeDir,
+          seed: catalogs.snapshot(),
+        })
+        return { providers: scopedProviders, catalogs: scopedCatalogs }
+      })()
+      scopedProviderContexts.set(key, context)
+      void context.catch(() => {
+        if (scopedProviderContexts.get(key) === context) scopedProviderContexts.delete(key)
+      })
+      return context
+    }
     const pinnedFetcher = options.pinnedFetcher ?? createPinnedRemoteFetcher()
     const lookup = options.lookup ?? createRuntimeAddressLookup({
       dohEndpoint: options.dohEndpoint ?? env.CANVAS_DOH_ENDPOINT,
@@ -275,12 +339,29 @@ export async function createGatewayRuntime(options: {
     const canvasAssetReferences = await CanvasAssetReferenceStore.open({ dataDir })
     const workspace = new WorkspaceService({ dataDir })
     const canvases = new CanvasPersistenceService({ dataDir })
+    // Collaborative rooms created in workstation mode own their snapshots in
+    // the creator's isolated workspace. Keep one persistence service per
+    // namespace so Yjs compaction never writes a workstation canvas into the
+    // shared personal/server store.
+    const scopedCanvases = new Map<string, CanvasPersistenceService>()
+    const canvasesForNamespace = (namespace: string): CanvasPersistenceService => {
+      const existing = scopedCanvases.get(namespace)
+      if (existing) return existing
+      const created = new CanvasPersistenceService({
+        dataDir: workstationDataDir(dataDir, namespace),
+      })
+      scopedCanvases.set(namespace, created)
+      return created
+    }
     const activeCollaboration = await CollaborationService.open({
       ...options.collaborationOptions,
       dataDir,
-      onSnapshotSaved: async (snapshot) => {
+      onSnapshotSaved: async (snapshot, context) => {
         try {
-          await canvases.saveCanvas(snapshot)
+          const target = context?.workspaceNamespace
+            ? canvasesForNamespace(context.workspaceNamespace)
+            : canvases
+          await target.saveCanvas(snapshot)
         } catch {
           // ignore
         }
@@ -289,6 +370,28 @@ export async function createGatewayRuntime(options: {
     collaboration = activeCollaboration
     const tunnel = await TunnelService.open({ dataDir })
     const agentConfig = await AgentConfigStore.open({ dataDir, env: options.env ?? process.env, envFile })
+    const scopedAgentConfigs = new Map<string, Promise<AgentConfigStore>>()
+    const agentConfigFor = (scope?: CanvasProviderScope): Promise<AgentConfigStore> => {
+      if (!scope) return Promise.resolve(agentConfig)
+      const key = providerScopeKey(scope)
+      const existing = scopedAgentConfigs.get(key)
+      if (existing) return existing
+      const scopeDir = join(dataDir, 'canvas-providers', key)
+      const context = AgentConfigStore.open({
+        dataDir: scopeDir,
+        env: {},
+        secretFile: join(scopeDir, 'agent-secrets.json'),
+        seed: {
+          providers: agentConfig.listRecords(),
+          secrets: agentConfig.listSecrets(),
+        },
+      })
+      scopedAgentConfigs.set(key, context)
+      void context.catch(() => {
+        if (scopedAgentConfigs.get(key) === context) scopedAgentConfigs.delete(key)
+      })
+      return context
+    }
     const writeCollaborativeJob = (job: import('../src/contracts/generation.ts').GenerationJob) => {
       if (!job.roomId) return
       try {
@@ -324,18 +427,32 @@ export async function createGatewayRuntime(options: {
       return active
     }
 
-    const adapterFor = (providerId: string): ProviderAdapter => {
-      const provider = providers.getPublic(providerId)
+    const buildAdapter = (registry: ProviderRegistry, providerId: string): ProviderAdapter => {
+      const provider = registry.getPublic(providerId)
       if (!provider) throw new RuntimeNotFoundError('Provider not found')
-      const secret = providers.getSecret(providerId)
+      const secret = registry.getSecret(providerId)
       if (!provider.enabled || !secret) throw new ProviderUnavailableError('Provider is not configured')
       return adapterFactory(provider, secret)
     }
 
-    const syncProvider = (providerId: string) => trackOperation(async (signal) => {
+    const adapterFor = (providerId: string, scope?: CanvasProviderScope): ProviderAdapter | Promise<ProviderAdapter> => {
+      const context = providerContextFor(scope)
+      return context instanceof Promise
+        ? context.then(({ providers: scopedProviders }) => buildAdapter(scopedProviders, providerId))
+        : buildAdapter(context.providers, providerId)
+    }
+
+    const listProviders = async (scope?: CanvasProviderScope): Promise<ProviderMetadata[]> => {
+      const context = await providerContextFor(scope)
+      return context.providers.listPublic()
+    }
+
+    const syncProvider = (providerId: string, scope?: CanvasProviderScope) => trackOperation(async (signal) => {
+      const context = await providerContextFor(scope)
+      const scopedAdapter = () => adapterFor(providerId, scope)
       let catalog: ProviderCatalog
       try {
-        catalog = await catalogs.sync(providerId, () => adapterFor(providerId).syncCatalog(signal))
+        catalog = await context.catalogs.sync(providerId, () => Promise.resolve(scopedAdapter()).then((adapter) => adapter.syncCatalog(signal)))
       } catch (error) {
         if (error instanceof RuntimeNotFoundError || error instanceof ProviderUnavailableError) throw error
         const rejection = providerRejection(error)
@@ -343,9 +460,9 @@ export async function createGatewayRuntime(options: {
         throw new ProviderOperationError(providerOperationTimedOut(error))
       }
       if (!catalog.stale) {
-        const provider = providers.getPublic(providerId)
+        const provider = context.providers.getPublic(providerId)
         if (!provider) throw new RuntimeNotFoundError('Provider not found')
-        await providers.upsert(providerRecord(provider, { lastSyncedAt: catalog.fetchedAt }))
+        await context.providers.upsert(providerRecord(provider, { lastSyncedAt: catalog.fetchedAt }))
       }
       return catalog
     })
@@ -355,9 +472,13 @@ export async function createGatewayRuntime(options: {
       history,
       assets,
       lock,
-      adapterFor,
-      catalogFor: (providerId) => {
-        const catalog = catalogs.get(providerId)
+      adapterFor: (providerId, request) => adapterFor(
+        providerId,
+        request ? providerScopeForRequest(request) : undefined,
+      ),
+      catalogFor: async (providerId, request) => {
+        const context = await providerContextFor(request ? providerScopeForRequest(request) : undefined)
+        const catalog = context.catalogs.get(providerId)
         if (!catalog) throw new ProviderUnavailableError('Provider catalog has not been synchronized')
         return catalog
       },
@@ -382,57 +503,69 @@ export async function createGatewayRuntime(options: {
       tunnel,
       agentConfig,
       trackOperation,
+      listProviders,
+      async getProviderCatalog(providerId, scope) {
+        const context = await providerContextFor(scope)
+        return context.catalogs.get(providerId)
+      },
+      getAgentConfig: agentConfigFor,
       adapterFor,
-      async updateProvider(record) {
+      async updateProvider(record, scope) {
         return trackOperation(async () => {
-          const previous = providers.getPublic(record.id)
+          const context = await providerContextFor(scope)
+          const previous = context.providers.getPublic(record.id)
           if (previous && previous.adapterType !== record.adapterType) {
-            await catalogs.delete(record.id)
+            await context.catalogs.delete(record.id)
           }
-          await providers.upsert(record)
-          const updated = providers.getPublic(record.id)
+          await context.providers.upsert(record)
+          const updated = context.providers.getPublic(record.id)
           if (!updated) throw new RuntimeNotFoundError('Provider not found')
           return updated
         })
       },
-      async getProviderSecret(providerId) {
+      async getProviderSecret(providerId, scope) {
         return trackOperation(async () => {
-          const provider = providers.getPublic(providerId)
+          const context = await providerContextFor(scope)
+          const provider = context.providers.getPublic(providerId)
           if (!provider) throw new RuntimeNotFoundError('Provider not found')
-          return providers.getSecret(providerId)
+          return context.providers.getSecret(providerId)
         })
       },
-      async setProviderSecret(providerId, apiKey) {
+      async setProviderSecret(providerId, apiKey, scope) {
         return trackOperation(async () => {
-          await providers.setSecret(providerId, apiKey)
-          const updated = providers.getPublic(providerId)
+          const context = await providerContextFor(scope)
+          await context.providers.setSecret(providerId, apiKey)
+          const updated = context.providers.getPublic(providerId)
           if (!updated) throw new RuntimeNotFoundError('Provider not found')
           return updated
         })
       },
-      async deleteProviderSecret(providerId) {
+      async deleteProviderSecret(providerId, scope) {
         return trackOperation(async () => {
-          await providers.deleteSecret(providerId)
-          const updated = providers.getPublic(providerId)
+          const context = await providerContextFor(scope)
+          await context.providers.deleteSecret(providerId)
+          const updated = context.providers.getPublic(providerId)
           if (!updated) throw new RuntimeNotFoundError('Provider not found')
           return updated
         })
       },
-      async deleteProvider(providerId) {
+      async deleteProvider(providerId, scope) {
         return trackOperation(async () => {
-          return providers.delete(providerId)
+          const context = await providerContextFor(scope)
+          return context.providers.delete(providerId)
         })
       },
-      async testProvider(providerId) {
+      async testProvider(providerId, scope) {
         return trackOperation(async (signal) => {
           try {
-            await adapterFor(providerId).testConnection(signal)
+            await Promise.resolve(adapterFor(providerId, scope)).then((adapter) => adapter.testConnection(signal))
           } catch (error) {
             if (error instanceof RuntimeNotFoundError || error instanceof ProviderUnavailableError) throw error
             if (error instanceof ProviderRequestRejectedError) throw sanitizedProviderRejection(error)
             throw new ProviderOperationError(providerOperationTimedOut(error))
           }
-          const provider = providers.getPublic(providerId)
+          const context = await providerContextFor(scope)
+          const provider = context.providers.getPublic(providerId)
           if (!provider) throw new RuntimeNotFoundError('Provider not found')
           return provider
         })
@@ -442,7 +575,7 @@ export async function createGatewayRuntime(options: {
         const existing = jobs.list().some(
           (job) => job.clientRequestId === request.clientRequestId,
         )
-        if (!existing) await syncProvider(request.providerId)
+        if (!existing) await syncProvider(request.providerId, providerScopeForRequest(request))
         return runner?.submit(request, generationCollaboration) as ReturnType<GenerationRunner['submit']>
       },
       close: (() => {
@@ -466,6 +599,7 @@ export async function createGatewayRuntime(options: {
             }
             try {
               await canvases.flushAll()
+              await Promise.all([...scopedCanvases.values()].map((store) => store.flushAll()))
             } catch (error) {
               failure ??= error
             }

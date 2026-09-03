@@ -320,7 +320,7 @@ export class CollaborationClient {
     )
     if (
       payload.projectId !== projectId || payload.canvasId !== canvasId ||
-      (payload.mode !== 'solo' && payload.mode !== 'host') ||
+      (payload.mode !== 'solo' && payload.mode !== 'host' && payload.mode !== 'workstation') ||
       typeof payload.active !== 'boolean' ||
       (payload.roomId !== undefined && (typeof payload.roomId !== 'string' || !ROOM_IDENTIFIER.test(payload.roomId)))
     ) {

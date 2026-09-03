@@ -175,6 +175,8 @@ export interface AppProps {
   onNavigateWorkspace?: (create?: 'project' | 'canvas') => void
   workspaceRepository?: WorkspaceRepository
   thumbnailService?: Pick<CanvasThumbnailService, 'schedule' | 'flush'>
+  /** System settings are served from the loopback-only administration port. */
+  canManageSettings?: boolean
 }
 
 export default function App({
@@ -185,6 +187,7 @@ export default function App({
   onNavigateWorkspace,
   workspaceRepository = defaultWorkspaceRepository,
   thumbnailService = canvasThumbnailService,
+  canManageSettings = true,
 }: AppProps = {}) {
   const [hydrated, setHydrated] = useState(false)
   const [loadedCanvasId, setLoadedCanvasId] = useState<string | null>()
@@ -271,15 +274,19 @@ export default function App({
     notify,
   })
   const [hostPromptDismissed, setHostPromptDismissed] = useState(false)
-  const [appMode, setAppMode] = useState<'host' | 'solo'>('solo')
+  const [appMode, setAppMode] = useState<'host' | 'solo' | 'workstation'>('solo')
   const [appModeLoaded, setAppModeLoaded] = useState(false)
   useEffect(() => {
     let disposed = false
-    void fetch('/api/system/settings')
+    void fetch('/api/access/context')
       .then((response) => (response.ok ? response.json() as Promise<{ operationMode?: unknown }> : undefined))
       .then((data) => {
         if (disposed) return
-        const mode = data?.operationMode === 'host' ? 'host' : 'solo'
+        const mode = data?.operationMode === 'host'
+          ? 'host'
+          : data?.operationMode === 'workstation'
+            ? 'workstation'
+            : 'solo'
         setAppMode(mode)
         setAppModeLoaded(true)
         localStorage.setItem('continuum_app_mode', mode)
@@ -738,6 +745,7 @@ export default function App({
       }
     }
     if (action === 'settings') {
+      if (!canManageSettings) return
       setDialog('settings')
       return
     }
@@ -1201,17 +1209,19 @@ export default function App({
             <Bot size={18} />
             <span className="app-layer-sidebar__rail-label">Agent</span>
           </button>
-          <button
-            aria-label="设置"
-            className="app-layer-sidebar__rail-btn"
-            onClick={() => setDialog('settings')}
-            style={{ marginTop: 'auto' }}
-            title="系统设置"
-            type="button"
-          >
-            <Settings size={18} />
-            <span className="app-layer-sidebar__rail-label">设置</span>
-          </button>
+          {canManageSettings && (
+            <button
+              aria-label="设置"
+              className="app-layer-sidebar__rail-btn"
+              onClick={() => setDialog('settings')}
+              style={{ marginTop: 'auto' }}
+              title="系统设置"
+              type="button"
+            >
+              <Settings size={18} />
+              <span className="app-layer-sidebar__rail-label">设置</span>
+            </button>
+          )}
         </div>
         <div
           aria-hidden={!preferences.layersOpen}

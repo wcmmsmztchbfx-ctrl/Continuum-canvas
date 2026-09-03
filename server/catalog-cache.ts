@@ -35,6 +35,7 @@ export class CatalogCache {
     writeJson?: typeof atomicWriteJson
     now?: () => Date
     ttlMs?: number
+    seed?: Record<string, ProviderCatalog>
   }) {
     await mkdir(options.dataDir, { recursive: true })
     const filePath = join(options.dataDir, 'catalog-cache.json')
@@ -51,6 +52,13 @@ export class CatalogCache {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
+    if (Object.keys(catalogs).length === 0 && options.seed) {
+      catalogs = Object.fromEntries(Object.entries(options.seed).flatMap(([providerId, candidate]) =>
+        isProviderCatalog(candidate) && candidate.providerId === providerId
+          ? [[providerId, structuredClone(candidate)]]
+          : [],
+      ))
+    }
     return new CatalogCache(
       filePath,
       catalogs,
@@ -65,6 +73,11 @@ export class CatalogCache {
     return catalog
       ? deriveCatalogStale(catalog, this.now().getTime(), this.ttlMs)
       : undefined
+  }
+
+  /** Snapshot used to seed a newly isolated canvas scope. */
+  snapshot(): Record<string, ProviderCatalog> {
+    return structuredClone(this.catalogs)
   }
 
   async delete(providerId: string): Promise<void> {

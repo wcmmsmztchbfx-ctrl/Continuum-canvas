@@ -123,23 +123,39 @@ export class ProviderRegistry {
   private readonly env: Record<string, string | undefined>
   private records: ProviderRecord[]
   private readonly envFile?: string
+  private readonly secretFile?: string
+  private secrets: Record<string, string>
 
   private constructor(
     filePath: string,
     env: Record<string, string | undefined>,
     records: ProviderRecord[],
     envFile?: string,
+    secretFile?: string,
+    secrets: Record<string, string> = {},
   ) {
     this.filePath = filePath
     this.env = env
     this.records = records
     this.envFile = envFile
+    this.secretFile = secretFile
+    this.secrets = secrets
   }
 
   static async open(options: {
     dataDir: string
     env?: Record<string, string | undefined>
     envFile?: string
+    /**
+     * Optional sidecar for canvas-scoped secrets. When present, secrets are
+     * deliberately kept out of the process-wide environment file so each
+     * canvas can carry an independent provider configuration.
+     */
+    secretFile?: string
+    seed?: {
+      records: ProviderRecord[]
+      secrets?: Record<string, string>
+    }
   }) {
     await mkdir(options.dataDir, { recursive: true })
     const filePath = join(options.dataDir, 'providers.json')
@@ -159,17 +175,57 @@ export class ProviderRegistry {
       fileExists = false
     }
     if (!fileExists && records.length === 0) {
-      for (const preset of PRESETS) {
-        records.push({ ...preset })
+      const seeded = options.seed?.records ?? PRESETS
+      for (const preset of seeded) records.push({ ...preset })
+    }
+    let secrets: Record<string, string> = {}
+    if (options.secretFile) {
+      let secretFileExists = true
+      try {
+        const parsed: unknown = JSON.parse(await readFile(options.secretFile, 'utf8'))
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          secrets = Object.fromEntries(Object.entries(parsed).filter(([id, value]) =>
+            /^[a-z][a-z0-9-]{0,47}$/.test(id) && typeof value === 'string' && value.length > 0,
+          ))
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') secretFileExists = false
+        else throw error
+      }
+      if (!secretFileExists && options.seed?.secrets) {
+        secrets = Object.fromEntries(Object.entries(options.seed.secrets).filter(([id, value]) =>
+          /^[a-z][a-z0-9-]{0,47}$/.test(id) && typeof value === 'string' && value.length > 0,
+        ))
       }
     }
-    const registry = new ProviderRegistry(filePath, options.env ?? process.env, records, options.envFile)
+    const registry = new ProviderRegistry(
+      filePath,
+      options.env ?? process.env,
+      records,
+      options.envFile,
+      options.secretFile,
+      secrets,
+    )
     await registry.persist()
+    if (options.secretFile) await registry.persistSecrets()
     return registry
   }
 
   listPublic(): ProviderMetadata[] {
     return this.records.map((record) => this.toPublic(record))
+  }
+
+  /** A sanitized internal seed used when a new canvas scope is created. */
+  listRecords(): ProviderRecord[] {
+    return this.records.map((record) => ({ ...record }))
+  }
+
+  /** Returns configured secrets for internal scope seeding; callers never expose this map. */
+  listSecrets(): Record<string, string> {
+    return Object.fromEntries(this.records.flatMap((record) => {
+      const secret = this.getSecret(record.id)
+      return secret ? [[record.id, secret]] : []
+    }))
   }
 
   getPublic(id: string): ProviderMetadata | undefined {
@@ -180,7 +236,7 @@ export class ProviderRegistry {
   getSecret(id: string): string | undefined {
     const record = this.records.find((candidate) => candidate.id === id)
     return record && SUPPORTED_ADAPTERS.has(record.adapterType)
-      ? this.env[deriveSecretEnvName(record.id)]
+      ? (this.secretFile ? this.secrets[record.id] : this.env[deriveSecretEnvName(record.id)])
       : undefined
   }
 
@@ -202,8 +258,13 @@ export class ProviderRegistry {
     const [removed] = this.records.splice(index, 1)
     if (removed) {
       const secretEnvName = deriveSecretEnvName(removed.id)
-      delete this.env[secretEnvName]
-      await this.persistEnvSecret(secretEnvName)
+      if (this.secretFile) {
+        delete this.secrets[removed.id]
+        await this.persistSecrets()
+      } else {
+        delete this.env[secretEnvName]
+        await this.persistEnvSecret(secretEnvName)
+      }
       if (removed.preferred && this.records.length > 0) {
         this.records[0]!.preferred = true
       }
@@ -221,22 +282,34 @@ export class ProviderRegistry {
     const normalized = secret.trim()
     if (!normalized) throw new Error('Provider secret cannot be empty')
     const secretEnvName = deriveSecretEnvName(record.id)
-    this.env[secretEnvName] = normalized
-    await this.persistEnvSecret(secretEnvName, normalized)
+    if (this.secretFile) {
+      this.secrets[record.id] = normalized
+      await this.persistSecrets()
+    } else {
+      this.env[secretEnvName] = normalized
+      await this.persistEnvSecret(secretEnvName, normalized)
+    }
   }
 
   async deleteSecret(id: string): Promise<void> {
     const record = this.records.find((candidate) => candidate.id === id)
     if (!record) throw new Error('Provider not found')
     const secretEnvName = deriveSecretEnvName(record.id)
-    delete this.env[secretEnvName]
-    await this.persistEnvSecret(secretEnvName)
+    if (this.secretFile) {
+      delete this.secrets[record.id]
+      await this.persistSecrets()
+    } else {
+      delete this.env[secretEnvName]
+      await this.persistEnvSecret(secretEnvName)
+    }
   }
 
   private toPublic(record: ProviderRecord): ProviderMetadata {
     const secretEnvName = deriveSecretEnvName(record.id)
     const supported = SUPPORTED_ADAPTERS.has(record.adapterType)
-    const secret = supported ? this.env[secretEnvName] : undefined
+    const secret = supported
+      ? (this.secretFile ? this.secrets[record.id] : this.env[secretEnvName])
+      : undefined
     const secretConfigured = typeof secret === 'string' && secret.length > 0
     return {
       id: record.id,
@@ -269,5 +342,10 @@ export class ProviderRegistry {
       if (value !== undefined) updated.push(`${name}=${JSON.stringify(value)}`)
       return updated.length > 0 ? `${updated.join(newline)}${newline}` : ''
     })
+  }
+
+  private async persistSecrets(): Promise<void> {
+    if (!this.secretFile) return
+    await atomicWriteJson(this.secretFile, this.secrets)
   }
 }

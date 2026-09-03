@@ -89,6 +89,25 @@ describe('GatewayClient', () => {
       expect(init?.credentials).toBe('same-origin')
     }
   })
+
+  it('uses the workstation canvas session without a loopback administrator handshake', async () => {
+    const provider = {
+      id: 'aistartlab', name: 'AIStartLab', adapterType: 'aistartlab-openapi',
+      baseUrl: 'https://api.example', enabled: true, preferred: true,
+      secretEnvName: 'API_PROVIDER_AISTARTLAB_KEY', secretConfigured: true,
+      available: true, maskedSecret: '****',
+    }
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ok: true, provider }))
+    const client = new GatewayClient({ fetchImpl })
+    client.setWorkstationSession(true)
+    client.setCanvasApiScope({ projectId: 'project-a', canvasId: 'canvas-a' })
+
+    await client.testProvider('aistartlab')
+
+    expect(fetchImpl.mock.calls.filter(([input]) => String(input).includes('/api/local-admin/session'))).toHaveLength(0)
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain('projectId=project-a')
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain('canvasId=canvas-a')
+  })
   it('reassigns one canvas history with a stable operation id', async () => {
     const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       expect(JSON.parse(String(init?.body))).toEqual({

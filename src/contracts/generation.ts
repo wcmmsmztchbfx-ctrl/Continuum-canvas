@@ -85,6 +85,8 @@ export interface GenerationRequest {
   projectId: string
   /** Optional while legacy canvas documents are being migrated. */
   canvasId?: string
+  /** Server-selected workspace namespace for isolated workstation runs. */
+  workspaceNamespace?: string
   /** Required for collaborative generation so one node cannot be charged twice concurrently. */
   targetNodeId?: string
   providerId: string

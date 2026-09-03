@@ -10,6 +10,7 @@ import { atomicWriteJson } from './atomic-json.ts'
 export interface WorkspaceServiceOptions {
   dataDir: string
   now?: () => string
+  initialManifest?: () => WorkspaceManifestV1
 }
 
 export function defaultWorkspaceManifest(now = new Date().toISOString()): WorkspaceManifestV1 {
@@ -43,10 +44,30 @@ export function defaultWorkspaceManifest(now = new Date().toISOString()): Worksp
   }
 }
 
+/**
+ * Default manifest for an isolated workstation. Keeping the namespace in the
+ * identifiers prevents shared job/history indexes from colliding when every
+ * user starts from their own empty workspace.
+ */
+export function workstationWorkspaceManifest(
+  namespace: string,
+  now = new Date().toISOString(),
+): WorkspaceManifestV1 {
+  const projectId = `${namespace}-project`
+  const canvasId = `${namespace}-canvas`
+  const manifest = defaultWorkspaceManifest(now)
+  return {
+    ...manifest,
+    projects: manifest.projects.map((project) => ({ ...project, projectId })),
+    canvases: manifest.canvases.map((canvas) => ({ ...canvas, canvasId, projectId })),
+  }
+}
+
 export class WorkspaceService {
   readonly #filePath: string
   readonly #workspaceDir: string
   readonly #now: () => string
+  readonly #initialManifest?: () => WorkspaceManifestV1
   #manifest?: WorkspaceManifestV1
   #writeLock: Promise<void> = Promise.resolve()
 
@@ -54,6 +75,7 @@ export class WorkspaceService {
     this.#workspaceDir = join(options.dataDir, 'workspace')
     this.#filePath = join(this.#workspaceDir, 'manifest.json')
     this.#now = options.now ?? (() => new Date().toISOString())
+    this.#initialManifest = options.initialManifest
   }
 
   async getManifest(): Promise<WorkspaceManifestV1> {
@@ -63,7 +85,7 @@ export class WorkspaceService {
       this.#manifest = parseWorkspaceManifest(content)
       return structuredClone(this.#manifest)
     } catch {
-      const initial = defaultWorkspaceManifest(this.#now())
+      const initial = this.#initialManifest?.() ?? defaultWorkspaceManifest(this.#now())
       await this.#saveManifest(initial)
       this.#manifest = initial
       return structuredClone(initial)

@@ -120,6 +120,8 @@ npm start
 
 `npm start` 使用 gateway 提供 `dist/` 静态文件，默认监听 `http://127.0.0.1:4173`。生产模式不需要单独启动 Vite。
 
+生产模式还会启动一个只绑定回环地址的管理入口 `http://127.0.0.1:4174`；它与主入口共享服务端数据，但不会接受局域网连接。管理入口不额外要求账号密码，边界由回环地址和端口本身提供。
+
 ### 后台开发服务
 
 ```bash
@@ -140,6 +142,8 @@ node scripts/dev-service.mjs stop
 | `CANVAS_DATA_DIR` | `data` | 项目、任务、素材和协作数据目录 |
 | `CANVAS_GATEWAY_HOST` | `127.0.0.1` | gateway 监听地址 |
 | `CANVAS_GATEWAY_PORT` | 开发 `4174`，生产 `4173` | gateway 监听端口；兼容 `GATEWAY_PORT` |
+| `CANVAS_ADMIN_PORT` | 生产 `4174`，开发 `4175` | 只绑定 `127.0.0.1` 的管理入口；可改为其他未占用端口 |
+| `CANVAS_OPERATION_MODE` | 已保存设置，首次为 `solo` | 启动默认模式：`solo`、`host`（服务器模式兼容值）或 `workstation` |
 | `CANVAS_VITE_HOST` | `127.0.0.1` | Vite 开发服务器监听地址 |
 | `CANVAS_GATEWAY_ORIGIN` | `http://127.0.0.1:4174` | Vite `/api` 与 WebSocket 代理目标 |
 | `CANVAS_ASSET_IMPORT_TIMEOUT_MS` | `90000` | 远程素材导入超时，最大 `600000` |
@@ -183,14 +187,17 @@ CANVAS_ALLOWED_ORIGINS=https://canvas.example.com
 
 反向代理应将静态页面、`/api` 和 `/api/collaboration/ws` 转发到同一个 gateway，并保留 WebSocket 的 `Upgrade` / `Connection` 头。不要直接暴露 `data/`、协作快照或素材目录。
 
-### 协作模型
+### 三种运行模式
 
-在设置中开启主机协作后，首次设备成为房主；其他设备通过房间邀请进入，并以房主、编辑者或查看者身份建立会话。当前实现适用于单实例自托管，默认最多 10 个活跃客户端：
+运行模式由服务端保存，UI 中显示为“个人模式”“服务器模式”和“工作站模式”。`host` 仍作为旧部署的兼容线格式值，但产品文案统一使用“服务器模式”。
 
-- 房主负责房间生命周期、邀请、供应商和系统设置。
-- 编辑者可以在授权画布内编辑并参与实时同步。
-- 查看者只读接收画布和 presence 状态。
-- 房间快照、增量更新、成员和邀请元数据保存在 `CANVAS_DATA_DIR/collaboration`。
+- **个人模式（`solo`）**：本机单用户工作区，不要求昵称，不自动开放局域网协作。画布邀请仍可按画布建立编辑者/查看者会话。
+- **服务器模式（`host`）**：访问者先输入昵称，画布协作由 gateway 中继；编辑者和查看者通过房间会话获得对应权限。
+- **工作站模式（`workstation`）**：访问者先输入昵称，每个昵称映射到 `CANVAS_DATA_DIR/workstation/<user-id>/` 独立工作区。不同用户看不到彼此的工作区；用户可在自己的画布上配置 API，并按画布邀请协作者。
+
+API 配置以 `projectId + canvasId` 为作用域，密钥保存在服务端的画布侧边文件中。未加入房间的远程访问者不能写入；房间查看者不能修改，编辑者可以修改当前授权画布的供应商与 Agent API 配置。WebSocket/Yjs 中继架构在三种模式下保持不变。
+
+当前协作实现适用于单实例自托管，默认最多 10 个活跃客户端。房间快照、增量更新、成员和邀请元数据保存在 `CANVAS_DATA_DIR/collaboration`；专用管理入口用于本机查看和调整运行设置。
 
 当前版本不提供中心账号、跨实例联邦或水平扩展。多个 gateway 不应同时写入同一个数据目录。
 
@@ -232,6 +239,8 @@ data/
 ├─ generation-history/            # 生成历史
 ├─ workspace/                     # 工作区清单
 ├─ canvases/                      # 画布快照与 Agent 会话
+├─ workstation/<user-id>/         # 工作站模式的用户隔离工作区
+├─ canvas-providers/<scope-hash>/ # 画布级供应商、目录与 Agent 配置
 ├─ collaboration/                # Yjs 房间快照、日志和成员元数据
 ├─ assets/                        # 素材索引与二进制文件
 └─ .backend.lock                 # 单 gateway 数据目录锁

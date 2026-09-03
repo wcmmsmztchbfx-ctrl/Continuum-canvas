@@ -119,7 +119,7 @@ afterEach(async () => {
 })
 
 describe('collaboration REST gateway', () => {
-  it('requires the collaboration owner and a matching room header for provider writes', async () => {
+  it('requires a matching room header and lets editors manage canvas providers', async () => {
     const gateway = await start()
     const owner = await enable(gateway)
     const roomId = owner.payload.room.roomId as string
@@ -153,7 +153,7 @@ describe('collaboration REST gateway', () => {
     })
     expect(localAdmin.status).toBe(200)
     expect((await update(ownerCookie, roomId)).status).toBe(200)
-    expect((await update(editorCookie, roomId)).status).toBe(403)
+    expect((await update(editorCookie, roomId)).status).toBe(200)
     expect((await update(viewerCookie, roomId)).status).toBe(403)
     expect((await update(ownerCookie)).status).toBe(403)
     expect((await update(ownerCookie, 'wrong-room')).status).toBe(403)

@@ -102,8 +102,8 @@ export interface AppOverlaysProps {
   restoreProjectFrom: (task: Promise<ProjectSnapshot>, successMessage?: string) => void
   hostPromptOpen?: boolean
   onDismissHostPrompt?: () => void
-  appMode?: 'host' | 'solo'
-  onAppModeChange?: (mode: 'host' | 'solo') => void
+  appMode?: 'host' | 'solo' | 'workstation'
+  onAppModeChange?: (mode: 'host' | 'solo' | 'workstation') => void
 }
 
 export function AppOverlays({

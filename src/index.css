@@ -109,6 +109,72 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
+.workstation-entry {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  background: var(--canvas-bg-canvas);
+}
+
+.workstation-entry__card {
+  display: grid;
+  gap: 12px;
+  width: min(420px, 100%);
+  padding: 28px;
+  border: 1px solid var(--canvas-border-strong);
+  border-radius: 16px;
+  background: var(--canvas-bg-surface);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 24%);
+}
+
+.workstation-entry__card h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.3;
+}
+
+.workstation-entry__card p:not(.canvas-type-eyebrow) {
+  margin: 0;
+  color: var(--canvas-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.workstation-entry__card label {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--canvas-text-secondary);
+}
+
+.workstation-entry__card input {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--canvas-border-strong);
+  border-radius: 8px;
+  background: var(--canvas-bg-input);
+}
+
+.workstation-entry__card button {
+  min-height: 40px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--canvas-accent-primary);
+  color: var(--canvas-text-on-accent);
+  cursor: pointer;
+}
+
+.workstation-entry__card button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.workstation-entry__error {
+  color: var(--canvas-status-danger) !important;
+}
+
 .app-shell {
   --layers-sidebar-width: 260px;
   position: relative;

@@ -10,7 +10,11 @@ export const COLLABORATION_MAX_CLIENT_MESSAGE_BYTES = COLLABORATION_MAX_SERVER_M
 
 export type CollaborationRole = 'owner' | 'editor' | 'viewer'
 
-export type CollaborationOperationMode = 'solo' | 'host'
+/**
+ * Server-wide entry policy. `host` is retained as a wire/storage alias for
+ * installations created before the server-mode naming change.
+ */
+export type CollaborationOperationMode = 'solo' | 'host' | 'workstation'
 
 export interface CollaborationScopeStatus {
   projectId: string
