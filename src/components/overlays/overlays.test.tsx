@@ -710,6 +710,17 @@ describe('ToastRegion', () => {
     expect(screen.queryByText('信息一', { selector: '.overlay-toast span' })).toBeNull()
     expect(screen.getByText('信息二', { selector: '.overlay-toast span' })).toBeVisible()
   })
+
+  it('renders KeyboardShortcutsDialog with default tools and vector edit shortcuts', () => {
+    const onClose = vi.fn()
+    render(<KeyboardShortcutsDialog onClose={onClose} open />)
+
+    expect(screen.getByText('键盘快捷键')).toBeInTheDocument()
+    expect(screen.getByText('钢笔工具')).toBeInTheDocument()
+    expect(screen.getByText('P')).toBeInTheDocument()
+    expect(screen.getByText('矢量编辑模式')).toBeInTheDocument()
+    expect(screen.getByText('双击路径 / Esc')).toBeInTheDocument()
+  })
 })
 
 describe('overlay visual contract', () => {

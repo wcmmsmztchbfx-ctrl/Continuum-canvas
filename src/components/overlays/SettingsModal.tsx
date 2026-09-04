@@ -352,7 +352,7 @@ export function SettingsModal({
                   <span className="figma-settings__checkbox-label">画板编辑实时自动持久化</span>
                 </div>
                 <p className="figma-settings__hint">
-                  节点增删、连线拖拽与属性调整将实时自动保存至本地工作区 SQLite 存储。
+                  节点增删、连线拖拽与属性调整将实时自动保存至本地工作区 IndexedDB / 本地文件存储。
                 </p>
               </div>
             </div>
