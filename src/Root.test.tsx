@@ -84,19 +84,22 @@ describe('application workspace routing', () => {
     expect(screen.queryByTestId('canvas-workspace')).toBeNull()
   })
 
-  it('creates, names and opens an independent canvas from the home', async () => {
+  it('creates and opens an independent canvas from the home', async () => {
     renderRoot()
     await screen.findByTestId('workspace-home')
 
     fireEvent.click(screen.getAllByRole('button', { name: '新建画布' })[0]!)
-    const input = await screen.findByRole('textbox', { name: '名称' })
-    fireEvent.change(input, { target: { value: '新分镜画布' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(window.location.pathname).toBe('/')
+    const canvasCard = await screen.findByRole('button', { name: /^未命名画布/ })
+    expect(canvasCard).toBeVisible()
+
+    fireEvent.click(canvasCard)
 
     await waitFor(() => expect(window.location.pathname).toBe('/canvas'))
     await waitFor(() => expect(screen.getByTestId('canvas-workspace')).toBeVisible())
     expect(new URLSearchParams(window.location.search).get('canvasId')).toBeTruthy()
-    expect(screen.getByRole('button', { name: /新分镜画布/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: /未命名画布/ })).toBeVisible()
   })
 
   it('preserves the collaboration room while canonicalizing a refreshed canvas URL', async () => {
@@ -111,9 +114,8 @@ describe('application workspace routing', () => {
     )
     await screen.findByTestId('workspace-home')
     fireEvent.click(screen.getAllByRole('button', { name: '新建画布' })[0]!)
-    const input = await screen.findByRole('textbox', { name: '名称' })
-    fireEvent.change(input, { target: { value: '协作刷新画布' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
+    const canvasCard = await screen.findByRole('button', { name: /^未命名画布/ })
+    fireEvent.click(canvasCard)
     await waitFor(() => expect(window.location.pathname).toBe('/canvas'))
     const search = new URLSearchParams(window.location.search)
     search.set('collabRoom', 'room-refresh')

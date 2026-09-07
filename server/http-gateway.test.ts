@@ -1263,7 +1263,7 @@ describe('HTTP gateway', () => {
     expect(manifestRes.status).toBe(200)
     const { manifest } = await json(manifestRes)
     expect(manifest.version).toBe(1)
-    expect(manifest.canvases).toHaveLength(1)
+    expect(manifest.canvases).toHaveLength(0)
 
     // 2. PUT /api/canvases/:canvasId
     const canvasPayload = {
@@ -1299,6 +1299,15 @@ describe('HTTP gateway', () => {
     expect(canvas.nodes[0]?.data?.text).toBe('服务端保存测试')
 
     // 4. POST /api/workspace/commit
+    manifest.projects.push({
+      projectId: 'default-project',
+      name: '默认项目',
+      position: { x: 0, y: 0 },
+      size: { width: 620, height: 380 },
+      favorite: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
     manifest.canvases.push({
       canvasId: 'canvas-2',
       projectId: 'default-project',
@@ -1317,7 +1326,7 @@ describe('HTTP gateway', () => {
     })
     expect(commitRes.status).toBe(200)
     const commitData = await json(commitRes)
-    expect(commitData.manifest.canvases).toHaveLength(2)
+    expect(commitData.manifest.canvases).toHaveLength(1)
   })
 
   it('supports asset listing, protects referenced assets from deletion, and cleans unreferenced assets', async () => {

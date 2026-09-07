@@ -38,6 +38,8 @@ const manifest: WorkspaceManifestV1 = {
 function repository(current: WorkspaceManifestV1 = manifest): WorkspaceRepository {
   return {
     getManifest: vi.fn(async () => structuredClone(current)),
+    createCanvas: vi.fn(async (name) => ({ canvasId: 'new-canvas', projectId: 'new-canvas', name })),
+    trashCanvas: vi.fn(async () => undefined),
     permanentlyDeleteCanvas: vi.fn(async () => undefined),
   } as unknown as WorkspaceRepository
 }
@@ -91,5 +93,35 @@ describe('workspace thumbnail integration', () => {
     fireEvent.click(screen.getByRole('button', { name: '系统设置' }))
 
     expect(await screen.findByRole('dialog', { name: '系统设置' })).toBeInTheDocument()
+  })
+
+  it('creates a canvas staying on home without auto-navigating', async () => {
+    const repo = repository()
+    const onNavigateCanvas = vi.fn()
+    render(<WorkspaceHome onNavigateCanvas={onNavigateCanvas} repository={repo} />)
+    await screen.findByTestId('workspace-home')
+
+    fireEvent.click(screen.getAllByRole('button', { name: '新建画布' })[0]!)
+    await waitFor(() => expect(repo.createCanvas).toHaveBeenCalled())
+    expect(onNavigateCanvas).not.toHaveBeenCalled()
+  })
+
+  it('requires confirmation before moving a canvas to trash', async () => {
+    const repo = repository()
+    const confirmSpy = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirmSpy)
+
+    render(<WorkspaceHome repository={repo} />)
+    await screen.findByTestId('workspace-home')
+
+    // First, user cancels confirmation
+    fireEvent.click(screen.getByRole('button', { name: '移入回收站 旧画布' }))
+    expect(confirmSpy).toHaveBeenCalledWith('确定将画布“旧画布”移入回收站？')
+    expect(repo.trashCanvas).not.toHaveBeenCalled()
+
+    // Second, user confirms
+    confirmSpy.mockReturnValueOnce(true)
+    fireEvent.click(screen.getByRole('button', { name: '移入回收站 旧画布' }))
+    await waitFor(() => expect(repo.trashCanvas).toHaveBeenCalledWith('canvas-a'))
   })
 })

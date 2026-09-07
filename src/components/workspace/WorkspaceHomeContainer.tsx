@@ -151,13 +151,8 @@ export function WorkspaceHome({
   const createCanvas = useCallback(
     async (position: { x: number; y: number }) => {
       try {
-        const canvas = await repository.createCanvas('未命名画布', { position })
+        await repository.createCanvas('未命名画布', { position })
         await refresh()
-        setEditing({
-          kind: 'canvas',
-          id: canvas.canvasId,
-          openAfterCommit: true,
-        })
       } catch (error) {
         reportError(error)
       }
@@ -340,6 +335,7 @@ export function WorkspaceHome({
           }
         }}
         onTrashCanvas={async (canvas) => {
+          if (!window.confirm(`确定将画布“${canvas.name}”移入回收站？`)) return
           try {
             await repository.trashCanvas(canvas.canvasId)
             await refresh()
@@ -348,6 +344,7 @@ export function WorkspaceHome({
           }
         }}
         onTrashProject={async (project) => {
+          if (!window.confirm(`确定将项目“${project.name}”及其中画布移入回收站？`)) return
           try {
             await repository.trashProject(project.projectId)
             await refresh()

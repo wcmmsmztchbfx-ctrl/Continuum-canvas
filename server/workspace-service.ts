@@ -6,40 +6,18 @@ import {
   type WorkspaceManifestV1,
 } from '../src/workspace/model.ts'
 import { atomicWriteJson, atomicWriteText } from './atomic-json.ts'
-import { referenceProjectSnapshot } from '../src/fixtures/reference.ts'
 
 export interface WorkspaceServiceOptions {
   dataDir: string
   now?: () => string
 }
 
-export function defaultWorkspaceManifest(now = new Date().toISOString()): WorkspaceManifestV1 {
+export function defaultWorkspaceManifest(_now = new Date().toISOString()): WorkspaceManifestV1 {
   return {
     version: 1,
     viewport: { x: 0, y: 0, zoom: 1 },
-    projects: [
-      {
-        projectId: '9f4cca3a4e36451b900e0d5741199db8',
-        name: '未命名项目',
-        position: { x: 0, y: 0 },
-        size: { width: 620, height: 380 },
-        favorite: false,
-        createdAt: now,
-        updatedAt: now,
-      },
-    ],
-    canvases: [
-      {
-        canvasId: '9f4cca3a4e36451b900e0d5741199db8',
-        projectId: '9f4cca3a4e36451b900e0d5741199db8',
-        name: '画布 1',
-        position: { x: 0, y: 0 },
-        nodeCount: 37,
-        favorite: false,
-        createdAt: now,
-        updatedAt: now,
-      },
-    ],
+    projects: [],
+    canvases: [],
     pendingOperations: [],
   }
 }
@@ -92,17 +70,6 @@ export class WorkspaceService {
         void this.saveCanvasDocument(canvasId, content).catch(() => {})
         return content
       } catch {
-        if (canvasId === '9f4cca3a4e36451b900e0d5741199db8' || canvasId === referenceProjectSnapshot.projectId) {
-          const snapshotV2 = {
-            ...referenceProjectSnapshot,
-            version: 3,
-            canvasId: '9f4cca3a4e36451b900e0d5741199db8',
-            projectId: '9f4cca3a4e36451b900e0d5741199db8',
-          }
-          const content = JSON.stringify(snapshotV2)
-          void this.saveCanvasDocument('9f4cca3a4e36451b900e0d5741199db8', content).catch(() => {})
-          return content
-        }
         return undefined
       }
     }
