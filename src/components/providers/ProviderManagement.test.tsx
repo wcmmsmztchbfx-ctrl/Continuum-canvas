@@ -562,6 +562,47 @@ describe('provider management UI', () => {
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('OpenAI 官方'))
     expect(mockGateway.deleteProvider).toHaveBeenCalledWith('openai', expect.anything())
   })
+
+  it('switches to AI director tab and configures director agent provider', async () => {
+    const user = userEvent.setup()
+    const directorProvider: ProviderMetadata = {
+      id: 'xiaoyunque',
+      name: '小云雀 (Seedance 2.0 视频智能体)',
+      baseUrl: 'https://xyq.jianying.com',
+      adapterType: 'xiaoyunque-video',
+      preferred: false,
+      secretConfigured: false,
+      available: false,
+      rateLimit: { requestsPerMinute: 60 },
+    }
+    const mockGateway: ProviderGateway = {
+      ...gateway(),
+      listProviders: vi.fn().mockResolvedValue([provider, directorProvider]),
+    }
+
+    render(
+      <ProviderCatalogProvider gateway={mockGateway}>
+        <ProviderDrawer open onClose={() => {}} />
+      </ProviderCatalogProvider>,
+    )
+
+    await screen.findByRole('button', { name: 'AIStartLab' })
+
+    // Click third tab: AI 导演 / 视频智能体
+    const directorTabBtn = screen.getByRole('button', { name: 'AI 导演 / 视频智能体' })
+    await user.click(directorTabBtn)
+
+    // Verify 小云雀 item is rendered
+    const xyqBtn = await screen.findByRole('button', { name: /^小云雀/ })
+    expect(xyqBtn).toBeVisible()
+
+    // Verify adapter select in director tab
+    const adapterSelect = screen.getByLabelText('适配器') as HTMLSelectElement
+    expect(Array.from(adapterSelect.options).map((opt) => opt.value)).toEqual([
+      'xiaoyunque-video',
+      'custom-compatible',
+    ])
+  })
 })
 
 

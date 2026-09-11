@@ -68,6 +68,7 @@ export interface CanvasStoreState {
   renameNode: (nodeId: string, name: string) => void
   renameCanvas: (name: string) => void
   addNode: (node: CanvasNode) => void
+  addNodes: (nodes: CanvasNode[]) => string[]
   createNodeFromHistory: (
     entry: GenerationHistoryEntry,
     center: Point,
@@ -80,7 +81,7 @@ export interface CanvasStoreState {
   ) => CanvasEdge | undefined
   detachReference: (targetNodeId: string, sourceNodeId: string) => void
   getOrderedReferences: (targetNodeId: string) => OrderedReference[]
-  deleteNodes: (nodeIds: string[]) => void
+  deleteNodes: (nodeIds: string[], options?: { force?: boolean }) => void
   deleteEdges: (edgeIds: string[]) => void
   duplicateNodes: (nodeIds: string[]) => string[]
   pasteImportedGraph: (graph: ImportedCanvasGraph) => string[]

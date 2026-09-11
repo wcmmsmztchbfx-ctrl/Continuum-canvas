@@ -34,6 +34,7 @@ import {
 } from './runtime.ts'
 import type { AddressLookup, PinnedRemoteFetcher } from './pinned-http.ts'
 import { ProviderRequestRejectedError } from './providers/provider-adapter.ts'
+import { XiaoYunqueAdapter } from './providers/xiaoyunque-adapter.ts'
 import {
   authorizeCollaborationGeneration,
   CollaborationAuthorizationError,
@@ -56,6 +57,10 @@ import {
   LocalAdminService,
   localAdminTokenFromCookie,
 } from './local-admin-service.ts'
+import { AgentAccessError, bearerToken } from './agent-access-store.ts'
+import { CanvasRevisionConflictError } from './canvas-document-service.ts'
+import { WorkflowInputError } from './workflow-service.ts'
+import type { AgentScope, CanvasOperationBatch, DirectorLaunchSettings, WorkflowCandidate } from '../src/contracts/agent-api.ts'
 
 
 class ApiError extends Error {
@@ -87,6 +92,72 @@ class BodyLimitError extends ApiError {
 const JSON_LIMIT = 1024 * 1024
 const RAW_LIMIT = 100 * 1024 * 1024
 const COLLABORATION_ROOM_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
+
+// XiaoYunque returns temporary CDN URLs. Keep one import promise per runtime and
+// upstream URL so repeated polling does not download the same completed video.
+const directorVideoAssetImports = new WeakMap<GatewayRuntime, Map<string, Promise<string>>>()
+
+function directorVideoFilename(input: string, index: number): string {
+  try {
+    const parsed = new URL(input)
+    const queryFilename = parsed.searchParams.get('filename')
+    const candidate = basename(queryFilename || parsed.pathname)
+    if (/\.(?:mp4|webm|mov)$/i.test(candidate)) return candidate
+  } catch {
+    // The caller will retain the original URL if importing fails.
+  }
+  return `xiaoyunque-video-${index + 1}.mp4`
+}
+
+async function localizeDirectorVideoOutputs<T extends Record<string, unknown>>(
+  runtime: GatewayRuntime,
+  result: T,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (!runtime.assets.canImportRemote()) return result
+
+  const rawUrls = [
+    ...(Array.isArray(result.videoUrls) ? result.videoUrls : []),
+    result.videoUrl,
+  ].filter((value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value))
+  const urls = Array.from(new Set(rawUrls))
+  if (urls.length === 0) return result
+
+  let cache = directorVideoAssetImports.get(runtime)
+  if (!cache) {
+    cache = new Map()
+    directorVideoAssetImports.set(runtime, cache)
+  }
+
+  const localizedByRemote = new Map<string, string>()
+  await Promise.all(urls.map(async (remoteUrl, index) => {
+    let pending = cache!.get(remoteUrl)
+    if (!pending) {
+      pending = runtime.assets
+        .importRemote(remoteUrl, directorVideoFilename(remoteUrl, index), signal)
+        .then((asset) => asset.url)
+      cache!.set(remoteUrl, pending)
+      pending.catch(() => cache!.delete(remoteUrl))
+    }
+    try {
+      localizedByRemote.set(remoteUrl, await pending)
+    } catch (error) {
+      console.warn('[XiaoYunque] 成片转存为本地画布资产失败，将保留原始地址:', error)
+    }
+  }))
+
+  const localize = (value: unknown) =>
+    typeof value === 'string' ? (localizedByRemote.get(value) ?? value) : value
+  return {
+    ...result,
+    ...(Array.isArray(result.videoUrls)
+      ? { videoUrls: result.videoUrls.map(localize) }
+      : {}),
+    ...(typeof result.videoUrl === 'string'
+      ? { videoUrl: localize(result.videoUrl) }
+      : {}),
+  }
+}
 const LOOPBACK_ADDRESSES = new BlockList()
 LOOPBACK_ADDRESSES.addSubnet('127.0.0.0', 8, 'ipv4')
 LOOPBACK_ADDRESSES.addAddress('::1', 'ipv6')
@@ -232,6 +303,23 @@ function authorizeProviderWrite(
   localAdminAllowed: boolean,
 ): void {
   authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'owner')
+}
+
+function authorizeAgentRequest(
+  request: IncomingMessage,
+  runtime: GatewayRuntime,
+  canvasId: string,
+  scope: AgentScope,
+  projectId?: string,
+) {
+  if (!isLoopbackRemoteAddress(request.socket.remoteAddress)) {
+    throw new AgentAccessError('Agent API is only available on this computer')
+  }
+  return runtime.agentAccess.authorize(bearerToken(request.headers.authorization), {
+    canvasId,
+    projectId,
+    scope,
+  })
 }
 
 const ACTIVE_GENERATION_STATUSES = new Set(['queued', 'uploading', 'submitted', 'running', 'downloading'])
@@ -643,6 +731,14 @@ function publicError(error: unknown): ApiError {
   if (error instanceof LocalAdminAuthorizationError) {
     return new ApiError(403, error.code, 'Local administrator access is not allowed')
   }
+  if (error instanceof AgentAccessError) return new ApiError(403, error.code, error.message)
+  if (error instanceof CanvasRevisionConflictError) {
+    return new ApiError(409, error.code, error.message, {
+      expectedRevision: String(error.expectedRevision),
+      actualRevision: String(error.actualRevision),
+    })
+  }
+  if (error instanceof WorkflowInputError) return new ApiError(400, error.code, error.message)
   if (error instanceof CollaborationLimitError) {
     return new ApiError(429, error.code, 'Collaboration capacity has been reached')
   }
@@ -817,6 +913,135 @@ async function routeApi(
       ].join('; '))
     }
     sendJson(response, 200, { ok: true, created: result.created })
+    return true
+  }
+  if (path === '/api/agent/v1/tokens' && method === 'GET') {
+    authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'owner')
+    sendJson(response, 200, { tokens: runtime.agentAccess.list() })
+    return true
+  }
+  if (path === '/api/agent/v1/tokens' && method === 'POST') {
+    authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'owner')
+    const body = record(await readJson(request))
+    const created = await runtime.agentAccess.create({
+      canvasId: String(body.canvasId ?? ''),
+      projectId: String(body.projectId ?? ''),
+      name: String(body.name ?? 'Codex'),
+      scopes: Array.isArray(body.scopes) ? body.scopes as AgentScope[] : undefined,
+      expiresAt: typeof body.expiresAt === 'string' ? body.expiresAt : undefined,
+    })
+    sendJson(response, 201, created)
+    return true
+  }
+  const agentTokenMatch = /^\/api\/agent\/v1\/tokens\/([0-9a-f-]{36})$/i.exec(path)
+  if (agentTokenMatch && method === 'DELETE') {
+    authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'owner')
+    sendJson(response, 200, { token: await runtime.agentAccess.revoke(agentTokenMatch[1]) })
+    return true
+  }
+  const agentCanvasMatch = /^\/api\/agent\/v1\/canvases\/([A-Za-z0-9._:-]+)$/.exec(path)
+  if (agentCanvasMatch && method === 'GET') {
+    const canvasId = agentCanvasMatch[1]
+    const actor = authorizeAgentRequest(request, runtime, canvasId, 'canvas:read')
+    const document = await runtime.canvasDocuments.get(canvasId)
+    if (!document || document.snapshot.projectId !== actor.projectId) throw new RuntimeNotFoundError('Canvas not found')
+    const nodeIds = url.searchParams.getAll('nodeId')
+    const selectedNodes = nodeIds.length ? document.snapshot.nodes.filter((node) => nodeIds.includes(node.id)) : undefined
+    const selectedIds = new Set(selectedNodes?.map((node) => node.id) ?? [])
+    const adjacentEdges = selectedNodes ? document.snapshot.edges.filter((edge) => selectedIds.has(edge.source) || selectedIds.has(edge.target)) : undefined
+    sendJson(response, 200, { version: 1, revision: document.revision, canvas: document.snapshot, selectedNodes, adjacentEdges })
+    return true
+  }
+  const agentOperationsMatch = /^\/api\/agent\/v1\/canvases\/([A-Za-z0-9._:-]+)\/operations$/.exec(path)
+  if (agentOperationsMatch && method === 'POST') {
+    const canvasId = agentOperationsMatch[1]
+    const body = record(await readJson(request)) as unknown as CanvasOperationBatch
+    const actor = authorizeAgentRequest(request, runtime, canvasId, 'canvas:write')
+    if (body.operations?.some((operation) => operation.type === 'node.delete' || operation.type === 'edge.delete')) {
+      authorizeAgentRequest(request, runtime, canvasId, 'canvas:delete', actor.projectId)
+    }
+    sendJson(response, 200, { receipt: await runtime.canvasOperations.execute(canvasId, body, actor.id) })
+    return true
+  }
+  if (path === '/api/agent/v1/workflows' && method === 'POST') {
+    const body = record(await readJson(request))
+    const canvasId = String(body.canvasId ?? '')
+    const projectId = String(body.projectId ?? '')
+    authorizeAgentRequest(request, runtime, canvasId, 'canvas:write', projectId)
+    const workflow = await runtime.workflows.create({
+      canvasId,
+      projectId,
+      candidates: body.candidates as WorkflowCandidate[],
+      referenceNodeIds: Array.isArray(body.referenceNodeIds) ? body.referenceNodeIds as string[] : [],
+      skillNodeIds: Array.isArray(body.skillNodeIds) ? body.skillNodeIds as string[] : [],
+      settings: body.settings as DirectorLaunchSettings,
+    })
+    sendJson(response, 201, { workflow })
+    return true
+  }
+  const workflowMatch = /^\/api\/agent\/v1\/workflows\/([0-9a-f-]{36})$/.exec(path)
+  if (workflowMatch && method === 'GET') {
+    const workflow = runtime.workflows.get(workflowMatch[1])
+    if (!workflow) throw new RuntimeNotFoundError('Workflow not found')
+    authorizeAgentRequest(request, runtime, workflow.canvasId, 'canvas:read', workflow.projectId)
+    sendJson(response, 200, { workflow })
+    return true
+  }
+  const workflowApproveMatch = /^\/api\/agent\/v1\/workflows\/([0-9a-f-]{36})\/approve$/.exec(path)
+  if (workflowApproveMatch && method === 'POST') {
+    const workflow = runtime.workflows.get(workflowApproveMatch[1])
+    if (!workflow) throw new RuntimeNotFoundError('Workflow not found')
+    authorizeAgentRequest(request, runtime, workflow.canvasId, 'workflow:approve', workflow.projectId)
+    authorizeAgentRequest(request, runtime, workflow.canvasId, 'director:generate', workflow.projectId)
+    const body = record(await readJson(request))
+    const approvedNodeIds = Array.isArray(body.approvedNodeIds) ? body.approvedNodeIds.filter((item): item is string => typeof item === 'string') : []
+    sendJson(response, 200, { workflow: await runtime.workflows.approve(workflow.id, approvedNodeIds) })
+    return true
+  }
+  const workflowWaitMatch = /^\/api\/agent\/v1\/workflows\/([0-9a-f-]{36})\/wait$/.exec(path)
+  if (workflowWaitMatch && method === 'GET') {
+    const workflow = runtime.workflows.get(workflowWaitMatch[1])
+    if (!workflow) throw new RuntimeNotFoundError('Workflow not found')
+    authorizeAgentRequest(request, runtime, workflow.canvasId, 'canvas:read', workflow.projectId)
+    const timeoutMs = Number(url.searchParams.get('timeoutMs') ?? 30_000)
+    const after = url.searchParams.get('afterUpdatedAt') ?? undefined
+    sendJson(response, 200, { workflow: await runtime.workflows.wait(workflow.id, after, timeoutMs) })
+    return true
+  }
+  const directorAnswerMatch = /^\/api\/agent\/v1\/director-runs\/([0-9a-f-]{36})\/answer$/.exec(path)
+  if (directorAnswerMatch && method === 'POST') {
+    const body = record(await readJson(request))
+    const workflow = runtime.workflows.list().find((item) => item.directorRuns.some((run) => run.id === directorAnswerMatch[1]))
+    if (!workflow) throw new RuntimeNotFoundError('Director run not found')
+    authorizeAgentRequest(request, runtime, workflow.canvasId, 'director:generate', workflow.projectId)
+    sendJson(response, 200, { run: await runtime.workflows.answer(directorAnswerMatch[1], { optionId: typeof body.optionId === 'string' ? body.optionId : undefined, value: String(body.value ?? '') }) })
+    return true
+  }
+  const directorRetryMatch = /^\/api\/agent\/v1\/director-runs\/([0-9a-f-]{36})\/retry$/.exec(path)
+  if (directorRetryMatch && method === 'POST') {
+    const workflow = runtime.workflows.list().find((item) => item.directorRuns.some((run) => run.id === directorRetryMatch[1]))
+    if (!workflow) throw new RuntimeNotFoundError('Director run not found')
+    authorizeAgentRequest(request, runtime, workflow.canvasId, 'director:generate', workflow.projectId)
+    sendJson(response, 200, { run: await runtime.workflows.retry(directorRetryMatch[1]) })
+    return true
+  }
+  if (path === '/api/agent/v1/events' && method === 'GET') {
+    const canvasId = url.searchParams.get('canvasId') ?? ''
+    const actor = authorizeAgentRequest(request, runtime, canvasId, 'canvas:read')
+    response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' })
+    const write = (event: unknown) => response.write(`data: ${JSON.stringify(event)}\n\n`)
+    write({ type: 'ready', canvasId, projectId: actor.projectId })
+    const unsubscribeCanvas = runtime.canvasDocuments.subscribe(canvasId, (event) => write({ type: 'canvas.updated', event }))
+    const unsubscribeWorkflow = runtime.workflows.subscribe((event) => {
+      const eventCanvasId = event.workflow?.canvasId ?? event.run?.canvasId
+      if (eventCanvasId === canvasId) write(event)
+    })
+    const heartbeat = setInterval(() => response.write(': heartbeat\n\n'), 15_000)
+    await new Promise<void>((resolve) => response.once('close', resolve))
+    clearInterval(heartbeat)
+    unsubscribeCanvas()
+    unsubscribeWorkflow()
+    response.end()
     return true
   }
   if (method === 'POST' && path === '/api/collaboration/rooms') {
@@ -1211,10 +1436,97 @@ async function routeApi(
     return true
   }
 
+async function resolveMultimodalMessages(
+  runtime: GatewayRuntime,
+  rawMessages: unknown[],
+): Promise<{ messages: unknown[]; hasVision: boolean }> {
+  let hasVision = false
+
+  const resolved = await Promise.all(
+    rawMessages.map(async (msg) => {
+      if (!msg || typeof msg !== 'object') return msg
+      const messageObj = { ...(msg as Record<string, unknown>) }
+      if (!Array.isArray(messageObj.content)) return messageObj
+
+      const resolvedContent = await Promise.all(
+        messageObj.content.map(async (part) => {
+          if (!part || typeof part !== 'object') return part
+          const partObj = { ...(part as Record<string, unknown>) }
+
+          if (partObj.type === 'image_url') {
+            hasVision = true
+            let rawUrl: string | undefined
+            if (typeof partObj.image_url === 'string') {
+              rawUrl = partObj.image_url
+            } else if (
+              partObj.image_url &&
+              typeof partObj.image_url === 'object' &&
+              typeof (partObj.image_url as Record<string, unknown>).url === 'string'
+            ) {
+              rawUrl = (partObj.image_url as Record<string, unknown>).url as string
+            }
+
+            if (rawUrl) {
+              const assetMatch =
+                rawUrl.match(/(?:^|\/)api\/assets\/([^/?#]+)/i) ||
+                rawUrl.match(/^assets\/([^/?#]+)/i)
+              if (assetMatch) {
+                const assetId = decodeURIComponent(assetMatch[1])
+                const asset = runtime.assets.get(assetId)
+                if (asset && asset.contentType.startsWith('image/')) {
+                  try {
+                    const bytes = await runtime.assets.readBytes(asset.id)
+                    const base64 = Buffer.from(bytes).toString('base64')
+                    const dataUrl = `data:${asset.contentType};base64,${base64}`
+                    if (typeof partObj.image_url === 'string') {
+                      partObj.image_url = dataUrl
+                    } else if (partObj.image_url && typeof partObj.image_url === 'object') {
+                      partObj.image_url = {
+                        ...(partObj.image_url as Record<string, unknown>),
+                        url: dataUrl,
+                      }
+                    }
+                  } catch {
+                    // Fall back to original url if reading fails
+                  }
+                }
+              }
+            }
+          }
+          return partObj
+        }),
+      )
+
+      messageObj.content = resolvedContent
+      return messageObj
+    }),
+  )
+
+  return { messages: resolved, hasVision }
+}
+
+function stripVisionFromMessages(messages: unknown[]): unknown[] {
+  return messages.map((msg) => {
+    if (!msg || typeof msg !== 'object') return msg
+    const m = { ...(msg as Record<string, unknown>) }
+    if (Array.isArray(m.content)) {
+      const textParts = m.content
+        .filter((p) => p && typeof p === 'object' && (p as Record<string, unknown>).type === 'text')
+        .map((p) => (p as Record<string, unknown>).text || '')
+        .filter(Boolean)
+      m.content = textParts.join('\n')
+    }
+    return m
+  })
+}
+
   if (method === 'POST' && path === '/api/agent/chat') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    if (request.headers['x-collaboration-room'] !== undefined) {
+      authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'editor')
+    }
     const body = record(await readJson(request))
-    const messages = Array.isArray(body.messages) ? body.messages : []
+    const rawMessages = Array.isArray(body.messages) ? body.messages : []
+    const { messages, hasVision } = await resolveMultimodalMessages(runtime, rawMessages)
     const tools = Array.isArray(body.tools) ? body.tools : undefined
     const stream = body.stream === true
     const explicitProviderId = typeof body.providerId === 'string' ? body.providerId : undefined
@@ -1244,7 +1556,7 @@ async function routeApi(
     }
 
     try {
-      const outgoing = await fetch(chatEndpoint, {
+      let outgoing = await fetch(chatEndpoint, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -1257,6 +1569,27 @@ async function routeApi(
           stream,
         }),
       })
+
+      if (!outgoing.ok && hasVision && outgoing.status === 400) {
+        // 尝试降级为纯文本，防止部分不支持视觉输入的大模型报错中断
+        const fallbackMessages = stripVisionFromMessages(messages)
+        const retry = await fetch(chatEndpoint, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'Authorization': `Bearer ${secret}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages: fallbackMessages,
+            ...(tools ? { tools, tool_choice: 'auto' } : {}),
+            stream,
+          }),
+        }).catch(() => null)
+        if (retry && retry.ok) {
+          outgoing = retry
+        }
+      }
 
       if (!outgoing.ok) {
         const errText = await outgoing.text().catch(() => '')
@@ -1287,6 +1620,200 @@ async function routeApi(
       sendJson(response, 502, { error: { message: err instanceof Error ? err.message : 'Failed to reach upstream LLM' } })
       return true
     }
+  }
+
+  if (method === 'POST' && path === '/api/director/chat') {
+    if (request.headers['x-collaboration-room'] !== undefined) {
+      authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'editor')
+    }
+    const body = record(await readJson(request))
+    const message = typeof body.message === 'string' ? body.message.trim() : ''
+    const providerId = typeof body.providerId === 'string' && body.providerId ? body.providerId : 'xiaoyunque'
+    const threadId = typeof body.threadId === 'string' ? body.threadId : undefined
+    const rawReferences = Array.isArray(body.references) ? (body.references as Array<Record<string, unknown>>) : []
+
+    if (!message) {
+      throw new ApiError(400, 'invalid_input', 'Message is required')
+    }
+
+    // 提取画布挂载的参考素材与图片 URL
+    const imageReferences: Array<{ alias?: number; name?: string; url: string }> = []
+    const refDescriptions: string[] = []
+
+    for (const ref of rawReferences) {
+      if (!ref || typeof ref !== 'object') continue
+      const aliasStr = ref.referenceAlias !== undefined ? `@${ref.referenceAlias}` : ''
+      const nameStr = typeof ref.name === 'string' ? ref.name : '参考素材'
+      const kindStr = ref.kind === 'video' ? '视频素材' : '图片素材'
+      refDescriptions.push(`${aliasStr ? `${aliasStr} ` : ''}"${nameStr}" (${kindStr})`)
+
+      let candidateUrl: string | undefined
+      if (typeof ref.url === 'string' && ref.url.trim()) {
+        candidateUrl = ref.url.trim()
+      } else if (typeof ref.poster === 'string' && ref.poster.trim()) {
+        candidateUrl = ref.poster.trim()
+      }
+
+      if (candidateUrl) {
+        imageReferences.push({
+          alias: typeof ref.referenceAlias === 'number' ? ref.referenceAlias : undefined,
+          name: nameStr,
+          url: candidateUrl,
+        })
+      }
+    }
+
+    const preferenceMode =
+      typeof body.preferenceMode === 'string' && (body.preferenceMode === 'image' || body.preferenceMode === 'video')
+        ? (body.preferenceMode as 'image' | 'video')
+        : undefined
+    const model = typeof body.model === 'string' ? body.model : undefined
+    const imageModel = typeof body.imageModel === 'string' ? body.imageModel : undefined
+    const aspectRatio = typeof body.aspectRatio === 'string' ? body.aspectRatio : undefined
+    const duration = typeof body.duration === 'number' ? body.duration : undefined
+    const resolution = typeof body.resolution === 'string' ? body.resolution : undefined
+
+    let adapter: unknown
+    try {
+      adapter = runtime.adapterFor(providerId)
+    } catch {
+      adapter = undefined
+    }
+
+    if (!adapter) {
+      throw new ApiError(404, 'provider_not_found', `导演智能体平台未就绪或未配置: ${providerId}`)
+    }
+
+    if (adapter instanceof XiaoYunqueAdapter && typeof adapter.chat === 'function') {
+      try {
+        // 若有本地素材，预上传至小云雀并建立索引映射
+        const assetIds: string[] = []
+        const aliasMappingLines: string[] = []
+
+        for (let i = 0; i < imageReferences.length; i++) {
+          const ref = imageReferences[i]
+          let uploadedId: string | undefined
+
+          const match = ref.url.match(/(?:^|\/)api\/assets\/([^/?#]+)/i) || ref.url.match(/^assets\/([^/?#]+)/i)
+          if (match) {
+            const assetId = decodeURIComponent(match[1])
+            const asset = runtime.assets.get(assetId)
+            if (asset) {
+              try {
+                const bytes = await runtime.assets.readBytes(asset.id)
+                uploadedId = await adapter.uploadAsset(bytes, asset.filename, asset.contentType, signal)
+              } catch (uploadErr) {
+                console.warn(`[XiaoYunque] 上传素材 ${asset.filename} 到小云雀失败:`, uploadErr)
+              }
+            }
+          } else if (ref.url.startsWith('data:image/')) {
+            const commaIdx = ref.url.indexOf(',')
+            if (commaIdx !== -1) {
+              try {
+                const header = ref.url.slice(0, commaIdx)
+                const base64Data = ref.url.slice(commaIdx + 1)
+                const mimeMatch = header.match(/data:([^;]+)/)
+                const mime = mimeMatch ? mimeMatch[1] : 'image/png'
+                const bytes = Buffer.from(base64Data, 'base64')
+                uploadedId = await adapter.uploadAsset(bytes, `${ref.name || 'image'}.png`, mime, signal)
+              } catch (uploadErr) {
+                console.warn(`[XiaoYunque] 上传 Base64 素材到小云雀失败:`, uploadErr)
+              }
+            }
+          }
+
+          if (uploadedId) {
+            assetIds.push(uploadedId)
+            const aliasTag = ref.alias !== undefined ? `@${ref.alias}` : `@${assetIds.length}`
+            aliasMappingLines.push(`- ${aliasTag}: 图片素材《${ref.name || '参考素材'}》（对应已挂载上传素材 ${assetIds.length}）`)
+          }
+        }
+
+        let messageToSend = message
+        if (aliasMappingLines.length > 0) {
+          const mappingHeader = `【画布挂载参考素材与索引对照】:\n${aliasMappingLines.join('\n')}\n\n用户指令:\n`
+          if (!messageToSend.includes('【画布挂载参考素材与索引对照】')) {
+            messageToSend = `${mappingHeader}${messageToSend}`
+          }
+        }
+
+        const res = await adapter.chat(
+          messageToSend,
+          threadId,
+          signal,
+          assetIds.length > 0 ? assetIds : undefined,
+          {
+            preferenceMode,
+            model,
+            imageModel,
+            aspectRatio,
+            duration,
+            resolution,
+          },
+        )
+        const localized = await localizeDirectorVideoOutputs(runtime, res, signal)
+        sendJson(response, 200, localized)
+        return true
+      } catch (err: unknown) {
+        if (err instanceof ProviderRequestRejectedError) {
+          throw new ApiError(400, err.code, err.message)
+        }
+        throw new ApiError(500, 'director_chat_failed', err instanceof Error ? err.message : '小云雀视频智能体响应失败')
+      }
+    }
+
+    sendJson(response, 200, {
+      reply: '导演智能体已就绪，请输入具体成片需求。',
+      threadId: threadId || `th-${Date.now().toString(36)}`,
+    })
+    return true
+  }
+
+  if (method === 'GET' && path === '/api/director/poll') {
+    if (request.headers['x-collaboration-room'] !== undefined) {
+      authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'editor')
+    }
+    const threadId = url.searchParams.get('threadId')
+    const runId = url.searchParams.get('runId')
+    const providerId = url.searchParams.get('providerId') || 'xiaoyunque'
+    const preferenceMode = url.searchParams.get('preferenceMode') === 'image' ? 'image' : 'video'
+
+    if (!threadId || !runId) {
+      throw new ApiError(400, 'invalid_input', 'threadId and runId are required')
+    }
+
+    let adapter: unknown
+    try {
+      adapter = runtime.adapterFor(providerId)
+    } catch {
+      adapter = undefined
+    }
+
+    if (!adapter) {
+      throw new ApiError(404, 'provider_not_found', `导演智能体平台未就绪或未配置: ${providerId}`)
+    }
+
+    if (adapter instanceof XiaoYunqueAdapter && typeof adapter.checkRunStatus === 'function') {
+      try {
+        const res = await adapter.checkRunStatus(threadId, runId, preferenceMode)
+        const localized = await localizeDirectorVideoOutputs(runtime, res, signal)
+        sendJson(response, 200, localized)
+        return true
+      } catch (err: unknown) {
+        if (err instanceof ProviderRequestRejectedError) {
+          throw new ApiError(400, err.code, err.message)
+        }
+        throw new ApiError(500, 'director_poll_failed', err instanceof Error ? err.message : '小云雀任务轮询失败')
+      }
+    }
+
+    sendJson(response, 200, {
+      reply: '任务处理中...',
+      threadId,
+      runId,
+      pending: false,
+    })
+    return true
   }
 
   if (method === 'GET' && path === '/api/catalog') {
@@ -1427,7 +1954,10 @@ async function routeApi(
       for (const doc of body.putDocuments) {
         if (doc && typeof doc.serialized === 'string') {
           const snapshot = parseCanvasSnapshot(doc.serialized)
-          await runtime.canvases.saveCanvas(snapshot)
+          const baseRevision = typeof (doc as unknown as { baseRevision?: unknown }).baseRevision === 'number'
+            ? (doc as unknown as { baseRevision: number }).baseRevision
+            : undefined
+          await runtime.canvasDocuments.importSnapshot(snapshot, baseRevision, 'browser')
         }
       }
     }
@@ -1444,7 +1974,8 @@ async function routeApi(
   const canvasPathMatch = /^\/api\/canvases\/([A-Za-z0-9._:-]+)$/.exec(path)
   if (canvasPathMatch && method === 'GET') {
     const canvasId = canvasPathMatch[1]
-    let canvas = await runtime.canvases.getCanvas(canvasId)
+    const liveDocument = await runtime.canvasDocuments.get(canvasId)
+    let canvas = liveDocument?.snapshot
     if (!canvas) {
       const doc = await runtime.workspace.getCanvasDocument(canvasId)
       if (doc) {
@@ -1458,7 +1989,7 @@ async function routeApi(
     if (!canvas) {
       throw new ApiError(404, 'canvas_not_found', `Canvas ${canvasId} not found`)
     }
-    sendJson(response, 200, { canvas })
+    sendJson(response, 200, { canvas, revision: liveDocument?.revision ?? 0 })
     return true
   }
   if (canvasPathMatch && method === 'PUT') {
@@ -1469,8 +2000,12 @@ async function routeApi(
     if (snapshot.canvasId !== canvasId) {
       throw new ApiError(400, 'invalid_input', 'Canvas ID mismatch')
     }
-    await runtime.canvases.saveCanvas(snapshot)
-    sendJson(response, 200, { canvas: snapshot })
+    const revisionHeader = request.headers['if-match']
+    const baseRevision = typeof revisionHeader === 'string' && /^\d+$/.test(revisionHeader)
+      ? Number(revisionHeader)
+      : undefined
+    const revision = await runtime.canvasDocuments.importSnapshot(snapshot, baseRevision, 'browser')
+    sendJson(response, 200, { canvas: snapshot, revision })
     return true
   }
   const canvasAgentChatMatch = /^\/api\/canvases\/([A-Za-z0-9._:-]+)\/agent-chat$/.exec(path)
@@ -1739,6 +2274,45 @@ export async function startGateway(options: {
             await rm(join(runtime.dataDir, 'canvases'), { recursive: true, force: true }).catch(() => {})
             await rm(join(runtime.dataDir, 'jobs.json'), { force: true }).catch(() => {})
             await runtime.collaboration.reset?.()
+            // The product now has an intentionally empty cold start. The legacy
+            // browser smoke suite still exercises the rich reference canvas, so
+            // restore that fixture only inside the isolated E2E runtime.
+            if (options.processEnv?.CONTINUUM_E2E === '1') {
+              const [{ referenceProjectSnapshot }, { upgradeProjectSnapshot }] = await Promise.all([
+                import('../src/fixtures/reference.ts'),
+                import('../src/model/project.ts'),
+              ])
+              const now = new Date().toISOString()
+              const canvasId = 'reference'
+              const document = upgradeProjectSnapshot(referenceProjectSnapshot, canvasId)
+              await runtime.workspace.commit({
+                manifest: JSON.stringify({
+                  version: 1,
+                  viewport: { x: 0, y: 0, zoom: 1 },
+                  projects: [{
+                    projectId: referenceProjectSnapshot.projectId,
+                    name: referenceProjectSnapshot.name,
+                    position: { x: 0, y: 0 },
+                    size: { width: 620, height: 380 },
+                    favorite: false,
+                    createdAt: now,
+                    updatedAt: now,
+                  }],
+                  canvases: [{
+                    canvasId,
+                    projectId: referenceProjectSnapshot.projectId,
+                    name: '画布 1',
+                    position: { x: 32, y: 80 },
+                    nodeCount: document.nodes.length,
+                    favorite: false,
+                    createdAt: now,
+                    updatedAt: now,
+                  }],
+                  pendingOperations: [],
+                }),
+                putDocuments: [{ canvasId, serialized: JSON.stringify(document) }],
+              })
+            }
           },
           options.processEnv?.CONTINUUM_E2E === '1',
         )

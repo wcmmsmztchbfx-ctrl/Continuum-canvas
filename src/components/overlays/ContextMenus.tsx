@@ -1,7 +1,6 @@
+import { useMemo } from 'react'
 import {
-  useMemo,
-} from 'react'
-import {
+  Bot,
   ClipboardCopy,
   ClipboardPaste,
   Copy,
@@ -68,6 +67,7 @@ export function BlankContextMenu({
 }
 
 export type NodeContextAction =
+  | 'reference-to-agent'
   | 'compliance'
   | 'save-asset'
   | 'create-subject'
@@ -96,7 +96,8 @@ export function NodeContextMenu({
 }: NodeContextMenuProps) {
   const items: ReadonlyArray<MenuItemSpec<NodeContextAction>> = useMemo(
     () => [
-      { action: 'compliance', disabled: true, icon: ShieldCheck, label: '内容合规检测' },
+      { action: 'reference-to-agent', icon: Bot, label: '引用到 Agent 对话' },
+      { action: 'compliance', disabled: true, icon: ShieldCheck, label: '内容合规检测', separatorBefore: true },
       { action: 'save-asset', disabled: true, icon: Save, label: '保存到我的资产' },
       { action: 'create-subject', disabled: true, icon: UserRoundPlus, label: '创建主体' },
       {

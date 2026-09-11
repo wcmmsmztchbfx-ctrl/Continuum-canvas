@@ -43,6 +43,38 @@ export function useCanvasDrop({
 
       let offset = 0
       for (const file of files) {
+        if (
+          file.name.endsWith('.md') ||
+          file.name.endsWith('.markdown') ||
+          file.type === 'text/markdown'
+        ) {
+          const text = await file.text()
+          const baseName = file.name.replace(/\.[^.]+$/, '') || '技能'
+          const skillName = baseName.endsWith('-skill') ? baseName : `${baseName}-skill`
+          const nodeId = createCanvasId('t')
+          const pos = { x: dropPos.x + offset, y: dropPos.y + offset }
+          offset += 30
+
+          const newNode: CanvasNode = {
+            id: nodeId,
+            type: 'text',
+            name: skillName,
+            position: pos,
+            size: { width: 280, height: 140 },
+            data: {
+              text,
+              nodeKind: 'skill',
+              presentation: 'plain',
+              fontFamily: 'Noto Sans SC',
+              fontSize: 14,
+              color: '#f4f4f4',
+            },
+          }
+          addNode(newNode)
+          selectNode(nodeId)
+          continue
+        }
+
         if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) continue
 
         const prepared = await uploadAndPrepareMediaAsset(file)

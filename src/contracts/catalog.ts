@@ -22,7 +22,14 @@ export const GENERATION_ADAPTER_TYPES: ReadonlySet<string> = new Set([
   'dashscope-api',
   'kling-api',
   'comfyui-direct',
+  'xiaoyunque-video',
 ])
+
+// Dedicated Agent Director adapters for the Agent Director Console
+export const DIRECTOR_ADAPTER_TYPES: ReadonlySet<string> = new Set([
+  'xiaoyunque-video',
+])
+
 
 // Request shape variants accepted by OpenAI-compatible platforms. `auto`
 // resolves to the standard OpenAI shape inside the adapter; the other values

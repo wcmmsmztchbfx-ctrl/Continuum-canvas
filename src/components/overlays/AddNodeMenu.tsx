@@ -1,9 +1,9 @@
 import { clsx } from 'clsx'
 import {
   AudioLines,
-  Box,
   ChevronRight,
   Clapperboard,
+  Film,
   History,
   Image,
   Library,
@@ -45,8 +45,8 @@ const createItems = [
   { kind: 'text', label: '文本', icon: Type },
   { kind: 'image', label: '图片', icon: Image },
   { kind: 'video', label: '视频', icon: Video },
-  { kind: 'video-compose', label: '视频合成', badge: 'Beta', icon: Clapperboard },
-  { kind: 'director', label: '导演台', badge: 'NEW', icon: Box },
+  { kind: 'video-compose', label: '视频合成', badge: 'Beta', icon: Film },
+  { kind: 'director', label: '导演台', badge: 'AI 导演', icon: Clapperboard },
   { kind: 'audio', label: '音频', icon: AudioLines },
   { kind: 'script', label: '脚本', icon: ScrollText, nested: true },
   { kind: 'asset-library', label: '资产库', badge: 'NEW', icon: Library },

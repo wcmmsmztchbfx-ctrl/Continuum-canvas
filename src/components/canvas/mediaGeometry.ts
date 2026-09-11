@@ -42,13 +42,30 @@ export function materiallyDifferentRatio(
   naturalWidth: number,
   naturalHeight: number,
 ): boolean {
+  if (naturalWidth <= 0 || naturalHeight <= 0) return false
+  if (requested === 'adaptive') return true
   const expected = parseAspectRatio(requested)
-  if (!expected || naturalWidth <= 0 || naturalHeight <= 0) return false
+  if (!expected) return false
   const actual = naturalWidth / naturalHeight
   return Math.abs(actual - expected) / expected > 0.02
 }
 
 export function ratioStringFromDimensions(width: number, height: number): string {
+  if (width <= 0 || height <= 0) return '1:1'
+  const actual = width / height
+  const standardRatios: Array<[string, number]> = [
+    ['1:1', 1.0],
+    ['3:4', 3 / 4],
+    ['4:3', 4 / 3],
+    ['9:16', 9 / 16],
+    ['16:9', 16 / 9],
+    ['21:9', 21 / 9],
+  ]
+  for (const [name, target] of standardRatios) {
+    if (Math.abs(actual - target) / target < 0.03) {
+      return name
+    }
+  }
   const divisor = greatestCommonDivisor(Math.round(width), Math.round(height))
   return `${Math.round(width) / divisor}:${Math.round(height) / divisor}`
 }

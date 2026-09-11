@@ -957,7 +957,46 @@ describe('canvas store document mutations', () => {
     })
   })
 
-  it('does not overwrite size or position of layer mode or pasted images on natural size load', () => {
+  it('reconciles adaptive image nodes to match natural dimensions', () => {
+    const store = createCanvasStore(initialSnapshot)
+    store.getState().patchNode('image-1', {
+      size: { width: 380, height: 380 },
+      data: {
+        generationSettings: {
+          kind: 'image',
+          providerId: '',
+          channel: '',
+          model: '',
+          mode: 'text2image',
+          quality: 'standard',
+          resolution: '2K',
+          aspectRatio: 'adaptive',
+          count: 1,
+        },
+        generation: {
+          status: 'complete',
+          actualSettings: {
+            kind: 'image',
+            providerId: '',
+            channel: '',
+            model: '',
+            mode: 'text2image',
+            quality: 'standard',
+            resolution: '2K',
+            aspectRatio: 'adaptive',
+            count: 1,
+          },
+        },
+      },
+    })
+
+    store.getState().reconcileImageNaturalSize('image-1', 864, 1152)
+
+    expect(store.getState().snapshot.nodes[0].size).toEqual({ width: 312, height: 416 })
+    expect(store.getState().snapshot.nodes[0].data.generation?.outputAspectRatio).toBe('3:4')
+  })
+
+  it('reconciles a mismatched layer image once and records its natural ratio', () => {
     const layerSnapshot = structuredClone(initialSnapshot)
     layerSnapshot.nodes[0] = {
       ...layerSnapshot.nodes[0],
@@ -983,14 +1022,67 @@ describe('canvas store document mutations', () => {
     }
     const store = createCanvasStore(layerSnapshot)
 
-    // Simulates image onLoad event with natural dimensions (e.g. 4:3 1600x1200)
-    store.getState().reconcileImageNaturalSize('pasted-image-1', 1600, 1200)
+    // Simulates image onLoad with a portrait source whose frame was imported as 4:3.
+    store.getState().reconcileImageNaturalSize('pasted-image-1', 826, 1903)
 
-    // Node size and position must remain 100% untouched
     expect(store.getState().snapshot.nodes[0]).toMatchObject({
       id: 'pasted-image-1',
-      position: { x: 500, y: 300 },
-      size: { width: 1200, height: 900 },
+      position: { x: 981.5, y: 477 },
+      size: { width: 237, height: 546 },
+      data: { naturalAspectRatio: '826:1903' },
+    })
+
+    const repaired = structuredClone(store.getState().snapshot.nodes[0]!)
+    store.getState().reconcileImageNaturalSize('pasted-image-1', 1600, 1200)
+    expect(store.getState().snapshot.nodes[0]).toEqual(repaired)
+  })
+
+  it('records natural ratio without resizing an already matching layer image', () => {
+    const layerSnapshot = structuredClone(initialSnapshot)
+    layerSnapshot.nodes[0] = {
+      ...layerSnapshot.nodes[0],
+      id: 'matching-image-1',
+      type: 'image',
+      position: { x: 50, y: 30 },
+      size: { width: 320, height: 480 },
+      data: {
+        url: '/api/assets/matching-image',
+        displayMode: 'layer',
+      },
+    }
+    const store = createCanvasStore(layerSnapshot)
+
+    store.getState().reconcileImageNaturalSize('matching-image-1', 800, 1200)
+
+    expect(store.getState().snapshot.nodes[0]).toMatchObject({
+      position: { x: 50, y: 30 },
+      size: { width: 320, height: 480 },
+      data: { naturalAspectRatio: '2:3' },
+    })
+  })
+
+  it('preserves an explicit cover frame while recording the natural ratio', () => {
+    const layerSnapshot = structuredClone(initialSnapshot)
+    layerSnapshot.nodes[0] = {
+      ...layerSnapshot.nodes[0],
+      id: 'cover-image-1',
+      type: 'image',
+      position: { x: 50, y: 30 },
+      size: { width: 400, height: 300 },
+      data: {
+        url: '/api/assets/cover-image',
+        displayMode: 'layer',
+        objectFit: 'cover',
+      },
+    }
+    const store = createCanvasStore(layerSnapshot)
+
+    store.getState().reconcileImageNaturalSize('cover-image-1', 800, 1200)
+
+    expect(store.getState().snapshot.nodes[0]).toMatchObject({
+      position: { x: 50, y: 30 },
+      size: { width: 400, height: 300 },
+      data: { naturalAspectRatio: '2:3', objectFit: 'cover' },
     })
   })
 
@@ -1495,5 +1587,9 @@ describe('canvas store reference relations', () => {
     // Non-generating node can be deleted
     store.getState().deleteNodes(['static-text-1'])
     expect(store.getState().snapshot.nodes.some((n) => n.id === 'static-text-1')).toBe(false)
+
+    // Generating node can be deleted with force: true (from user canvas delete action)
+    store.getState().deleteNodes(['gen-image-1'], { force: true })
+    expect(store.getState().snapshot.nodes.some((n) => n.id === 'gen-image-1')).toBe(false)
   })
 })

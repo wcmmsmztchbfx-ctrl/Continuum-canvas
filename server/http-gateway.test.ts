@@ -1,4 +1,4 @@
-import { request as nodeRequest } from 'node:http'
+import { createServer, request as nodeRequest } from 'node:http'
 import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,6 +12,7 @@ import { startGateway, type GatewayHandle } from './http-gateway.ts'
 import { resolveMainOptions } from './main.ts'
 import { generationRequestDigest } from './jobs.ts'
 import type { ProviderAdapter } from './providers/provider-adapter.ts'
+import { XiaoYunqueAdapter } from './providers/xiaoyunque-adapter.ts'
 
 const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4])
 const handles: GatewayHandle[] = []
@@ -1412,4 +1413,331 @@ describe('HTTP gateway', () => {
     const cleanData = await json(cleanRes)
     expect(cleanData.ok).toBe(true)
   })
+
+  it('resolves local asset URLs to base64 data URLs for multimodal vision requests in /api/agent/chat', async () => {
+    const gateway = await start()
+
+    // 1. Upload a PNG asset to gateway
+    const uploadRes = await fetch(`${gateway.origin}/api/assets`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'image/png',
+        'x-filename': 'product.png',
+      },
+      body: PNG,
+    })
+    expect(uploadRes.status).toBe(201)
+    const { asset } = await json(uploadRes)
+
+    // 2. Start a mock upstream LLM server
+    let receivedRequestBody: any = null
+    const mockLlmServer = createServer(async (req, res) => {
+      let body = ''
+      for await (const chunk of req) {
+        body += chunk
+      }
+      receivedRequestBody = JSON.parse(body)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          id: 'chatcmpl-mock',
+          choices: [{ message: { role: 'assistant', content: '我看到了一张 PNG 图片' } }],
+        }),
+      )
+    })
+
+    await new Promise<void>((resolve) => mockLlmServer.listen(0, '127.0.0.1', () => resolve()))
+    const addr = mockLlmServer.address() as any
+    const mockOrigin = `http://127.0.0.1:${addr.port}`
+
+    try {
+      // 3. Configure an Agent LLM provider pointing to mock server
+      const configRes = await fetch(`${gateway.origin}/api/agent/providers`, {
+        method: 'POST',
+        headers: { ...adminHeaders(gateway), 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id: 'mock-vision-provider',
+          name: 'Mock Vision Provider',
+          baseUrl: mockOrigin,
+          model: 'mock-vision-model',
+          secret: 'test-secret',
+          preferred: true,
+        }),
+      })
+      expect(configRes.status).toBe(200)
+
+      // 4. Send a multimodal message referencing the local asset URL
+      const chatRes = await fetch(`${gateway.origin}/api/agent/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          providerId: 'mock-vision-provider',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: '这个图片是什么' },
+                { type: 'image_url', image_url: { url: `/api/assets/${asset.id}` } },
+              ],
+            },
+          ],
+        }),
+      })
+
+      expect(chatRes.status).toBe(200)
+      const chatData = await json(chatRes)
+      expect(chatData.choices[0].message.content).toBe('我看到了一张 PNG 图片')
+
+      // 5. Verify the mock upstream server received resolved base64 data URL
+      expect(receivedRequestBody).toBeDefined()
+      const userMessage = receivedRequestBody.messages[0]
+      expect(Array.isArray(userMessage.content)).toBe(true)
+      expect(userMessage.content[0]).toEqual({ type: 'text', text: '这个图片是什么' })
+      expect(userMessage.content[1].type).toBe('image_url')
+      expect(userMessage.content[1].image_url.url).toMatch(/^data:image\/png;base64,/)
+      expect(userMessage.content[1].image_url.url).toContain(Buffer.from(PNG).toString('base64'))
+    } finally {
+      mockLlmServer.close()
+    }
+  })
+
+  it('falls back to text-only messages if upstream LLM rejects multimodal payload with 400', async () => {
+    const gateway = await start()
+
+    let attemptCount = 0
+    let lastRequestBody: any = null
+    const mockLlmServer = createServer(async (req, res) => {
+      let body = ''
+      for await (const chunk of req) {
+        body += chunk
+      }
+      lastRequestBody = JSON.parse(body)
+      attemptCount++
+
+      if (attemptCount === 1) {
+        // First attempt: reject vision payload
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'Vision input not supported' } }))
+      } else {
+        // Second attempt: accept text fallback
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            choices: [{ message: { role: 'assistant', content: '以纯文本形式回复' } }],
+          }),
+        )
+      }
+    })
+
+    await new Promise<void>((resolve) => mockLlmServer.listen(0, '127.0.0.1', () => resolve()))
+    const addr = mockLlmServer.address() as any
+    const mockOrigin = `http://127.0.0.1:${addr.port}`
+
+    try {
+      await fetch(`${gateway.origin}/api/agent/providers`, {
+        method: 'POST',
+        headers: { ...adminHeaders(gateway), 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id: 'mock-text-provider',
+          name: 'Mock Text Provider',
+          baseUrl: mockOrigin,
+          model: 'mock-text-model',
+          secret: 'test-secret',
+          preferred: true,
+        }),
+      })
+
+      const chatRes = await fetch(`${gateway.origin}/api/agent/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          providerId: 'mock-text-provider',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: '你好' },
+                { type: 'image_url', image_url: { url: 'data:image/png;base64,1234' } },
+              ],
+            },
+          ],
+        }),
+      })
+
+      expect(chatRes.status).toBe(200)
+      expect(attemptCount).toBe(2)
+      expect(lastRequestBody.messages[0].content).toBe('你好')
+    } finally {
+      mockLlmServer.close()
+    }
+  })
+
+  it('routes /api/director/chat directly to XiaoYunque adapter with uploaded reference assets and general_agent_settings', async () => {
+    // 1. Start a mock upstream Xiaoyunque server
+    let receivedSubmitBody: any = null
+    const mockXyqServer = createServer(async (req, res) => {
+      let body = ''
+      for await (const chunk of req) {
+        body += chunk
+      }
+      if (req.url?.includes('/upload_file')) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ret: '0', errmsg: '', data: { asset_id: 'xyq-uploaded-asset-1' } }))
+        return
+      }
+      if (req.url?.includes('/submit_run')) {
+        receivedSubmitBody = JSON.parse(body)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          ret: '0',
+          errmsg: '',
+          data: {
+            run: {
+              thread_id: 'th-xyq-mock-1',
+              run_id: 'run-xyq-mock-2',
+              state: 1,
+            },
+          },
+        }))
+        return
+      }
+      if (req.url?.includes('/get_thread')) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          ret: '0',
+          errmsg: '',
+          data: {
+            thread: {
+              run_list: [
+                {
+                  run_id: 'run-xyq-mock-2',
+                  thread_id: 'th-xyq-mock-1',
+                  state: 3,
+                  completed_at: 1788765000,
+                  entry_list: [
+                    {
+                      message: {
+                        role: 'assistant',
+                        content: '是的，我是小云雀创作助手。已识别参考素材并应用了参数设置。',
+                        reasoning_content: '分析参考图与分镜调度',
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }))
+        return
+      }
+      res.writeHead(404)
+      res.end()
+    })
+
+    await new Promise<void>((resolve) => mockXyqServer.listen(0, '127.0.0.1', () => resolve()))
+    const addr = mockXyqServer.address() as any
+    const mockOrigin = `http://127.0.0.1:${addr.port}`
+
+    const gateway = await start({
+      adapterFactory: (provider, secret) => {
+        if (provider.id === 'xiaoyunque') {
+          return new XiaoYunqueAdapter({
+            apiKey: secret,
+            baseUrl: mockOrigin,
+            stagingDir: join(tmpdir(), 'xyq-test-staging'),
+          })
+        }
+        return adapter()
+      },
+    })
+
+    // 2. Upload a PNG asset to gateway
+    const uploadRes = await fetch(`${gateway.origin}/api/assets`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'image/png',
+        'x-filename': 'newyear_gift.png',
+      },
+      body: PNG,
+    })
+    expect(uploadRes.status).toBe(201)
+    const { asset } = await json(uploadRes)
+
+    try {
+      // 3. Configure Xiaoyunque Provider and secret
+      const putRes = await fetch(`${gateway.origin}/api/providers/xiaoyunque`, {
+        method: 'PUT',
+        headers: { ...adminHeaders(gateway), 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: '小云雀 (Seedance 2.0 视频智能体)',
+          adapterType: 'xiaoyunque-video',
+          baseUrl: mockOrigin,
+          enabled: true,
+          preferred: false,
+          imageRequestMode: 'auto',
+        }),
+      })
+      expect(putRes.status).toBe(200)
+
+      const secRes = await fetch(`${gateway.origin}/api/providers/xiaoyunque/secret`, {
+        method: 'PUT',
+        headers: { ...adminHeaders(gateway), 'content-type': 'application/json' },
+        body: JSON.stringify({ apiKey: 'test-xyq-ak' }),
+      })
+      expect(secRes.status).toBe(200)
+
+      // 4. Call /api/director/chat with preferences and reference asset
+      const chatRes = await fetch(`${gateway.origin}/api/director/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          providerId: 'xiaoyunque',
+          message: '这个图片里面的物体是什么',
+          model: 'seedance2.0_vision',
+          aspectRatio: '9:16',
+          resolution: '720p',
+          duration: 10,
+          references: [
+            {
+              id: 'node-img-1',
+              referenceAlias: 1,
+              name: 'newyear_gift.png',
+              kind: 'image',
+              url: `/api/assets/${asset.id}`,
+            },
+          ],
+        }),
+      })
+
+      expect(chatRes.status).toBe(200)
+      const chatData = await json(chatRes)
+      expect(chatData.reply).toBe('是的，我是小云雀创作助手。已识别参考素材并应用了参数设置。')
+      expect(chatData.thinking).toBe('分析参考图与分镜调度')
+      expect(chatData.threadId).toBe('th-xyq-mock-1')
+
+      // 5. Verify upstream request body received by Xiaoyunque
+      expect(receivedSubmitBody.message).toContain('这个图片里面的物体是什么')
+      expect(receivedSubmitBody.message).toContain('@1: 图片素材《newyear_gift.png》')
+      expect(receivedSubmitBody.asset_ids).toContain('xyq-uploaded-asset-1')
+      expect(receivedSubmitBody.general_agent_settings).toEqual({
+        video_model: 'seedance2.0_vision',
+        aspect_ratio: '9:16',
+        resolution: '720p',
+        duration_start: 10,
+        duration_end: 10,
+      })
+
+      // 6. Test /api/director/poll endpoint
+      const pollRes = await fetch(
+        `${gateway.origin}/api/director/poll?threadId=th-xyq-mock-1&runId=run-xyq-mock-1&providerId=xiaoyunque`,
+      )
+      expect(pollRes.status).toBe(200)
+      const pollData = await json(pollRes)
+      expect(pollData.reply).toBe('是的，我是小云雀创作助手。已识别参考素材并应用了参数设置。')
+      expect(pollData.pending).toBe(false)
+    } finally {
+      mockXyqServer.close()
+    }
+  })
 })
+

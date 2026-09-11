@@ -320,7 +320,7 @@ export function InspectorPanel({
               aria-label="批量删除"
               className="inspector-icon-btn inspector-icon-btn--danger"
               disabled={readOnly}
-              onClick={() => store.getState().deleteNodes(selectedNodeIds)}
+              onClick={() => store.getState().deleteNodes(selectedNodeIds, { force: true })}
               title="删除选中对象"
               type="button"
             >
@@ -620,7 +620,7 @@ export function InspectorPanel({
             aria-label="删除节点"
             className="inspector-icon-btn inspector-icon-btn--danger"
             disabled={readOnly || isLocked}
-            onClick={() => store.getState().deleteNodes([activeNode.id])}
+            onClick={() => store.getState().deleteNodes([activeNode.id], { force: true })}
             title="删除"
             type="button"
           >

@@ -10,6 +10,7 @@ import {
 import type { GenerationJob, GenerationRequest } from '../src/contracts/generation.ts'
 import type { CanvasSnapshotV2 } from '../src/model/project.ts'
 import {
+  applyCollaborativeSnapshotChange,
   createCollaborativeCanvasDocument,
   exportCollaborativeCanvasSnapshot,
 } from '../src/collaboration/document.ts'
@@ -25,6 +26,7 @@ const MAX_SESSION_RECORDS_PER_MEMBER = 12
 const MAX_ACTIVE_INVITES = 20
 const SERVER_TASK_ORIGIN = 'server-task'
 const LOCAL_ASSET_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
+const AGENT_REVISION_KEY = 'agentRevision'
 
 export class CollaborationInputError extends Error {
   readonly code = 'invalid_collaboration_input'
@@ -979,6 +981,56 @@ export class CollaborationService {
     return this.room(roomId).document.doc
   }
 
+  roomIdForCanvas(canvasId: string, projectId?: string): string | undefined {
+    if (projectId) return this.activeRoomIdsByScope.get(collaborationScope(projectId, canvasId))
+    for (const room of this.rooms.values()) {
+      if (room.metadata.enabled && room.metadata.canvasId === canvasId) return room.metadata.roomId
+    }
+    return undefined
+  }
+
+  snapshotForCanvas(canvasId: string, projectId?: string): CanvasSnapshotV2 | undefined {
+    const roomId = this.roomIdForCanvas(canvasId, projectId)
+    return roomId ? this.exportSnapshot(roomId) : undefined
+  }
+
+  revisionForCanvas(canvasId: string, projectId?: string): number | undefined {
+    const roomId = this.roomIdForCanvas(canvasId, projectId)
+    if (!roomId) return undefined
+    const value = this.room(roomId).document.doc.getMap<unknown>('meta').get(AGENT_REVISION_KEY)
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
+  }
+
+  applyCanvasSnapshot(input: {
+    snapshot: CanvasSnapshotV2
+    baseRevision?: number
+    origin?: unknown
+  }): { revision: number; changed: boolean } | undefined {
+    const roomId = this.roomIdForCanvas(input.snapshot.canvasId, input.snapshot.projectId)
+    if (!roomId) return undefined
+    const room = this.room(roomId)
+    this.assertWritable(room)
+    const current = exportCollaborativeCanvasSnapshot(room.document)
+    const revision = this.revisionForCanvas(input.snapshot.canvasId, input.snapshot.projectId) ?? 0
+    if (input.baseRevision !== undefined && input.baseRevision !== revision) {
+      const error = new CollaborationConflictError('Canvas revision conflict') as CollaborationConflictError & {
+        expectedRevision?: number
+        actualRevision?: number
+      }
+      error.expectedRevision = input.baseRevision
+      error.actualRevision = revision
+      throw error
+    }
+    if (JSON.stringify(current) === JSON.stringify(input.snapshot)) return { revision, changed: false }
+    room.document.doc.transact(() => {
+      applyCollaborativeSnapshotChange(room.document, current, input.snapshot)
+      room.document.doc.getMap<unknown>('meta').set(AGENT_REVISION_KEY, revision + 1)
+    }, input.origin ?? SERVER_TASK_ORIGIN)
+    room.validationDocument?.destroy()
+    room.validationDocument = undefined
+    return { revision: revision + 1, changed: true }
+  }
+
   applyGenerationJobUpdate(job: GenerationJob): boolean {
     if (!job.roomId || !job.targetNodeId || !('projectId' in job.request)) {
       throw new CollaborationInputError('协同生成任务标识信息不完整 (Collaborative generation identity is incomplete)')
@@ -1036,6 +1088,9 @@ export class CollaborationService {
         replacePlainMap(generation, 'actualSettings', actualSettings(request))
         if (request.aspectRatio) generation.set('outputAspectRatio', request.aspectRatio)
       }
+      const meta = room.document.doc.getMap<unknown>('meta')
+      const revision = meta.get(AGENT_REVISION_KEY)
+      meta.set(AGENT_REVISION_KEY, (typeof revision === 'number' ? revision : 0) + 1)
     }, SERVER_TASK_ORIGIN)
     if (room.validationDocument) {
       room.validationDocument.destroy()
@@ -1074,6 +1129,11 @@ export class CollaborationService {
       throw error instanceof CollaborationUpdateError ? error : new CollaborationUpdateError(error)
     }
     Y.applyUpdate(room.document.doc, update, origin)
+    room.document.doc.transact(() => {
+      const meta = room.document.doc.getMap<unknown>('meta')
+      const revision = meta.get(AGENT_REVISION_KEY)
+      meta.set(AGENT_REVISION_KEY, (typeof revision === 'number' ? revision : 0) + 1)
+    }, SERVER_TASK_ORIGIN)
   }
 
   exportSnapshot(roomId: string): CanvasSnapshotV2 {

@@ -3,6 +3,7 @@ import {
   Brush,
   Check,
   CheckCircle2,
+  Clapperboard,
   Eye,
   EyeOff,
   MessageSquare,
@@ -17,6 +18,7 @@ import {
 
 import type { ProviderMetadata } from '../../contracts/generation'
 import {
+  DIRECTOR_ADAPTER_TYPES,
   GENERATION_ADAPTER_TYPES,
   OFFICIAL_AISTARTLAB_BASE_URL,
   type ImageRequestMode,
@@ -30,7 +32,7 @@ export interface ProviderDrawerProps {
   onNotify?: (message: string, tone?: 'info' | 'success' | 'error') => void
   open: boolean
   readOnly?: boolean
-  initialTab?: 'media' | 'agent'
+  initialTab?: 'media' | 'agent' | 'director'
 }
 
 interface ProviderDraft extends ProviderUpdate {
@@ -122,6 +124,15 @@ export const MEDIA_PROVIDER_PRESETS = [
   },
 ] as const
 
+export const DIRECTOR_PROVIDER_PRESETS = [
+  {
+    id: 'xiaoyunque',
+    name: '小云雀 (Seedance 2.0 视频智能体)',
+    adapterType: 'xiaoyunque-video',
+    baseUrl: 'https://xyq.jianying.com',
+  },
+] as const
+
 export interface AgentProviderItem {
   id: string
   name: string
@@ -180,9 +191,9 @@ export function ProviderDrawer({
 }: ProviderDrawerProps) {
   const state = useProviderCatalog()
   const { setApiManagementAllowed } = state
-  const [activeTab, setActiveTab] = useState<'media' | 'agent'>(initialTab)
+  const [activeTab, setActiveTab] = useState<'media' | 'agent' | 'director'>(initialTab)
 
-  // Media providers state
+  // Media & Director providers state
   const [selectedId, setSelectedId] = useState<string>()
   const [draft, setDraft] = useState<ProviderDraft>(emptyDraft)
   const [adding, setAdding] = useState(false)
@@ -274,6 +285,16 @@ export function ProviderDrawer({
     }
   }, [open, initialTab])
 
+  const mediaProviders = useMemo(
+    () => state.providers.filter((p) => !DIRECTOR_ADAPTER_TYPES.has(p.adapterType)),
+    [state.providers],
+  )
+  const directorProviders = useMemo(
+    () => state.providers.filter((p) => DIRECTOR_ADAPTER_TYPES.has(p.adapterType)),
+    [state.providers],
+  )
+  const currentProviders = activeTab === 'director' ? directorProviders : mediaProviders
+
   const selected = useMemo(
     () => state.providers.find((provider) => provider.id === selectedId),
     [selectedId, state.providers],
@@ -297,15 +318,31 @@ export function ProviderDrawer({
   }, [draft, selected])
 
   useEffect(() => {
-    if (!open || adding) return
-    if (!selectedId) {
-      const initial = state.preferredProvider ?? state.providers[0]
-      if (initial) {
-        setSelectedId(initial.id)
-        setDraft(providerDraft(initial))
+    if (!open || adding || activeTab === 'agent') return
+    const list = activeTab === 'director' ? directorProviders : mediaProviders
+    if (list.length > 0) {
+      if (!selectedId || !list.some((p) => p.id === selectedId)) {
+        const next = (activeTab === 'media' ? state.preferredProvider : undefined) || list[0]!
+        setSelectedId(next.id)
+        setDraft(providerDraft(next))
+      }
+    } else {
+      setSelectedId(undefined)
+      if (activeTab === 'director') {
+        setAdding(true)
+        setDraft({
+          id: 'xiaoyunque',
+          name: '小云雀 (Seedance 2.0 视频智能体)',
+          adapterType: 'xiaoyunque-video',
+          baseUrl: 'https://xyq.jianying.com',
+          enabled: true,
+          preferred: false,
+          imageRequestMode: 'auto',
+        })
+        setSecret('')
       }
     }
-  }, [adding, open, selectedId, state.preferredProvider, state.providers])
+  }, [activeTab, adding, directorProviders, mediaProviders, open, selectedId, state.preferredProvider])
 
   useEffect(() => {
     if (!open || !selectedId || !selected?.secretConfigured) {
@@ -590,6 +627,7 @@ export function ProviderDrawer({
     setAgentSaving(true)
     setAgentFeedback(null)
     try {
+      await fetch('/api/local-admin/session', { method: 'POST' }).catch(() => {})
       const res = await fetch('/api/agent/providers', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -664,6 +702,7 @@ export function ProviderDrawer({
     if (!targetId) return
     if (!window.confirm('确定要清空该大模型已配置的 API Key 吗？')) return
     try {
+      await fetch('/api/local-admin/session', { method: 'POST' }).catch(() => {})
       const res = await fetch(`/api/agent/providers/${encodeURIComponent(targetId)}/secret`, { method: 'DELETE' })
       if (res.ok) {
         setAgentDraft((prev) => ({ ...prev, secret: '' }))
@@ -684,6 +723,7 @@ export function ProviderDrawer({
     const displayName = found?.name || agentDraft.name || targetId
     if (!window.confirm(`确定要删除大模型配置 [${displayName}] 吗？`)) return
     try {
+      await fetch('/api/local-admin/session', { method: 'POST' }).catch(() => {})
       const res = await fetch(`/api/agent/providers/${encodeURIComponent(targetId)}`, { method: 'DELETE' })
       if (res.ok) {
         onNotify?.('大模型配置已删除', 'info')
@@ -737,7 +777,7 @@ export function ProviderDrawer({
             <ServerCog aria-hidden="true" />
             <div>
               <strong>管理 API 接入</strong>
-              <small>配置生图/视频模型与 Agent 对话大模型凭证</small>
+              <small>配置生图/视频模型、Agent 对话大模型与 AI 导演智能体凭证</small>
             </div>
           </div>
           <button
@@ -771,10 +811,19 @@ export function ProviderDrawer({
             <MessageSquare size={16} />
             <span>Agent 对话大模型</span>
           </button>
+          <button
+            aria-label="AI 导演 / 视频智能体"
+            className={`provider-drawer__tab-btn ${activeTab === 'director' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('director')}
+            type="button"
+          >
+            <Clapperboard size={16} />
+            <span>AI 导演 / 视频智能体</span>
+          </button>
         </div>
 
-        {/* Tab 1: Media Generation Providers */}
-        {activeTab === 'media' ? (
+        {/* Tab 1 & 3: Media & Director Generation Providers */}
+        {activeTab === 'media' || activeTab === 'director' ? (
           <div className="provider-drawer__layout">
             <aside className="provider-drawer__list" aria-label="供应商列表">
               <button
@@ -783,16 +832,28 @@ export function ProviderDrawer({
                 onClick={() => {
                   setAdding(true)
                   setSelectedId(undefined)
-                  setDraft({ ...emptyDraft, adapterType: 'openai-compatible' })
+                  setDraft(
+                    activeTab === 'director'
+                      ? {
+                          id: 'xiaoyunque',
+                          name: '小云雀 (Seedance 2.0 视频智能体)',
+                          adapterType: 'xiaoyunque-video',
+                          baseUrl: 'https://xyq.jianying.com',
+                          enabled: true,
+                          preferred: false,
+                          imageRequestMode: 'auto',
+                        }
+                      : { ...emptyDraft, adapterType: 'openai-compatible' },
+                  )
                   setSecret('')
                   setCreateStage(undefined)
                 }}
                 type="button"
               >
                 <Plus aria-hidden="true" />
-                新增供应商
+                {activeTab === 'director' ? '接入导演智能体' : '新增供应商'}
               </button>
-              {state.providers.map((provider) => (
+              {currentProviders.map((provider) => (
                 <div
                   className={`provider-list-item-wrapper ${!adding && selectedId === provider.id ? 'is-selected' : ''}`}
                   key={provider.id}
@@ -834,8 +895,8 @@ export function ProviderDrawer({
             <main className="provider-drawer__content">
               <div className="provider-drawer__section-heading">
                 <div>
-                  <strong>{adding ? '新增供应商' : draft.name || '供应商配置'}</strong>
-                  <small>{adding ? '建立新的本地供应商记录' : draft.id}</small>
+                  <strong>{adding ? (activeTab === 'director' ? '接入 AI 导演智能体' : '新增供应商') : draft.name || (activeTab === 'director' ? '智能体配置' : '供应商配置')}</strong>
+                  <small>{adding ? (activeTab === 'director' ? '配置并绑定视频创作智能体' : '建立新的本地供应商记录') : (activeTab === 'director' ? `${draft.id} · AI 导演智能体` : draft.id)}</small>
                 </div>
                 {!adding && selected ? (
                   <span data-available={selected.available || undefined}>
@@ -844,15 +905,16 @@ export function ProviderDrawer({
                 ) : null}
               </div>
 
-              {/* Fast Presets Selector when adding media provider */}
+              {/* Fast Presets Selector when adding provider */}
               {adding ? (
                 <label className="integration-field" style={{ marginBottom: '12px' }}>
-                  <span>快速选择官方预设（一键填入常用配置）</span>
+                  <span>{activeTab === 'director' ? '快速选择 AI 导演智能体预设' : '快速选择官方预设（一键填入常用配置）'}</span>
                   <select
-                    aria-label="快速选择生图/视频预设"
+                    aria-label={activeTab === 'director' ? '快速选择 AI 导演智能体预设' : '快速选择生图/视频预设'}
                     disabled={readOnly}
                     onChange={(e) => {
-                      const found = MEDIA_PROVIDER_PRESETS.find((p) => p.id === e.target.value)
+                      const presets = activeTab === 'director' ? DIRECTOR_PROVIDER_PRESETS : MEDIA_PROVIDER_PRESETS
+                      const found = presets.find((p) => p.id === e.target.value)
                       if (found) {
                         setDraft((prev) => ({
                           ...prev,
@@ -863,9 +925,9 @@ export function ProviderDrawer({
                         }))
                       }
                     }}
-                    value={MEDIA_PROVIDER_PRESETS.some((p) => p.id === draft.id) ? draft.id : 'custom'}
+                    value={(activeTab === 'director' ? DIRECTOR_PROVIDER_PRESETS : MEDIA_PROVIDER_PRESETS).some((p) => p.id === draft.id) ? draft.id : (activeTab === 'director' ? 'xiaoyunque' : 'custom')}
                   >
-                    {MEDIA_PROVIDER_PRESETS.map((p) => (
+                    {(activeTab === 'director' ? DIRECTOR_PROVIDER_PRESETS : MEDIA_PROVIDER_PRESETS).map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
                       </option>
@@ -943,22 +1005,33 @@ export function ProviderDrawer({
                                           ? 'http://127.0.0.1:8188'
                                           : event.target.value === 'minimax-video' && (!current.baseUrl || current.baseUrl.includes('aistarslab'))
                                             ? 'https://api.minimaxi.com'
-                                            : current.baseUrl,
+                                            : event.target.value === 'xiaoyunque-video' && (!current.baseUrl || current.baseUrl.includes('aistarslab'))
+                                              ? 'https://xyq.jianying.com'
+                                              : current.baseUrl,
                       }))
                     }
                     value={draft.adapterType}
                   >
-                    <option value="aistartlab-openapi">AIStartLab 官方 OpenAPI</option>
-                    <option value="runninghub-api">RunningHub 官方 (云端 ComfyUI & AI 应用)</option>
-                    <option value="volcengine-ark">火山引擎 / 字节方舟 (Doubao & Seedance)</option>
-                    <option value="dashscope-api">通义万相 2.1 (阿里 DashScope)</option>
-                    <option value="kling-api">快手可灵 (Kling AI 官方)</option>
-                    <option value="modelscope-api">ModelScope (魔搭社区免费生图)</option>
-                    <option value="jimeng-cli">即梦 CLI (Dreamina 会员/积分)</option>
-                    <option value="comfyui-direct">本地 / 局域网 ComfyUI (8188)</option>
-                    <option value="minimax-video">MiniMax 官方视频 (MiniMax-H3)</option>
-                    <option value="openai-compatible">OpenAI 兼容</option>
-                    <option value="custom-compatible">自定义（暂不支持）</option>
+                    {activeTab === 'director' ? (
+                      <>
+                        <option value="xiaoyunque-video">小云雀 (Seedance 2.0 视频智能体)</option>
+                        <option value="custom-compatible">自定义智能体（暂不支持）</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="aistartlab-openapi">AIStartLab 官方 OpenAPI</option>
+                        <option value="runninghub-api">RunningHub 官方 (云端 ComfyUI & AI 应用)</option>
+                        <option value="volcengine-ark">火山引擎 / 字节方舟 (Doubao & Seedance)</option>
+                        <option value="dashscope-api">通义万相 2.1 (阿里 DashScope)</option>
+                        <option value="kling-api">快手可灵 (Kling AI 官方)</option>
+                        <option value="modelscope-api">ModelScope (魔搭社区免费生图)</option>
+                        <option value="jimeng-cli">即梦 CLI (Dreamina 会员/积分)</option>
+                        <option value="comfyui-direct">本地 / 局域网 ComfyUI (8188)</option>
+                        <option value="minimax-video">MiniMax 官方视频 (MiniMax-H3)</option>
+                        <option value="openai-compatible">OpenAI 兼容</option>
+                        <option value="custom-compatible">自定义（暂不支持）</option>
+                      </>
+                    )}
                   </select>
                 </label>
 

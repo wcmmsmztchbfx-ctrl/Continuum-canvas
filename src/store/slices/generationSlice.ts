@@ -9,6 +9,14 @@ import {
 import type { CanvasStoreState, StoreGet, StoreSet } from '../types'
 import type { HistoryContext } from './historySlice'
 
+function isDirectorNode(node: CanvasNode | undefined): boolean {
+  if (!node) return false
+  return (
+    (node.type as string) === 'director' ||
+    (node.type === 'group' && node.data.nodeKind === 'director')
+  )
+}
+
 export function createGenerationActions(
   set: StoreSet,
   get: StoreGet,
@@ -28,10 +36,11 @@ export function createGenerationActions(
     updateGenerationSettings: (nodeId, settings) => {
       const current = get().snapshot
       const node = current.nodes.find((candidate) => candidate.id === nodeId)
+      const isDirector = isDirectorNode(node)
       if (
         !node ||
-        (node.type !== 'image' && node.type !== 'video') ||
-        node.type !== settings.kind
+        (node.type !== 'image' && node.type !== 'video' && !isDirector) ||
+        (!isDirector && node.type !== settings.kind)
       ) {
         return
       }
@@ -48,6 +57,16 @@ export function createGenerationActions(
         ...current,
         nodes: current.nodes.map((candidate) => {
           if (candidate.id !== nodeId) return candidate
+          if (isDirectorNode(candidate)) {
+            return {
+              ...candidate,
+              ...(resized ?? {}),
+              data: {
+                ...candidate.data,
+                generationSettings: { ...settings },
+              },
+            } as CanvasNode
+          }
           if (candidate.type === 'image' && settings.kind === 'image') {
             return {
               ...candidate,
@@ -86,8 +105,68 @@ export function createGenerationActions(
       const node = current.nodes.find((candidate) => candidate.id === nodeId)
       if (node?.type !== 'image') return
 
-      // Do NOT reset sizes for layer/pasted/uploaded nodes or nodes without generation
-      if (node.data.displayMode === 'layer' || !node.data.generation) return
+      const outputAspectRatio = ratioStringFromDimensions(naturalWidth, naturalHeight)
+
+      // Imported images can arrive through callers that did not know the real media
+      // dimensions. Reconcile those layer nodes once, then leave later user resizing
+      // alone on reload. Explicit cover/fill modes intentionally keep their frame.
+      if (node.data.displayMode === 'layer' || !node.data.generation) {
+        if (node.data.naturalAspectRatio) return
+
+        const currentRatio = node.size.height > 0 ? node.size.width / node.size.height : 0
+        const naturalRatio = naturalWidth / naturalHeight
+        const frameDoesNotMatch = currentRatio <= 0 ||
+          Math.abs(currentRatio - naturalRatio) / naturalRatio > 0.02
+        const shouldResize = frameDoesNotMatch &&
+          (node.data.objectFit === undefined || node.data.objectFit === 'contain')
+        const next = shouldResize
+          ? resizeAroundCenter(
+              node.position,
+              node.size,
+              sizeForAspectRatio(outputAspectRatio),
+            )
+          : { position: node.position, size: node.size }
+        const updatedNodes = current.nodes.map((candidate) =>
+          candidate.id === nodeId && candidate.type === 'image'
+            ? {
+                ...candidate,
+                ...next,
+                data: {
+                  ...candidate.data,
+                  naturalAspectRatio: outputAspectRatio,
+                },
+              }
+            : candidate,
+        )
+
+        if (shouldResize && node.parentId) {
+          const parent = current.nodes.find((candidate) => candidate.id === node.parentId)
+          if (parent) {
+            const neededWidth = next.position.x + next.size.width + 40
+            const neededHeight = next.position.y + next.size.height + 40
+            if (neededWidth > parent.size.width || neededHeight > parent.size.height) {
+              const nextParentSize = {
+                width: Math.max(parent.size.width, neededWidth),
+                height: Math.max(parent.size.height, neededHeight),
+              }
+              set({
+                snapshot: {
+                  ...current,
+                  nodes: updatedNodes.map((candidate) =>
+                    candidate.id === parent.id
+                      ? { ...candidate, size: nextParentSize }
+                      : candidate,
+                  ),
+                },
+              })
+              return
+            }
+          }
+        }
+
+        set({ snapshot: { ...current, nodes: updatedNodes } })
+        return
+      }
       // If outputAspectRatio is already recorded, do not reconcile again on reload
       if (node.data.generation.outputAspectRatio) return
 
@@ -96,7 +175,6 @@ export function createGenerationActions(
       if (!requested || !materiallyDifferentRatio(requested, naturalWidth, naturalHeight)) {
         return
       }
-      const outputAspectRatio = ratioStringFromDimensions(naturalWidth, naturalHeight)
       if (node.data.generation.outputAspectRatio === outputAspectRatio) {
         return
       }
@@ -112,24 +190,49 @@ export function createGenerationActions(
       ) {
         return
       }
+      const updatedNodes = current.nodes.map((candidate) =>
+        candidate.id === nodeId && candidate.type === 'image'
+          ? {
+              ...candidate,
+              ...next,
+              data: {
+                ...candidate.data,
+                generation: {
+                  ...candidate.data.generation!,
+                  outputAspectRatio,
+                },
+              },
+            }
+          : candidate,
+      )
+
+      if (node.parentId) {
+        const parent = current.nodes.find((n) => n.id === node.parentId)
+        if (parent) {
+          const neededWidth = next.position.x + next.size.width + 40
+          const neededHeight = next.position.y + next.size.height + 40
+          if (neededWidth > parent.size.width || neededHeight > parent.size.height) {
+            const nextParentSize = {
+              width: Math.max(parent.size.width, neededWidth),
+              height: Math.max(parent.size.height, neededHeight),
+            }
+            set({
+              snapshot: {
+                ...current,
+                nodes: updatedNodes.map((n) =>
+                  n.id === parent.id ? { ...n, size: nextParentSize } : n,
+                ),
+              },
+            })
+            return
+          }
+        }
+      }
+
       set({
         snapshot: {
           ...current,
-          nodes: current.nodes.map((candidate) =>
-            candidate.id === nodeId && candidate.type === 'image'
-              ? {
-                  ...candidate,
-                  ...next,
-                  data: {
-                    ...candidate.data,
-                    generation: {
-                      ...candidate.data.generation!,
-                      outputAspectRatio,
-                    },
-                  },
-                }
-              : candidate,
-          ),
+          nodes: updatedNodes,
         },
       })
     },
@@ -137,10 +240,11 @@ export function createGenerationActions(
     updateGenerationPrompt: (nodeId, prompt) => {
       const current = get().snapshot
       const node = current.nodes.find((candidate) => candidate.id === nodeId)
+      const isDirector = isDirectorNode(node)
       if (
         !node ||
-        (node.type !== 'image' && node.type !== 'video') ||
-        node.data.promptDraft === prompt
+        (node.type !== 'image' && node.type !== 'video' && !isDirector) ||
+        ('promptDraft' in node.data && node.data.promptDraft === prompt)
       ) {
         return
       }
@@ -149,6 +253,12 @@ export function createGenerationActions(
         ...current,
         nodes: current.nodes.map((candidate) => {
           if (candidate.id !== nodeId) return candidate
+          if (isDirectorNode(candidate)) {
+            return {
+              ...candidate,
+              data: { ...candidate.data, promptDraft: prompt },
+            } as CanvasNode
+          }
           if (candidate.type === 'image') {
             return {
               ...candidate,
@@ -265,8 +375,13 @@ export function createGenerationActions(
       const current = get().snapshot
       if (current.projectId !== input.projectId) return false
       const node = current.nodes.find((candidate) => candidate.id === input.nodeId)
-      if (!node || (node.type !== 'image' && node.type !== 'video')) return false
-      const existing = node.data.generation
+      if (
+        !node ||
+        (node.type !== 'image' && node.type !== 'video' && !isDirectorNode(node))
+      ) {
+        return false
+      }
+      const existing = (node.data as { generation?: MediaGeneration }).generation
       if (
         (input.clientRequestId === null
           ? existing?.clientRequestId !== undefined
@@ -283,6 +398,19 @@ export function createGenerationActions(
           ...current,
           nodes: current.nodes.map((candidate) => {
             if (candidate.id !== input.nodeId) return candidate
+            if (isDirectorNode(candidate)) {
+              return {
+                ...candidate,
+                data: {
+                  ...candidate.data,
+                  ...(input.asset
+                    ? { url: input.asset.url, assetId: input.asset.assetId }
+                    : {}),
+                  ...(input.asset?.poster ? { poster: input.asset.poster } : {}),
+                  generation: { ...input.generation },
+                },
+              } as CanvasNode
+            }
             if (candidate.type === 'image') {
               return {
                 ...candidate,
@@ -321,8 +449,8 @@ export function createGenerationActions(
       const node = current.nodes.find((candidate) => candidate.id === input.nodeId)
       if (
         !node ||
-        (node.type !== 'image' && node.type !== 'video') ||
-        node.data.url !== input.expectedUrl
+        (node.type !== 'image' && node.type !== 'video' && !isDirectorNode(node)) ||
+        ('url' in node.data && node.data.url !== input.expectedUrl)
       ) {
         return false
       }
@@ -331,6 +459,17 @@ export function createGenerationActions(
           ...current,
           nodes: current.nodes.map((candidate) => {
             if (candidate.id !== input.nodeId) return candidate
+            if (isDirectorNode(candidate)) {
+              return {
+                ...candidate,
+                data: {
+                  ...candidate.data,
+                  url: input.asset.url,
+                  assetId: input.asset.assetId,
+                  ...(input.asset.poster ? { poster: input.asset.poster } : {}),
+                },
+              } as CanvasNode
+            }
             if (candidate.type === 'image') {
               return {
                 ...candidate,
@@ -362,13 +501,29 @@ export function createGenerationActions(
     setMediaGeneration: (nodeId, generation, result = {}) => {
       const current = get().snapshot
       const node = current.nodes.find((candidate) => candidate.id === nodeId)
-      if (!node || (node.type !== 'image' && node.type !== 'video')) return
+      if (
+        !node ||
+        (node.type !== 'image' && node.type !== 'video' && !isDirectorNode(node))
+      ) {
+        return
+      }
 
       set({
         snapshot: {
           ...current,
           nodes: current.nodes.map((candidate) => {
             if (candidate.id !== nodeId) return candidate
+            if (isDirectorNode(candidate)) {
+              return {
+                ...candidate,
+                data: {
+                  ...candidate.data,
+                  ...(result.url ? { url: result.url } : {}),
+                  ...(result.poster ? { poster: result.poster } : {}),
+                  generation: { ...generation },
+                },
+              } as CanvasNode
+            }
             if (candidate.type === 'image') {
               return {
                 ...candidate,
@@ -399,8 +554,14 @@ export function createGenerationActions(
     setMediaAsset: (nodeId, asset) => {
       const current = get().snapshot
       const node = current.nodes.find((candidate) => candidate.id === nodeId)
-      if (!node || (node.type !== 'image' && node.type !== 'video')) return
       if (
+        !node ||
+        (node.type !== 'image' && node.type !== 'video' && !isDirectorNode(node))
+      ) {
+        return
+      }
+      if (
+        'url' in node.data &&
         node.data.url === asset.url &&
         (node.type !== 'video' ||
           asset.poster === undefined ||
@@ -413,6 +574,16 @@ export function createGenerationActions(
           ...current,
           nodes: current.nodes.map((candidate) => {
             if (candidate.id !== nodeId) return candidate
+            if (isDirectorNode(candidate)) {
+              return {
+                ...candidate,
+                data: {
+                  ...candidate.data,
+                  url: asset.url,
+                  ...(asset.poster ? { poster: asset.poster } : {}),
+                },
+              } as CanvasNode
+            }
             if (candidate.type === 'image') {
               return {
                 ...candidate,

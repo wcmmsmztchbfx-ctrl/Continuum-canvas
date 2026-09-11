@@ -229,6 +229,8 @@ export interface ImageNodeData {
   thumbnailUrl?: string
   assetId?: string
   alt?: string
+  /** Natural image ratio recorded after the first successful media load. */
+  naturalAspectRatio?: string
   promptDraft?: string
   referenceNodeIds?: string[]
   unresolvedReferenceNodeIds?: string[]
@@ -278,7 +280,7 @@ export type VideoNode = BaseNode<'video', VideoNodeData>
 
 export interface TextNodeData {
   text: string
-  nodeKind?: 'text' | 'audio' | 'script'
+  nodeKind?: 'text' | 'audio' | 'script' | 'skill'
   presentation?: 'plain' | 'workflow-card'
   autoWidth?: boolean
   assetId?: string
@@ -301,9 +303,72 @@ export interface TextNodeData {
 
 export type TextNode = BaseNode<'text', TextNodeData>
 
+export interface QuestionnaireOption {
+  id: string
+  label: string
+  value: string
+  description?: string
+  emoji?: string | null
+  selected?: boolean
+}
+
+export interface QuestionnaireQuestion {
+  id: string
+  title: string
+  type?: 'radio' | 'checkbox' | 'text' | string
+  options: QuestionnaireOption[]
+}
+
+export interface QuestionnairePayload {
+  questionnaire_id: string
+  title: string
+  questions: QuestionnaireQuestion[]
+}
+
+export interface DirectorExecutionStep {
+  id: string
+  title: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+}
+
+export interface DirectorMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  thinking?: string
+  executionSteps?: DirectorExecutionStep[]
+  timestamp: number
+  assetIds?: string[]
+  threadUrl?: string
+  error?: boolean
+  questionnaire?: QuestionnairePayload
+  selectedOptionId?: string
+  confirmedLabel?: string
+}
+
+export interface DirectorAsset {
+  id: string
+  kind: 'image' | 'video'
+  name: string
+  url: string
+  poster?: string
+  duration?: number
+  createdAt: number
+}
+
 export interface GroupNodeData {
   childIds: string[]
   nodeKind?: 'group' | 'director' | 'video-clip'
+  url?: string
+  poster?: string
+  promptDraft?: string
+  generation?: MediaGeneration
+  generationSettings?: MediaGenerationSettings
+  messages?: DirectorMessage[]
+  assets?: DirectorAsset[]
+  activeAssetId?: string
+  threadId?: string
+  threadUrl?: string
 }
 
 export type GroupNode = BaseNode<'group', GroupNodeData>
@@ -380,7 +445,7 @@ export interface CanvasEdge {
   sourceHandle?: string
   targetHandle?: string
   type?: string
-  relation?: 'reference' | 'output' | 'flow'
+  relation?: 'reference' | 'output' | 'flow' | 'skill'
   referenceAlias?: number
 }
 
@@ -723,6 +788,7 @@ function isCanvasNode(value: unknown): boolean {
         hasOptionalString(value.data, 'thumbnailUrl') &&
         hasOptionalString(value.data, 'assetId') &&
         hasOptionalString(value.data, 'alt') &&
+        hasOptionalString(value.data, 'naturalAspectRatio') &&
         hasOptionalString(value.data, 'promptDraft') &&
         hasOptionalStringArray(value.data, 'referenceNodeIds') &&
         hasOptionalStringArray(value.data, 'unresolvedReferenceNodeIds') &&
@@ -774,7 +840,8 @@ function isCanvasNode(value: unknown): boolean {
         (value.data.nodeKind === undefined ||
           value.data.nodeKind === 'text' ||
           value.data.nodeKind === 'audio' ||
-          value.data.nodeKind === 'script') &&
+          value.data.nodeKind === 'script' ||
+          value.data.nodeKind === 'skill') &&
         (value.data.presentation === undefined || value.data.presentation === 'plain' || value.data.presentation === 'workflow-card') &&
         (value.data.autoWidth === undefined || typeof value.data.autoWidth === 'boolean') &&
         hasOptionalString(value.data, 'fontFamily') &&
@@ -853,7 +920,8 @@ function isCanvasEdge(value: unknown): boolean {
     (value.relation === undefined ||
       value.relation === 'reference' ||
       value.relation === 'output' ||
-      value.relation === 'flow') &&
+      value.relation === 'flow' ||
+      value.relation === 'skill') &&
     (value.referenceAlias === undefined ||
       (isFiniteNumber(value.referenceAlias) &&
         Number.isInteger(value.referenceAlias) &&
@@ -880,7 +948,7 @@ function inferredNodeKind(node: CanvasNode): CanvasNode {
   }
   if (node.type === 'group' && node.data.nodeKind === undefined) {
     const nodeKind =
-      node.name === '导演台'
+      node.name === '导演台' || node.name === 'Agent 导演台'
         ? 'director'
         : node.name === '视频合成'
           ? 'video-clip'

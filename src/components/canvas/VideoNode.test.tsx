@@ -51,6 +51,36 @@ describe('VideoNode', () => {
     expect(screen.getByText('00:00 / 00:00')).toBeInTheDocument()
   })
 
+  it('does not require CORS credentials for a temporary remote video URL', () => {
+    const { container, rerender } = render(
+      <ReactFlowProvider>
+        <VideoNode {...({
+          id: 'video-cors', selected: true, isConnectable: true,
+          data: {
+            name: '远程视频', mediaType: 'video', url: 'https://cdn.example.test/video.mp4',
+            isSoleSelection: true,
+          },
+        } as never)} />
+      </ReactFlowProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '播放' }))
+    expect(container.querySelector('video')).not.toHaveAttribute('crossorigin')
+
+    rerender(
+      <ReactFlowProvider>
+        <VideoNode {...({
+          id: 'video-cors', selected: true, isConnectable: true,
+          data: {
+            name: '本地视频', mediaType: 'video', url: '/api/assets/local-video',
+            isSoleSelection: true,
+          },
+        } as never)} />
+      </ReactFlowProvider>,
+    )
+    expect(container.querySelector('video')).toHaveAttribute('crossorigin', 'anonymous')
+  })
+
   it('accurately binds the progress bar max upper bound to the actual video duration', () => {
     const { container } = render(<ReactFlowProvider><VideoNode {...({
       id: 'video-duration-test', selected: true, isConnectable: true,

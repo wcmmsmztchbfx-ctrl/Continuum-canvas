@@ -13,6 +13,7 @@ import {
   Camera,
   Check,
   ChevronDown,
+  Clapperboard,
   ImagePlus,
   Maximize2,
   Minimize2,
@@ -32,6 +33,7 @@ import type {
   ProviderCatalog,
 } from '../../contracts/generation'
 import {
+  DIRECTOR_ADAPTER_TYPES,
   isProviderCatalogFresh,
   selectCatalogModel,
 } from '../../contracts/catalog'
@@ -62,7 +64,7 @@ import {
   type PromptReferenceCandidate,
 } from './ReferencePromptEditor'
 
-type GeneratorKind = 'image' | 'video'
+type GeneratorKind = 'image' | 'video' | 'director'
 
 const MAX_CATALOG_RECOVERY_ATTEMPTS = 3
 const CATALOG_RECOVERY_BASE_DELAY_MS = 500
@@ -517,18 +519,84 @@ export function NodeGeneratorPanel({
     )
   }, [interactionLeaseLost, lockedBy])
 
-  const selectedProvider = providerState?.selectedProvider
-  const catalog = providerState?.catalog
+  const targetMediaType = kind === 'image' ? 'image' : 'video'
+
+  const availableProviders = useMemo(() => {
+    if (!providerState?.providers) return []
+    if (kind === 'director') {
+      return providerState.providers.filter((p) =>
+        DIRECTOR_ADAPTER_TYPES.has(p.adapterType),
+      )
+    }
+    return providerState.providers.filter(
+      (p) => !DIRECTOR_ADAPTER_TYPES.has(p.adapterType),
+    )
+  }, [kind, providerState?.providers])
+
+  const selectedProvider = useMemo(() => {
+    if (kind === 'director') {
+      if (resolvedSettings.providerId) {
+        const matched = availableProviders.find(
+          (p) => p.id === resolvedSettings.providerId,
+        )
+        if (matched) return matched
+      }
+      return (
+        availableProviders.find((p) => p.available) ??
+        availableProviders.find((p) => p.enabled) ??
+        availableProviders[0]
+      )
+    }
+    if (resolvedSettings.providerId) {
+      const matched = availableProviders.find(
+        (p) => p.id === resolvedSettings.providerId,
+      )
+      if (matched) return matched
+    }
+    return providerState?.selectedProvider
+  }, [
+    availableProviders,
+    kind,
+    providerState?.selectedProvider,
+    resolvedSettings.providerId,
+  ])
+
+  const catalog = useMemo(() => {
+    if (selectedProvider) {
+      return (
+        providerState?.catalogs[selectedProvider.id] ??
+        (providerState?.selectedProviderId === selectedProvider.id
+          ? providerState?.catalog
+          : undefined)
+      )
+    }
+    return providerState?.catalog
+  }, [
+    selectedProvider,
+    providerState?.catalogs,
+    providerState?.catalog,
+    providerState?.selectedProviderId,
+  ])
+
+  useEffect(() => {
+    if (selectedProvider && !catalog && providerState?.refreshCatalog) {
+      void providerState.refreshCatalog(selectedProvider.id)
+    }
+  }, [selectedProvider, catalog, providerState])
+
   const models = useMemo(
-    () => catalog?.models.filter((model) => model.mediaType === kind) ?? [],
-    [catalog?.models, kind],
+    () =>
+      catalog?.models.filter(
+        (model) => model.mediaType === targetMediaType,
+      ) ?? [],
+    [catalog?.models, targetMediaType],
   )
   const selectedModel = catalog
     ? selectCatalogModel(catalog, {
         providerId: resolvedSettings.providerId ?? catalog.providerId,
         channel: resolvedSettings.channel,
         model: resolvedSettings.model,
-        mediaType: kind,
+        mediaType: targetMediaType,
       }) ?? models[0]
     : undefined
 
@@ -613,7 +681,7 @@ export function NodeGeneratorPanel({
       : undefined
     if (!nextCatalog) return
     const model = nextCatalog.models.find(
-      (candidate) => candidate.mediaType === kind,
+      (candidate) => candidate.mediaType === targetMediaType,
     )
     const next = model
       ? normalizePanelSettings(
@@ -679,7 +747,9 @@ export function NodeGeneratorPanel({
   const placeholder =
     kind === 'image'
       ? '描述画面，输入 @ 可在关键位置引用图片'
-      : '描述镜头动作与节奏，输入 @ 引用人物、场景或关键帧'
+      : kind === 'director'
+        ? '描述分镜动作与剧本节奏，输入 @ 引用人物、场景或关键帧'
+        : '描述镜头动作与节奏，输入 @ 引用人物、场景或关键帧'
   const recoverable =
     onRetry !== undefined &&
     (error?.code === 'manual_recovery_required' ||
@@ -691,8 +761,8 @@ export function NodeGeneratorPanel({
   const submitLabel = recoverable
     ? '恢复生成'
     : pending
-      ? '生成提交中'
-      : '开始生成'
+      ? (kind === 'director' ? '导演任务提交中' : '生成提交中')
+      : (kind === 'director' ? '开始执导' : '开始生成')
   const phaseLabel = generation?.phase === 'complete' && !showCompletedStatus
     ? ''
     : generation?.phase
@@ -748,7 +818,7 @@ export function NodeGeneratorPanel({
       projectId,
       providerId: catalog.providerId,
       catalogVersion: catalog.version,
-      mediaType: kind,
+      mediaType: targetMediaType,
       channel: selectedModel.channel,
       model: selectedModel.model,
       prompt: prompt.trim(),
@@ -840,8 +910,8 @@ export function NodeGeneratorPanel({
           providerId: resolvedSettings.providerId ?? refreshed.providerId,
           channel: resolvedSettings.channel,
           model: resolvedSettings.model,
-          mediaType: kind,
-        }) ?? refreshed.models.find((model) => model.mediaType === kind)
+          mediaType: targetMediaType,
+        }) ?? refreshed.models.find((model) => model.mediaType === targetMediaType)
         if (!refreshedModel) {
           retryLater()
           return
@@ -1139,7 +1209,7 @@ export function NodeGeneratorPanel({
         <ReferencePromptEditor
           candidates={candidates}
           invalidAliases={invalidMentionAliases}
-          label={kind === 'image' ? '图片生成描述' : '视频生成描述'}
+          label={kind === 'image' ? '图片生成描述' : kind === 'director' ? '分镜动作与剧本节奏描述' : '视频生成描述'}
           onAttachReference={(sourceNodeId) =>
             beginSettingsInteraction()
               ? runReferenceMutation(() =>
@@ -1178,7 +1248,7 @@ export function NodeGeneratorPanel({
         ) : null}
 
         <div className="canvas-node-generator__footer">
-          {providerState?.selectedProvider || (providerState?.providers.length ?? 0) > 0 ? (
+          {selectedProvider || (availableProviders.length ?? 0) > 0 ? (
             <>
               <div className="canvas-node-generator__menu-control">
                 <button
@@ -1203,7 +1273,7 @@ export function NodeGeneratorPanel({
                   type="button"
                 >
                   <ServerCog size={13} strokeWidth={1.8} />
-                  <span>{providerState?.selectedProvider?.name ?? '选择平台'}</span>
+                  <span>{selectedProvider?.name ?? (kind === 'director' ? '选择导演智能体' : '选择平台')}</span>
                   <ChevronDown size={11} />
                 </button>
                 {providerMenuOpen ? (
@@ -1219,7 +1289,7 @@ export function NodeGeneratorPanel({
                     )}
                     portalRoot={expanded ? expandedDialogRef.current : undefined}
                   >
-                    {providerState?.providers.map((candidate) => (
+                    {availableProviders.map((candidate) => (
                       <button
                         key={candidate.id}
                         onClick={() => void switchProvider(candidate.id)}
@@ -1236,7 +1306,7 @@ export function NodeGeneratorPanel({
                                 : '未启用'}
                           </small>
                         </span>
-                        {providerState?.selectedProviderId === candidate.id
+                        {selectedProvider?.id === candidate.id
                           ? <Check aria-hidden="true" />
                           : null}
                       </button>
@@ -1250,10 +1320,10 @@ export function NodeGeneratorPanel({
           <div className="canvas-node-generator__menu-control">
             <button
               aria-expanded={modelMenuOpen}
-              aria-label={kind === 'image' ? '选择图片模型' : '选择视频模型'}
+              aria-label={kind === 'image' ? '选择图片模型' : kind === 'director' ? '选择导演模型' : '选择视频模型'}
               className="canvas-node-generator__select canvas-node-generator__model-select"
               data-active={modelMenuOpen}
-              disabled={models.length === 0 && (!providerState?.providers.length)}
+              disabled={models.length === 0 && (!availableProviders.length)}
               onClick={() => {
                 setModelMenuOpen((open) => !open)
                 setSettingsOpen(false)
@@ -1271,6 +1341,8 @@ export function NodeGeneratorPanel({
             >
               {kind === 'image' ? (
                 <WandSparkles size={13} strokeWidth={1.8} />
+              ) : kind === 'director' ? (
+                <Clapperboard size={13} strokeWidth={1.8} />
               ) : (
                 <Video size={13} strokeWidth={1.8} />
               )}
@@ -1280,7 +1352,7 @@ export function NodeGeneratorPanel({
             {modelMenuOpen ? (
               <FloatingChoiceMenu
                 anchor={modelTriggerRef.current}
-                ariaLabel={kind === 'image' ? '图片模型' : '视频模型'}
+                ariaLabel={kind === 'image' ? '图片模型' : kind === 'director' ? '导演模型' : '视频模型'}
                 className="canvas-node-generator__choice-menu canvas-node-generator__model-menu"
                 menuRef={modelMenuRef}
                 onKeyDown={(event) => handleChoiceMenuKeyDown(

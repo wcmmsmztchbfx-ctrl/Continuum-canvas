@@ -68,7 +68,7 @@ function ImageNodeContent({
   const hasImage = Boolean(data.url) && !failed
   const isLayerMode = data.node?.type === 'image' && data.node.data.displayMode === 'layer'
   const showResizer = isLayerMode && selected && data.isSoleSelection !== false
-  const showDetails = selected && data.isSoleSelection !== false && !isLayerMode
+  const showDetails = (data.isInspected !== undefined ? data.isInspected : (selected && data.isSoleSelection !== false)) && !isLayerMode
   const modelData = data.node?.type === 'image' ? data.node.data : undefined
 
   const explicitThumbnail =
@@ -202,7 +202,7 @@ function ImageNodeContent({
             loading="lazy"
             src={effectiveThumbnailUrl}
             style={{
-              objectFit: modelData?.objectFit ?? 'cover',
+              objectFit: modelData?.objectFit ?? 'contain',
               borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
             }}
           />
@@ -216,7 +216,7 @@ function ImageNodeContent({
             src={responsiveHighResUrl}
             alt={data.alt ?? data.name}
             style={{
-              objectFit: modelData?.objectFit ?? 'cover',
+              objectFit: modelData?.objectFit ?? 'contain',
               borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
             }}
             onLoad={(event) => {

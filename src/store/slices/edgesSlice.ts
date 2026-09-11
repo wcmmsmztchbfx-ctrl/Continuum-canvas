@@ -57,11 +57,15 @@ export function createEdgesActions(
       const current = get().snapshot
       const target = current.nodes.find((node) => node.id === targetNodeId)
       const source = current.nodes.find((node) => node.id === sourceNodeId)
+      const isDirector =
+        (target?.type as string) === 'director' ||
+        (target?.type === 'group' &&
+          (target.data.nodeKind === 'director' || target.name === '导演台' || target.name === 'Agent 导演台'))
       if (
         !target ||
         !source ||
         target.id === source.id ||
-        (target.type !== 'image' && target.type !== 'video') ||
+        (target.type !== 'image' && target.type !== 'video' && !isDirector) ||
         (source.type !== 'image' && source.type !== 'video')
       ) {
         return undefined

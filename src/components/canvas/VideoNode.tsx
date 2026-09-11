@@ -143,7 +143,7 @@ function VideoNodeContent({
   const hasPoster = Boolean(effectivePoster)
   const isLayerMode = data.node?.type === 'video' && data.node.data.displayMode === 'layer'
   const showResizer = selected && data.isSoleSelection !== false
-  const showDetails = showResizer && !isLayerMode
+  const showDetails = (data.isInspected !== undefined ? data.isInspected : showResizer) && !isLayerMode
   const modelData = data.node?.type === 'video' ? data.node.data : undefined
   const shouldMountVideo = hasVideo && (selected || hasActivated || playing || data.generation?.status === 'generating')
 
@@ -316,7 +316,7 @@ function VideoNodeContent({
           <video
             autoPlay={playing}
             className={`canvas-media-node__content canvas-video-element ${videoReady ? 'is-ready' : ''}`}
-            crossOrigin="anonymous"
+            crossOrigin={data.url.startsWith('/api/assets/') ? 'anonymous' : undefined}
             draggable={false}
             onCanPlay={() => {
               setVideoReady(true)

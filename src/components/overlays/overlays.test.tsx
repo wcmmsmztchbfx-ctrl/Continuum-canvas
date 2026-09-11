@@ -135,7 +135,8 @@ describe('controlled overlay visibility and actions', () => {
       expect(screen.getByRole('menuitem', { name: label })).toBeVisible()
     }
     expect(screen.getByText('Beta')).toBeVisible()
-    expect(screen.getAllByText('NEW')).toHaveLength(2)
+    expect(screen.getByText('AI 导演')).toBeVisible()
+    expect(screen.getByText('NEW')).toBeVisible()
 
     fireEvent.click(screen.getByRole('menuitem', { name: '图片' }))
 
@@ -399,6 +400,7 @@ describe('contextual controls', () => {
       <NodeContextMenu onAction={onAction} onClose={vi.fn()} open />,
     )
 
+    expect(screen.getByRole('menuitem', { name: '引用到 Agent 对话' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '内容合规检测' })).toBeDisabled()
     expect(screen.getByRole('menuitem', { name: '保存到我的资产' })).toBeDisabled()
     expect(screen.getByRole('menuitem', { name: '创建主体' })).toBeDisabled()
@@ -408,6 +410,9 @@ describe('contextual controls', () => {
     expect(screen.getByRole('menuitem', { name: '粘贴' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '删除' })).toBeVisible()
     expect(screen.getByRole('menuitem', { name: '复制到剪贴板' })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: '引用到 Agent 对话' }))
+    expect(onAction).toHaveBeenCalledWith('reference-to-agent')
 
     fireEvent.click(screen.getByRole('menuitem', { name: '固定' }))
     expect(onAction).toHaveBeenCalledWith('toggle-lock')

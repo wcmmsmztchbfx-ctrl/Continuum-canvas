@@ -21,6 +21,7 @@ import {
   Square,
   Undo2,
   Wand2,
+  X,
   Zap,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -32,6 +33,7 @@ import { useOptionalProviderCatalog } from '../providers/ProviderCatalogContext'
 import { AgentChatClient } from '../../services/agent/agentChatClient'
 import type { AgentChatMessage, CanvasAgentAction } from '../../services/agent/agentTypes'
 import { CanvasAgentHarness } from '../../services/agent/canvasAgentHarness'
+import { GenerationController } from '../../services/generationController'
 import { createBrowserUuid } from '../../utils/id'
 
 export interface AgentSidebarPanelProps {
@@ -40,6 +42,8 @@ export interface AgentSidebarPanelProps {
   onOpenProviderDrawer?: () => void
   readOnly?: boolean
   canvasId?: string
+  referencedNodeIds?: string[]
+  onReferencedNodeIdsChange?: (nodeIds: string[]) => void
 }
 
 interface QuickActionGroup {
@@ -114,6 +118,8 @@ export function AgentSidebarPanel({
   onOpenProviderDrawer,
   readOnly = false,
   canvasId,
+  referencedNodeIds: propReferencedNodeIds,
+  onReferencedNodeIdsChange,
 }: AgentSidebarPanelProps) {
   const [messages, setMessages] = useState<AgentChatMessage[]>([])
   const [inputPrompt, setInputPrompt] = useState('')
@@ -123,12 +129,63 @@ export function AgentSidebarPanel({
   const [hasConfiguredLlm, setHasConfiguredLlm] = useState<boolean | null>(null)
   const [agentModelInfo, setAgentModelInfo] = useState<{ providerName?: string; model?: string }>()
   const [openThoughtsMap, setOpenThoughtsMap] = useState<Record<string, boolean>>({})
+  const [selectedPlanOptions, setSelectedPlanOptions] = useState<Record<string, string[]>>({})
+
+  const [internalReferencedNodeIds, setInternalReferencedNodeIds] = useState<string[]>([])
+  const referencedNodeIds = propReferencedNodeIds ?? internalReferencedNodeIds
+
+  const updateReferencedNodeIds = useCallback(
+    (next: string[] | ((prev: string[]) => string[])) => {
+      const resolved = typeof next === 'function' ? next(referencedNodeIds) : next
+      onReferencedNodeIdsChange?.(resolved)
+      setInternalReferencedNodeIds(resolved)
+    },
+    [onReferencedNodeIdsChange, referencedNodeIds],
+  )
 
   const providerCatalog = useOptionalProviderCatalog()
   const chatContainerRef = useRef<HTMLDivElement | null>(null)
 
   const harness = useMemo(() => new CanvasAgentHarness(store), [store])
   const chatClient = useMemo(() => new AgentChatClient(), [])
+
+  // 监听来自画布右键等位置的「引用到对话」事件
+  useEffect(() => {
+    const handleAddReferencedNodes = (e: Event) => {
+      const customEvent = e as CustomEvent<{ nodeIds?: string[] }>
+      const newIds = customEvent.detail?.nodeIds
+      if (Array.isArray(newIds) && newIds.length > 0) {
+        updateReferencedNodeIds((prev) => {
+          const combined = [...prev]
+          for (const id of newIds) {
+            if (!combined.includes(id)) {
+              combined.push(id)
+            }
+          }
+          return combined
+        })
+      }
+    }
+    window.addEventListener('continuum-agent-reference-nodes', handleAddReferencedNodes)
+    return () => {
+      window.removeEventListener('continuum-agent-reference-nodes', handleAddReferencedNodes)
+    }
+  }, [updateReferencedNodeIds])
+
+  const referencedNodes = useMemo(() => {
+    const nodes = store.getState().snapshot.nodes
+    return referencedNodeIds
+      .map((id) => nodes.find((n) => n.id === id))
+      .filter((n): n is NonNullable<typeof n> => Boolean(n))
+  }, [referencedNodeIds, store])
+
+  const handleRemoveReferencedNode = (nodeId: string) => {
+    updateReferencedNodeIds((prev) => prev.filter((id) => id !== nodeId))
+  }
+
+  const handleClearAllReferencedNodes = () => {
+    updateReferencedNodeIds([])
+  }
 
   // 跨画布/刷新自动加载对话历史
   useEffect(() => {
@@ -262,12 +319,36 @@ export function AgentSidebarPanel({
     const userMsgId = createBrowserUuid()
     const assistantMsgId = createBrowserUuid()
 
+    const currentReferencedIds = [...referencedNodeIds]
+    const referencedSnapshot = referencedNodes.map((n) => {
+      const data = n.data as unknown as Record<string, unknown>
+      const mediaUrl = typeof data.url === 'string' ? data.url : typeof data.poster === 'string' ? data.poster : undefined
+      const prompt =
+        n.type === 'image' || n.type === 'video'
+          ? (n.data.promptDraft || n.data.generation?.prompt)
+          : n.type === 'text'
+            ? n.data.text
+            : undefined
+      const isSkill = n.type === 'text' && data.nodeKind === 'skill'
+      return {
+        id: n.id,
+        name: n.name,
+        type: isSkill ? 'skill' : n.type,
+        url: mediaUrl,
+        prompt,
+      }
+    })
+
+    // 发送后立即清空输入框上方的引用胶囊条
+    updateReferencedNodeIds([])
+
     const userMessage: AgentChatMessage = {
       id: userMsgId,
       role: 'user',
       content: text,
       timestamp: Date.now(),
       status: 'complete',
+      referencedNodes: referencedSnapshot.length > 0 ? referencedSnapshot : undefined,
     }
 
     const assistantMessage: AgentChatMessage = {
@@ -292,6 +373,7 @@ export function AgentSidebarPanel({
     await harness.runLoop({
       userPrompt: text,
       historyMessages: conversationHistory,
+      referencedNodeIds: currentReferencedIds,
       providerId: providerCatalog?.selectedProviderId,
       events: {
         onPlanCreated: (plan) => {
@@ -385,17 +467,111 @@ export function AgentSidebarPanel({
     setInputPrompt('帮我规划一套完整的分镜故事流，并自动连线和排版。')
   }
 
-  const handleConfirmAction = (action: CanvasAgentAction) => {
-    if (action.payload && action.type === 'trigger_generation') {
-      onNotify?.(`已启动 ${action.title} 批处理任务`, 'success')
-      setMessages((prev) =>
-        prev.map((msg) => ({
-          ...msg,
-          actions: msg.actions?.map((act) =>
-            act.id === action.id ? { ...act, status: 'success' } : act,
-          ),
-        })),
-      )
+  const handleConfirmAction = (action: CanvasAgentAction, selectedOptions?: string[]) => {
+    // 1. Mark action as confirmed in chat stream
+    setMessages((prev) => {
+      const next = prev.map((msg) => ({
+        ...msg,
+        actions: msg.actions?.map((act) =>
+          act.id === action.id
+            ? {
+                ...act,
+                status: 'success' as const,
+                selectedOptions: selectedOptions ?? act.selectedOptions,
+              }
+            : act,
+        ),
+      }))
+      persistMessages(next)
+      return next
+    })
+
+    onNotify?.(`已确认方案，正在向画布提交渲染任务...`, 'success')
+
+    // 2. Real video/image generation execution on target nodes
+    try {
+      const controller = new GenerationController({ store })
+      const snapshot = store.getState().snapshot
+      const rawTargetIds = (
+        action.payload?.targetNodeIds ||
+        action.payload?.nodeIds ||
+        action.details?.targetNodeIds ||
+        []
+      ) as string[]
+
+      const targetIds = rawTargetIds.length > 0
+        ? rawTargetIds
+        : snapshot.nodes
+            .filter((n) => (n.type === 'image' || n.type === 'video') && !n.data.url)
+            .map((n) => n.id)
+
+      for (const targetId of targetIds) {
+        const node = snapshot.nodes.find((n) => n.id === targetId)
+        if (!node) continue
+
+        if (node.type === 'image' || node.type === 'video') {
+          const promptText = (node.data as { promptDraft?: string; prompt?: string }).promptDraft || (node.data as { prompt?: string }).prompt || node.name
+
+          // Immediately display generating visual state on canvas
+          store.getState().patchNode(targetId, {
+            data: {
+              generation: {
+                status: 'generating',
+                progress: 15,
+                prompt: promptText,
+              },
+            },
+          })
+
+          controller.start({
+            canvasId,
+            projectId: snapshot.projectId,
+            sourceNodeId: node.id,
+            targetNodeIds: [node.id],
+            prompt: promptText,
+            settings: (node.data as { generationSettings?: never }).generationSettings,
+          }).catch((err) => {
+            console.error('Generation execution failed:', err)
+          })
+        } else if (node.type === 'group' && ((node.data as { nodeKind?: string }).nodeKind === 'director' || node.name.includes('导演'))) {
+          // If a director node is targeted, create deliverable video node on canvas and run generation
+          const promptText = (node.data as { promptDraft?: string }).promptDraft || '电影级分镜成片'
+          const deliverId = `video-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+          store.getState().addNode({
+            id: deliverId,
+            type: 'video',
+            name: `交付成片：${promptText.slice(0, 10)}`,
+            position: { x: node.position.x + node.size.width + 60, y: node.position.y + 20 },
+            size: { width: 480, height: 270 },
+            data: {
+              url: '',
+              generation: {
+                status: 'generating',
+                progress: 15,
+                prompt: promptText,
+              },
+            },
+          })
+          store.getState().addEdge({
+            id: `edge-${Date.now().toString(36)}`,
+            source: node.id,
+            target: deliverId,
+            relation: 'flow',
+          })
+
+          controller.start({
+            canvasId,
+            projectId: snapshot.projectId,
+            sourceNodeId: deliverId,
+            targetNodeIds: [deliverId],
+            prompt: promptText,
+          }).catch((err) => {
+            console.error('Director job execution failed:', err)
+          })
+        }
+      }
+    } catch (err) {
+      console.error('Failed to trigger generation:', err)
     }
   }
 
@@ -615,6 +791,46 @@ export function AgentSidebarPanel({
                     </div>
                   ) : null}
 
+                  {/* Referenced Nodes Tag Strip */}
+                  {msg.referencedNodes && msg.referencedNodes.length > 0 ? (
+                    <div className="agent-msg-referenced-pills">
+                      <span className="agent-msg-referenced-label">
+                        <Link2 size={11} className="text-purple-400" />
+                        <span>引用节点:</span>
+                      </span>
+                      {msg.referencedNodes.map((ref) => (
+                        <button
+                          key={ref.id}
+                          className="agent-msg-ref-pill"
+                          onClick={() => {
+                            const canvasState = store.getState()
+                            canvasState.selectNode(ref.id)
+                            const node = canvasState.snapshot.nodes.find((n) => n.id === ref.id)
+                            if (node) {
+                              const zoom = canvasState.snapshot.viewport.zoom
+                              canvasState.setViewport({
+                                x: window.innerWidth / 2 - (node.position.x + node.size.width / 2) * zoom,
+                                y: window.innerHeight / 2 - (node.position.y + node.size.height / 2) * zoom,
+                                zoom,
+                              })
+                            }
+                          }}
+                          title={`在画布上定位「${ref.name}」`}
+                          type="button"
+                        >
+                          {ref.url ? (
+                            <img alt="" className="agent-msg-ref-pill__thumb" src={ref.url} />
+                          ) : (
+                            <span className="agent-msg-ref-pill__type">
+                              {ref.type === 'skill' ? 'Skill' : ref.type}
+                            </span>
+                          )}
+                          <span className="agent-msg-ref-pill__name">{ref.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
                   {/* Message Content */}
                   {msg.content ? (
                     <div className="sidebar-agent-panel__message-text">
@@ -627,29 +843,112 @@ export function AgentSidebarPanel({
                     <div className="agent-action-stream">
                       {msg.actions.map((act) => (
                         <div className="agent-action-item" key={act.id}>
-                          <div className="agent-action-item__content">
-                            <span className="agent-action-item__icon">
-                              {act.type === 'create_nodes' && <Layers size={11} />}
-                              {act.type === 'connect_nodes' && <Link2 size={11} />}
-                              {act.type === 'update_node_prompts' && <Wand2 size={11} />}
-                              {act.type === 'auto_layout' && <Palette size={11} />}
-                              {act.type === 'trigger_generation' && <Play size={11} />}
-                            </span>
-                            <span className="agent-action-item__summary">{act.summary}</span>
-                          </div>
+                          {act.type === 'request_plan_confirmation' ? (
+                            <div className="agent-plan-confirm-card">
+                              <div className="agent-plan-confirm-header">
+                                <div className="agent-plan-confirm-title">
+                                  <Sparkles size={13} className="text-purple-400" />
+                                  <span>{act.title || '制片方案确认'}</span>
+                                </div>
+                                <span className={`agent-plan-confirm-badge ${act.status === 'success' ? 'is-success' : 'is-pending'}`}>
+                                  {act.status === 'success' ? '已确认执行' : '等待用户确认'}
+                                </span>
+                              </div>
 
-                          {act.requiresConfirmation && act.status === 'requires_confirmation' ? (
-                            <div className="agent-action-confirm-wrapper">
-                              <button
-                                className="agent-sleek-confirm-btn"
-                                onClick={() => handleConfirmAction(act)}
-                                type="button"
-                              >
-                                <Play size={10} fill="currentColor" />
-                                <span>立即开始生图</span>
-                              </button>
+                              {act.summary ? (
+                                <p className="agent-plan-confirm-desc">{act.summary}</p>
+                              ) : null}
+
+                              {act.planOptions && act.planOptions.length > 0 ? (
+                                <div className="agent-plan-confirm-options">
+                                  <span className="agent-plan-options-label">推荐配置选项 (可调整)：</span>
+                                  <div className="agent-plan-options-grid">
+                                    {act.planOptions.map((opt) => {
+                                      const isChecked = (selectedPlanOptions[act.id] ?? act.planOptions?.filter((o) => o.defaultSelected !== false).map((o) => o.id) ?? []).includes(opt.id)
+                                      const isInteractive = act.status === 'requires_confirmation'
+                                      return (
+                                        <button
+                                          key={opt.id}
+                                          type="button"
+                                          className={`agent-plan-option-chip ${isChecked ? 'is-active' : ''}`}
+                                          disabled={!isInteractive}
+                                          onClick={() => {
+                                            if (!isInteractive) return
+                                            setSelectedPlanOptions((prev) => {
+                                              const current = prev[act.id] ?? act.planOptions?.filter((o) => o.defaultSelected !== false).map((o) => o.id) ?? []
+                                              const next = isChecked
+                                                ? current.filter((id) => id !== opt.id)
+                                                : [...current, opt.id]
+                                              return { ...prev, [act.id]: next }
+                                            })
+                                          }}
+                                        >
+                                          <span className="agent-plan-option-check">
+                                            {isChecked ? <Check size={10} /> : null}
+                                          </span>
+                                          <span className="agent-plan-option-name">{opt.label}</span>
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              <div className="agent-plan-confirm-footer">
+                                {act.details?.estimatedCost ? (
+                                  <span className="agent-plan-cost-tag">
+                                    <Zap size={10} />
+                                    {String(act.details.estimatedCost)}
+                                  </span>
+                                ) : <span />}
+
+                                {act.status === 'requires_confirmation' ? (
+                                  <button
+                                    className="agent-plan-exec-btn"
+                                    type="button"
+                                    onClick={() => {
+                                      const currentSelected = selectedPlanOptions[act.id] ?? act.planOptions?.filter((o) => o.defaultSelected !== false).map((o) => o.id) ?? []
+                                      handleConfirmAction(act, currentSelected)
+                                    }}
+                                  >
+                                    <Play size={11} fill="currentColor" />
+                                    <span>确认执行</span>
+                                  </button>
+                                ) : (
+                                  <span className="agent-plan-done-tag">
+                                    <Check size={11} />
+                                    <span>已向画布提交渲染</span>
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          ) : null}
+                          ) : (
+                            <>
+                              <div className="agent-action-item__content">
+                                <span className="agent-action-item__icon">
+                                  {act.type === 'create_nodes' && <Layers size={11} />}
+                                  {act.type === 'connect_nodes' && <Link2 size={11} />}
+                                  {act.type === 'update_node_prompts' && <Wand2 size={11} />}
+                                  {act.type === 'auto_layout' && <Palette size={11} />}
+                                  {act.type === 'trigger_generation' && <Play size={11} />}
+                                </span>
+                                <span className="agent-action-item__summary">{act.summary}</span>
+                              </div>
+
+                              {act.requiresConfirmation && act.status === 'requires_confirmation' ? (
+                                <div className="agent-action-confirm-wrapper">
+                                  <button
+                                    className="agent-sleek-confirm-btn"
+                                    onClick={() => handleConfirmAction(act)}
+                                    type="button"
+                                  >
+                                    <Play size={10} fill="currentColor" />
+                                    <span>立即开始生图</span>
+                                  </button>
+                                </div>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -686,6 +985,61 @@ export function AgentSidebarPanel({
 
       {/* Bottom Floating Card Input Box */}
       <div className={`fig-agent-input-card ${readOnly ? 'is-disabled' : ''}`}>
+        {referencedNodes.length > 0 ? (
+          <div className="fig-agent-referenced-bar">
+            <div className="fig-agent-referenced-bar__header">
+              <span className="fig-agent-referenced-bar__title">
+                <Link2 size={12} className="text-purple-400" />
+                <span>已引用画布节点 ({referencedNodes.length})</span>
+              </span>
+              {referencedNodes.length > 1 ? (
+                <button
+                  className="fig-agent-referenced-bar__clear-btn"
+                  onClick={handleClearAllReferencedNodes}
+                  title="清空全部引用"
+                  type="button"
+                >
+                  全部清除
+                </button>
+              ) : null}
+            </div>
+            <div className="fig-agent-referenced-chips">
+              {referencedNodes.map((node) => {
+                const nodeData = node.data as unknown as Record<string, unknown>
+                const thumbUrl = typeof nodeData.url === 'string' ? nodeData.url : typeof nodeData.poster === 'string' ? nodeData.poster : undefined
+                const isSkill = node.type === 'text' && nodeData.nodeKind === 'skill'
+                return (
+                  <div className="fig-agent-ref-chip" key={node.id}>
+                    {thumbUrl ? (
+                      <img
+                        alt=""
+                        className="fig-agent-ref-chip__thumb"
+                        src={thumbUrl}
+                      />
+                    ) : (
+                      <span className="fig-agent-ref-chip__type">
+                        {isSkill ? 'Skill' : node.type}
+                      </span>
+                    )}
+                    <span className="fig-agent-ref-chip__name" title={node.name}>
+                      {node.name}
+                    </span>
+                    <button
+                      aria-label={`移除「${node.name}」`}
+                      className="fig-agent-ref-chip__remove"
+                      onClick={() => handleRemoveReferencedNode(node.id)}
+                      title={`移除引用「${node.name}」`}
+                      type="button"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
+
         <textarea
           aria-label="Agent 指令输入框"
           className="fig-agent-input-textarea"

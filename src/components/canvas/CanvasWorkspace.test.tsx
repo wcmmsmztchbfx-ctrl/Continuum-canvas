@@ -561,6 +561,28 @@ describe('CanvasWorkspace', () => {
     expect(flowProps().elementsSelectable).toBe(false)
   })
 
+  it('locks pan and zoom and displays guidance prompt when canvas has no nodes', () => {
+    const emptySnapshot = {
+      ...referenceProjectSnapshot,
+      nodes: [],
+      edges: [],
+    }
+    const store = createCanvasStore(emptySnapshot)
+    const onPaneDoubleClick = vi.fn()
+    const { getByTestId, getByText } = render(<CanvasWorkspace onPaneDoubleClick={onPaneDoubleClick} store={store} />)
+
+    expect(flowProps().panOnDrag).toBe(false)
+    expect(flowProps().panOnScroll).toBe(false)
+    expect(flowProps().zoomOnScroll).toBe(false)
+    expect(flowProps().zoomOnPinch).toBe(false)
+
+    expect(getByTestId('canvas-empty-state-prompt')).toBeTruthy()
+    expect(getByText('双击空白处创建节点')).toBeTruthy()
+
+    fireEvent.click(getByTestId('canvas-empty-state-prompt'))
+    expect(onPaneDoubleClick).toHaveBeenCalled()
+  })
+
   it('anchors bulk actions to a multi-selection and exposes grouped state', () => {
     const store = createCanvasStore(referenceProjectSnapshot)
     const onSelectionAction = vi.fn()
@@ -1903,5 +1925,111 @@ describe('CanvasWorkspace', () => {
 
     const brushNodes = store.getState().snapshot.nodes.filter((n) => n.type === 'path' && n.data.kind === 'brush')
     expect(brushNodes).toHaveLength(1)
+  })
+
+  it('differentiates click vs drag so dragging does not trigger generator inspection', () => {
+    const store = createCanvasStore(referenceProjectSnapshot)
+    render(<CanvasWorkspace store={store} />)
+
+    const targetNode = flowNodes()[0]
+    expect(targetNode).toBeDefined()
+
+    // 1. Plain drag start without prior click: isInspected remains false
+    act(() => {
+      flowProps().onNodeDragStart?.(
+        new MouseEvent('mousedown') as never,
+        targetNode,
+        [targetNode],
+      )
+    })
+    expect(flowNodes().find((n) => n.id === targetNode.id)?.data.isInspected).toBe(false)
+
+    // Stop drag: isInspected is still false
+    act(() => {
+      flowProps().onNodeDragStop?.(
+        new MouseEvent('mouseup') as never,
+        targetNode,
+        [targetNode],
+      )
+    })
+    expect(flowNodes().find((n) => n.id === targetNode.id)?.data.isInspected).toBe(false)
+
+    // 2. Pure click without drag: isInspected becomes true
+    act(() => {
+      flowProps().onNodeClick?.(
+        new MouseEvent('click') as never,
+        targetNode,
+      )
+    })
+    expect(flowNodes().find((n) => n.id === targetNode.id)?.data.isInspected).toBe(true)
+
+    // 3. Now drag the inspected node: panel is hidden during drag
+    act(() => {
+      flowProps().onNodeDragStart?.(
+        new MouseEvent('mousedown') as never,
+        targetNode,
+        [targetNode],
+      )
+    })
+    expect(flowNodes().find((n) => n.id === targetNode.id)?.data.isInspected).toBe(false)
+
+    // Drop node: panel is restored
+    act(() => {
+      flowProps().onNodeDragStop?.(
+        new MouseEvent('mouseup') as never,
+        targetNode,
+        [targetNode],
+      )
+    })
+    expect(flowNodes().find((n) => n.id === targetNode.id)?.data.isInspected).toBe(true)
+
+    // 4. Pane click closes inspection
+    act(() => {
+      flowProps().onPaneClick?.({} as never)
+    })
+    expect(flowNodes().find((n) => n.id === targetNode.id)?.data.isInspected).toBe(false)
+  })
+
+  it('establishes reference edge when connecting ImageNode to DirectorNode', () => {
+    const store = createCanvasStore({
+      ...referenceProjectSnapshot,
+      nodes: [
+        {
+          id: 'source-img',
+          type: 'image',
+          name: '参考图.png',
+          position: { x: 100, y: 100 },
+          size: { width: 300, height: 200 },
+          data: { url: 'https://example.com/source.png' },
+        },
+        {
+          id: 'director-target',
+          type: 'group',
+          name: '导演台',
+          position: { x: 500, y: 100 },
+          size: { width: 500, height: 600 },
+          data: { childIds: [], nodeKind: 'director', url: '' },
+        },
+      ],
+      edges: [],
+    })
+
+    render(<CanvasWorkspace store={store} />)
+
+    // Connect image source to director target
+    act(() => {
+      flowProps().onConnect?.({
+        source: 'source-img',
+        target: 'director-target',
+        sourceHandle: 'source',
+        targetHandle: 'target',
+      })
+    })
+
+    const edges = store.getState().snapshot.edges
+    const refEdge = edges.find((e) => e.source === 'source-img' && e.target === 'director-target')
+    expect(refEdge).toBeDefined()
+    expect(refEdge?.relation).toBe('reference')
+    expect(refEdge?.referenceAlias).toBe(1)
   })
 })

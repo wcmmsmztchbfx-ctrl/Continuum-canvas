@@ -18,7 +18,7 @@ import { modelCanGenerateAudio, supportedVideoModes } from './generationUi'
 
 interface GenerationSettingsPopoverProps {
   anchor?: HTMLElement | null
-  kind: 'image' | 'video'
+  kind: 'image' | 'video' | 'director'
   model?: CatalogModel
   portalRoot?: Element | DocumentFragment | null
   settings: MediaGenerationSettings
@@ -312,7 +312,7 @@ export function GenerationSettingsPopover({
     top: 70,
   })
   const isImage = kind === 'image' && settings.kind === 'image'
-  const isVideo = kind === 'video' && settings.kind === 'video'
+  const isVideo = (kind === 'video' || kind === 'director') && settings.kind === 'video'
 
   useEffect(() => {
     const update = () => {
@@ -361,7 +361,7 @@ export function GenerationSettingsPopover({
 
   const dialog = (
     <section
-      aria-label={isImage ? '图片生成设置' : '视频生成设置'}
+      aria-label={isImage ? '图片生成设置' : kind === 'director' ? '导演成片设置' : '视频生成设置'}
       className="canvas-generation-settings"
       data-kind={kind}
       onClick={(event) => event.stopPropagation()}

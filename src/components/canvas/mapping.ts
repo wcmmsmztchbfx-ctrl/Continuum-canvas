@@ -2,6 +2,8 @@ import type { Edge, Node, Viewport } from '@xyflow/react'
 
 import type {
   CanvasNode,
+  DirectorAsset,
+  DirectorMessage,
   MediaGeneration,
   MediaGenerationSettings,
   Point,
@@ -23,6 +25,7 @@ export type CanvasFlowNodeType =
   | 'frame'
   | 'shape'
   | 'path'
+  | 'skill'
 
 export type CanvasFlowNodeData = {
   canvasId?: string
@@ -30,6 +33,7 @@ export type CanvasFlowNodeData = {
   name: string
   mediaType: CanvasNode['type']
   isSoleSelection?: boolean
+  isInspected?: boolean
   onConnectionPointerDown?: () => void
   remoteLock?: {
     memberId: string
@@ -73,6 +77,16 @@ export type CanvasFlowNodeData = {
   generationError?: { code: string; message: string }
   generationSettings?: MediaGenerationSettings
   promptDraft?: string
+  messages?: DirectorMessage[]
+  assets?: DirectorAsset[]
+  activeAssetId?: string
+  threadId?: string
+  threadUrl?: string
+  skills?: Array<{
+    id: string
+    name: string
+    text: string
+  }>
   onResize?: (nodeId: string, size: { width: number; height: number }, position?: { x: number; y: number }) => void
   onResizeStart?: (nodeId: string) => boolean
   onResizePreview?: (nodeId: string, size: { width: number; height: number }, position?: { x: number; y: number }) => void
@@ -97,6 +111,7 @@ export type CanvasFlowNodeData = {
     sourceNodeId: string,
   ) => Promise<number | undefined>
   onRemoveReference?: (targetNodeId: string, sourceNodeId: string) => Promise<void | undefined>
+  onRemoveSkill?: (targetNodeId: string, skillNodeId: string) => void
   onReferencePickerChange?: (targetNodeId: string, active: boolean) => void
   onCreateConnected?: (
     nodeId: string,
@@ -124,7 +139,7 @@ export type CanvasFlowNodeData = {
 export type CanvasFlowNode = Node<CanvasFlowNodeData, CanvasFlowNodeType>
 export interface CanvasFlowEdgeData extends Record<string, unknown> {
   linkedToSelected?: boolean
-  relation: 'reference' | 'output' | 'flow'
+  relation: 'reference' | 'output' | 'flow' | 'skill'
   referenceAlias?: number
 }
 
@@ -149,13 +164,15 @@ export function mapNode(
         ? 'audio'
         : node.name === '脚本节点'
           ? 'script'
-          : 'text')
+          : node.name.endsWith('-skill') || node.name.includes('skill')
+            ? 'skill'
+            : 'text')
     type = nodeKind
   }
   if (node.type === 'group') {
     const nodeKind =
       node.data.nodeKind ??
-      (node.name === '导演台'
+      (node.name === '导演台' || node.name === 'Agent 导演台'
         ? 'director'
         : node.name === '视频合成'
           ? 'video-clip'
@@ -168,7 +185,20 @@ export function mapNode(
       ? node.data
       : node.type === 'text'
         ? { url: node.data.url ?? '', text: node.data.text }
-        : { url: '' }
+        : type === 'director' && node.type === 'group'
+          ? {
+              url: node.data.url ?? '',
+              poster: node.data.poster,
+              generation: node.data.generation,
+              generationSettings: node.data.generationSettings,
+              promptDraft: node.data.promptDraft,
+              messages: node.data.messages,
+              assets: node.data.assets,
+              activeAssetId: node.data.activeAssetId,
+              threadId: node.data.threadId,
+              threadUrl: node.data.threadUrl,
+            }
+          : { url: '' }
 
   return {
     id: node.id,

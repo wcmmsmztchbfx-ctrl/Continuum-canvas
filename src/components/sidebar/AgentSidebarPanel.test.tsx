@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { referenceProjectSnapshot } from '../../fixtures/reference'
+import { createCanvasStore } from '../../store/canvas-store'
 import { AgentSidebarPanel } from './AgentSidebarPanel'
 
 describe('AgentSidebarPanel', () => {
@@ -148,5 +150,31 @@ describe('AgentSidebarPanel', () => {
     expect(screen.getByText('已为你创建该分镜。')).toBeInTheDocument()
 
     globalThis.fetch = originalFetch
+  })
+
+  it('receives referenced nodes via event, renders reference chip, and supports removal', async () => {
+    const onNotify = vi.fn()
+    const targetNode = referenceProjectSnapshot.nodes[0]!
+    const store = createCanvasStore(referenceProjectSnapshot)
+
+    render(<AgentSidebarPanel onNotify={onNotify} store={store} />)
+
+    // Dispatch reference event
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('continuum-agent-reference-nodes', {
+          detail: { nodeIds: [targetNode.id] },
+        }),
+      )
+    })
+
+    expect(await screen.findByText(`已引用画布节点 (1)`)).toBeInTheDocument()
+    expect(screen.getByText(targetNode.name)).toBeInTheDocument()
+
+    // Remove the chip
+    const removeBtn = screen.getByRole('button', { name: `移除「${targetNode.name}」` })
+    fireEvent.click(removeBtn)
+
+    expect(screen.queryByText(`已引用画布节点 (1)`)).toBeNull()
   })
 })

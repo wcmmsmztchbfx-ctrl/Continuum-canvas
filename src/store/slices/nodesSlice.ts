@@ -29,6 +29,7 @@ export function createNodesActions(
   | 'renameNode'
   | 'renameCanvas'
   | 'addNode'
+  | 'addNodes'
   | 'createNodeFromHistory'
   | 'deleteNodes'
   | 'duplicateNodes'
@@ -176,7 +177,7 @@ export function createNodesActions(
         if (node.type === 'group') {
           const nodeKind =
             node.data.nodeKind ??
-            (node.name === '导演台'
+            (node.name === '导演台' || node.name === 'Agent 导演台'
               ? 'director'
               : node.name === '视频合成'
                 ? 'video-clip'
@@ -219,6 +220,17 @@ export function createNodesActions(
       if (current.nodes.some((candidate) => candidate.id === node.id)) return
 
       history.commitDocument({ ...current, nodes: [...current.nodes, node] })
+    },
+
+    addNodes: (nodes: CanvasNode[]): string[] => {
+      if (nodes.length === 0) return []
+      const current = get().snapshot
+      const existingIds = new Set(current.nodes.map((candidate: CanvasNode) => candidate.id))
+      const filtered = nodes.filter((candidate: CanvasNode) => !existingIds.has(candidate.id))
+      if (filtered.length === 0) return []
+
+      history.commitDocument({ ...current, nodes: [...current.nodes, ...filtered] })
+      return filtered.map((candidate: CanvasNode) => candidate.id)
     },
 
     createNodeFromHistory: (entry, center) => {
@@ -334,12 +346,14 @@ export function createNodesActions(
       return nodeId
     },
 
-    deleteNodes: (nodeIds) => {
+    deleteNodes: (nodeIds, options) => {
       const ids = new Set(nodeIds)
       if (ids.size === 0) return
       const current = get().snapshot
-      const locked = lockedGenerationNodeIds(current)
-      if ([...ids].some((id) => locked.has(id))) return
+      if (!options?.force) {
+        const locked = lockedGenerationNodeIds(current)
+        if ([...ids].some((id) => locked.has(id))) return
+      }
       const deletedParents = new Map(current.nodes.flatMap((node) =>
         ids.has(node.id) && (node.type === 'group' || node.type === 'frame')
           ? [[node.id, node] as const]

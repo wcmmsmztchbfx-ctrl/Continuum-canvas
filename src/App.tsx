@@ -63,6 +63,10 @@ import {
   canvasThumbnailService,
   type CanvasThumbnailService,
 } from './thumbnails/canvasThumbnail'
+
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { __CONTINUUM_STORE__?: typeof canvasStore }).__CONTINUUM_STORE__ = canvasStore
+}
 import type { CollaborationInteraction, InteractionPreview, NodeLease, NodeLeaseKind } from './contracts/collaboration'
 import { useOptionalProviderCatalog } from './components/providers/ProviderCatalogContext'
 import { createBrowserUuid } from './utils/id'
@@ -216,21 +220,7 @@ export default function App({
     },
   })
 
-  // Figma-grade viewport anchor compensation: keep existing nodes pinned in screen space when sidebar opens/closes or resizes
-  const prevLayersOffsetRef = useRef<number>(preferences.layersOpen ? (48 + layersWidth) : 0)
-  useEffect(() => {
-    const currentOffset = preferences.layersOpen ? (48 + layersWidth) : 0
-    const delta = currentOffset - prevLayersOffsetRef.current
-    prevLayersOffsetRef.current = currentOffset
-    if (delta !== 0) {
-      const state = canvasStore.getState()
-      const vp = state.snapshot.viewport
-      state.setViewport({
-        ...vp,
-        x: vp.x - delta,
-      })
-    }
-  }, [preferences.layersOpen, layersWidth])
+
 
   const getStageCenterPoint = useCallback(() => {
     const rect = canvasStageRef.current?.getBoundingClientRect()
@@ -257,6 +247,7 @@ export default function App({
   const [historyOpen, setHistoryOpen] = useState(false)
   const [assetManagerOpen, setAssetManagerOpen] = useState(false)
   const [activeLeftTab, setActiveLeftTab] = useState<'layers' | 'lineage' | 'assets' | 'agent'>('layers')
+  const [agentReferencedNodeIds, setAgentReferencedNodeIds] = useState<string[]>([])
   const [dialog, setDialog] = useState<Dialog>(null)
   const [panel, setPanel] = useState<SidePanelKind | null>(() =>
     isSidePanelKind(preferences.lastOpenPanel) &&
@@ -794,7 +785,7 @@ export default function App({
             : kind === 'video-compose'
               ? { width: 480, height: 270 }
               : kind === 'director'
-                ? { width: 560, height: 360 }
+                ? { width: 540, height: 700 }
                 : kind === 'audio'
                   ? { width: 480, height: 240 }
                   : kind === 'script'
@@ -867,6 +858,7 @@ export default function App({
                 : kind === 'director'
                   ? 'director'
                   : 'group',
+            url: '',
           },
         }
       } else {
@@ -940,11 +932,32 @@ export default function App({
       readOnly &&
       action !== 'copy-node' &&
       action !== 'copy-to-clipboard' &&
-      action !== 'copy-image'
+      action !== 'copy-image' &&
+      action !== 'reference-to-agent'
     ) {
       return
     }
     const selectedIds = canvasStore.getState().selectedNodeIds
+    if (action === 'reference-to-agent') {
+      if (selectedIds.length === 0) return
+      setAgentReferencedNodeIds((prev) => {
+        const next = [...prev]
+        for (const id of selectedIds) {
+          if (!next.includes(id)) next.push(id)
+        }
+        return next
+      })
+      setActiveLeftTab('agent')
+      persistPreferences({ layersOpen: true })
+      setPopup(null)
+      window.dispatchEvent(
+        new CustomEvent('continuum-agent-reference-nodes', {
+          detail: { nodeIds: selectedIds },
+        }),
+      )
+      notify(`已将 ${selectedIds.length} 个节点引用到 Agent 对话`, 'info')
+      return
+    }
     if (action === 'toggle-lock') {
       const snapshot = canvasStore.getState().snapshot
       const isAnyLocked = selectedIds.some((id) => snapshot.nodes.find((n) => n.id === id)?.locked)
@@ -1308,11 +1321,13 @@ export default function App({
                 setProviderDrawerTab('agent')
                 setProviderDrawerOpen(true)
               }}
+              onReferencedNodeIdsChange={setAgentReferencedNodeIds}
               readOnly={
                 readOnly ||
                 (Boolean(collaborationState.session) &&
                   collaborationState.session?.role !== 'owner')
               }
+              referencedNodeIds={agentReferencedNodeIds}
             />
           )}
           {preferences.layersOpen && (

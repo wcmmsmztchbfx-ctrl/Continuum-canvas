@@ -11,6 +11,9 @@ export interface BoundingBox {
 }
 
 export function getNodeDimensions(node: CanvasNode): { width: number; height: number } {
+  if (node.size?.width && node.size?.height) {
+    return { width: node.size.width, height: node.size.height }
+  }
   if (node.type === 'image' || node.type === 'video') {
     return { width: 360, height: 320 }
   }

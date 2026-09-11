@@ -60,6 +60,8 @@ import {
 import { VideoNode } from './VideoNode'
 import { TextNode } from './TextNode'
 import { SpecialNode } from './SpecialNode'
+import { DirectorNode } from './DirectorNode'
+import { SkillNode } from './SkillNode'
 import { FrameNode, PathNode, ShapeNode } from './CreativeNodes'
 import { canEditReferencesWithCatalog, resolveVideoMode } from './generationUi'
 import { CollaborationPresenceLayer } from './CollaborationPresenceLayer'
@@ -78,6 +80,7 @@ import { useCanvasGeneration } from './useCanvasGeneration'
 import { useCanvasViewportSync } from './useCanvasViewportSync'
 import { CanvasCollaborationOverlays } from './CanvasCollaborationOverlays'
 import { connectedNodeSize, createConnectedNode, getPointerPosition, sameIds } from './nodeCreationHelpers'
+import { CanvasEmptyStatePrompt } from './CanvasEmptyStatePrompt'
 import '@xyflow/react/dist/style.css'
 import './canvas.css'
 
@@ -185,11 +188,12 @@ const canvasNodeTypes = {
   group: GroupNode,
   audio: SpecialNode,
   script: SpecialNode,
-  director: SpecialNode,
+  director: DirectorNode,
   'video-clip': SpecialNode,
   frame: FrameNode,
   shape: ShapeNode,
   path: PathNode,
+  skill: SkillNode,
 }
 
 const canvasEdgeTypes = {
@@ -307,6 +311,15 @@ export function CanvasWorkspace({
   }, [])
   const [pendingImageMode, setPendingImageMode] = useState<'generate' | 'edit'>()
   const [pendingImageSelection, setPendingImageSelection] = useState<{ requested: true; nodeId: string | null }>()
+  const [inspectedNodeId, setInspectedNodeId] = useState<string | null>(null)
+  const [isDraggingNode, setIsDraggingNode] = useState(false)
+
+  useEffect(() => {
+    if (inspectedNodeId && !selectedNodeIds.includes(inspectedNodeId)) {
+      setInspectedNodeId(null)
+    }
+  }, [inspectedNodeId, selectedNodeIds])
+
   const imageEditorSaveRef = useRef<(() => void) | null>(null)
   const editingImageNodeId = imagePanelMode === 'edit' && selectedNodeIds.length === 1
     ? snapshot.nodes.find((node) => node.id === selectedNodeIds[0] && node.type === 'image')?.id
@@ -634,9 +647,13 @@ export function CanvasWorkspace({
       const target = current.nodes.find((node) => node.id === targetNodeId)
       const source = current.nodes.find((node) => node.id === sourceNodeId)
       const catalog = providerState?.catalog
+      const isDirector =
+        (target?.type as string) === 'director' ||
+        (target?.type === 'group' &&
+          (target.data.nodeKind === 'director' || target.name === '导演台' || target.name === 'Agent 导演台'))
       if (
         !target || !source ||
-        (target.type !== 'image' && target.type !== 'video') ||
+        (target.type !== 'image' && target.type !== 'video' && !isDirector) ||
         (source.type !== 'image' && source.type !== 'video')
       ) {
         return false
@@ -644,7 +661,18 @@ export function CanvasWorkspace({
       // Standalone canvas consumers have no provider context. The product app
       // always supplies it and therefore always enforces catalog capabilities.
       if (!providerState) return true
+      if (isDirector) {
+        const existing = current.edges.some((edge) =>
+          edge.relation === 'reference' &&
+          edge.target === targetNodeId &&
+          edge.source === sourceNodeId,
+        )
+        if (existing) return true
+        const ordered = getOrderedReferences(current, targetNodeId)
+        return ordered.length < 10
+      }
       if (!canEditReferencesWithCatalog(catalog) || !source.data.url) return false
+      if (target.type !== 'image' && target.type !== 'video') return false
       const settings = target.data.generationSettings
       const model = settings
         ? selectCatalogModel(catalog, {
@@ -942,6 +970,7 @@ export function CanvasWorkspace({
             generationPending: activeGeneration !== undefined,
             generationError,
             isSoleSelection: node.id === soleSelectionId && !connectionGestureActive,
+            isInspected: node.id === inspectedNodeId && !isDraggingNode && !connectionGestureActive,
             onConnectionPointerDown: () => setConnectionGestureActive(true),
             references: getOrderedReferences(current, node.id).flatMap(
               ({ edge, node: reference }) =>
@@ -958,6 +987,17 @@ export function CanvasWorkspace({
                     }]
                   : [],
             ),
+            skills: current.edges
+              .filter((edge) => edge.target === node.id && edge.relation === 'skill')
+              .flatMap((edge) => {
+                const src = current.nodes.find((n) => n.id === edge.source)
+                if (!src) return []
+                return [{
+                  id: src.id,
+                  name: src.name,
+                  text: 'text' in src.data ? ((src.data as { text?: string }).text ?? '') : '',
+                }]
+              }),
             referenceCandidates: referenceCandidates.filter(
               (candidate) => candidate.id !== node.id,
             ),
@@ -1002,6 +1042,14 @@ export function CanvasWorkspace({
             onSettingsChange: readOnly ? undefined : handleSettingsChange,
             onAttachReference: readOnly ? undefined : handleAttachReference,
             onRemoveReference: readOnly ? undefined : handleRemoveReference,
+            onRemoveSkill: readOnly
+              ? undefined
+              : (targetNodeId: string, skillNodeId: string) => {
+                  const edge = current.edges.find(
+                    (e) => e.target === targetNodeId && e.source === skillNodeId && e.relation === 'skill',
+                  )
+                  if (edge) store.getState().deleteEdges([edge.id])
+                },
             onReferencePickerChange: readOnly ? undefined : handleReferencePickerChange,
             onCreateConnected: readOnly ? undefined : createConnectedAfterNode,
           },
@@ -1039,6 +1087,8 @@ export function CanvasWorkspace({
       referencePickTargetId,
       readOnly,
       interactionLeaseLosses,
+      inspectedNodeId,
+      isDraggingNode,
       store,
     ],
   )
@@ -1067,11 +1117,13 @@ export function CanvasWorkspace({
       const lockSig = lock ? `${lock.memberId}:${lock.kind}` : ''
       const isSelected = selectedNodeIds.includes(node.id)
       const isSole = selectedNodeIds.length === 1 && selectedNodeIds[0] === node.id && !connectionGestureActive
+      const isInspected = node.id === inspectedNodeId && !isDraggingNode && !connectionGestureActive
       const refPickSig = `${node.data.referencePickCandidate ? 1 : 0}:${node.data.referencePickTarget ? 1 : 0}:${node.data.referencePickerActive ? 1 : 0}`
       const isSoleSig = isSole ? 1 : 0
+      const isInspectedSig = isInspected ? 1 : 0
       const sig = model
-        ? `${JSON.stringify(model)}#${node.zIndex ?? ''}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}:${isSoleSig}#${refPickSig}#${imagePanelMode}`
-        : `${node.id}#${node.zIndex ?? ''}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}:${isSoleSig}#${refPickSig}#${imagePanelMode}`
+        ? `${JSON.stringify(model)}#${node.zIndex ?? ''}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}:${isSoleSig}:${isInspectedSig}#${refPickSig}#${imagePanelMode}`
+        : `${node.id}#${node.zIndex ?? ''}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}:${isSoleSig}:${isInspectedSig}#${refPickSig}#${imagePanelMode}`
       signatures.set(node.id, sig)
 
       const previous = previousById.get(node.id)
@@ -1090,6 +1142,8 @@ export function CanvasWorkspace({
   }, [
     decorateNodes,
     imagePanelMode,
+    inspectedNodeId,
+    isDraggingNode,
     project.nodes,
     referencePickTargetId,
     remoteLockKey,
@@ -1142,6 +1196,7 @@ export function CanvasWorkspace({
   }, [currentEditingPathNodeId, frameDropTargetId, pendingConnection, persistentNodes, transientGeometry])
   const flowNodesRef = useRef(flowNodes)
   flowNodesRef.current = flowNodes
+  const isEmptyCanvas = flowNodes.length === 0
   const flowEdges = useMemo(() => {
     if (hideConnections) return []
     return pendingConnection
@@ -1571,9 +1626,40 @@ export function CanvasWorkspace({
       const current = store.getState().snapshot
       const sourceNode = current.nodes.find((node) => node.id === connection.source)
       const targetNode = current.nodes.find((node) => node.id === connection.target)
+      const isDirectorTarget =
+        (targetNode?.type as string) === 'director' ||
+        (targetNode?.type === 'group' &&
+          (targetNode.data.nodeKind === 'director' || targetNode.name === '导演台' || targetNode.name === 'Agent 导演台'))
+
+      const isSkillSource =
+        (sourceNode?.type as string) === 'skill' ||
+        (sourceNode?.type === 'text' &&
+          (sourceNode.data.nodeKind === 'skill' || sourceNode.name.endsWith('-skill')))
+      if (isSkillSource && isDirectorTarget) {
+        const existingSkillEdge = current.edges.find(
+          (edge) =>
+            edge.source === connection.source &&
+            edge.target === connection.target &&
+            edge.relation === 'skill',
+        )
+        if (existingSkillEdge) return
+        const skillEdge: ProjectCanvasEdge = {
+          id: createCanvasId('e'),
+          source: connection.source,
+          target: connection.target,
+          sourceHandle: connection.sourceHandle ?? undefined,
+          targetHandle: connection.targetHandle ?? undefined,
+          type: 'canvas',
+          relation: 'skill' as const,
+        }
+        store.getState().addEdge(skillEdge)
+        onConnect?.(skillEdge)
+        return
+      }
+
       const isMediaPair =
         (sourceNode?.type === 'image' || sourceNode?.type === 'video') &&
-        (targetNode?.type === 'image' || targetNode?.type === 'video')
+        (targetNode?.type === 'image' || targetNode?.type === 'video' || isDirectorTarget)
 
       let projectEdge: ProjectCanvasEdge | undefined
       if (isMediaPair && canAttachReference(connection.target, connection.source)) {
@@ -1635,7 +1721,7 @@ export function CanvasWorkspace({
       nodeIds.includes(edge.target),
     )
     const edgeIds = affectedEdges.map((edge) => edge.id)
-    if (nodeIds.length > 0) store.getState().deleteNodes(nodeIds)
+    if (nodeIds.length > 0) store.getState().deleteNodes(nodeIds, { force: true })
     else if (edgeIds.length > 0) store.getState().deleteEdges(edgeIds)
     if (nodeIds.length > 0) onNodesDelete?.(nodeIds)
     if (edgeIds.length > 0) onEdgesDelete?.(edgeIds)
@@ -2017,7 +2103,8 @@ export function CanvasWorkspace({
         if (readOnly) return
         if (
           !(event.target instanceof Element) ||
-          !event.target.classList.contains('react-flow__pane')
+          (!event.target.classList.contains('react-flow__pane') &&
+            !event.target.closest('.react-flow__pane'))
         ) {
           return
         }
@@ -2060,6 +2147,7 @@ export function CanvasWorkspace({
           selectionGesture.current = null
         }}
         onNodeDragStart={(event, node, draggedNodes) => {
+          setIsDraggingNode(true)
           let nodes = draggedNodes.length > 0 ? draggedNodes : [node]
           const isAlt = (event as MouseEvent).altKey
           if (isAlt && !readOnly) {
@@ -2164,6 +2252,7 @@ export function CanvasWorkspace({
           })
         }}
         onNodeDragStop={(_event, node, draggedNodes) => {
+          setIsDraggingNode(false)
           const nodes = draggedNodes.length > 0 ? draggedNodes : [node]
           if (blockedDrag.current) {
             restoreDragGeometry(blockedDrag.current)
@@ -2250,6 +2339,7 @@ export function CanvasWorkspace({
                 completed = true
                 setReferencePickTargetId(null)
                 store.getState().selectNode(targetId)
+                setInspectedNodeId(targetId)
               }
               const pendingAlias = handleAttachReference(targetId, node.id)
               const immediateAlias = store.getState().snapshot.edges.find((edge) =>
@@ -2265,6 +2355,7 @@ export function CanvasWorkspace({
           }
           if (!event.shiftKey) {
             store.getState().selectNode(node.id)
+            setInspectedNodeId(node.id)
           }
         }}
         onConnect={handleConnect}
@@ -2346,6 +2437,7 @@ export function CanvasWorkspace({
           store.getState().selectEdge(edge.id, event.shiftKey)
         }}
         onPaneClick={() => {
+          setInspectedNodeId(null)
           cancelPendingConnection()
           setReferencePickTargetId(null)
           if (activeTool === 'brush' || activeTool === 'pen') {
@@ -2368,10 +2460,10 @@ export function CanvasWorkspace({
         elementsSelectable={isSelectMode && !referencePickTargetId}
         selectionOnDrag={isSelectMode}
         selectionMode={SelectionMode.Partial}
-        panOnDrag={mode === 'pan' ? [0, 1] : [1]}
-        panOnScroll
-        zoomOnScroll
-        zoomOnPinch
+        panOnDrag={isEmptyCanvas ? false : mode === 'pan' ? [0, 1] : [1]}
+        panOnScroll={!isEmptyCanvas}
+        zoomOnScroll={!isEmptyCanvas}
+        zoomOnPinch={!isEmptyCanvas}
         zoomOnDoubleClick={false}
         multiSelectionKeyCode={multiSelectionKeys}
         deleteKeyCode={isSelectMode && !readOnly ? deleteKeys : null}
@@ -2435,6 +2527,11 @@ export function CanvasWorkspace({
         collaborationPresence={collaborationPresence}
         onStopFollowing={stopCollaborationFollowing}
       />
+      {isEmptyCanvas && !readOnly ? (
+        <CanvasEmptyStatePrompt
+          onOpenAddMenu={(position) => onPaneDoubleClick?.(position)}
+        />
+      ) : null}
     </div>
   )
 }

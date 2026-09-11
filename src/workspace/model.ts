@@ -48,6 +48,7 @@ export interface WorkspaceManifestV1 {
 export interface StoredCanvasDocument {
   canvasId: string
   serialized: string
+  baseRevision?: number
 }
 
 export interface WorkspaceCommit {

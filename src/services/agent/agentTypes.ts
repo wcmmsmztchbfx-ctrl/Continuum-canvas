@@ -45,6 +45,13 @@ export interface AgentChatMessage {
   error?: string
   canRollback?: boolean
   rollbackSnapshot?: string
+  referencedNodes?: Array<{
+    id: string
+    name: string
+    type: string
+    url?: string
+    prompt?: string
+  }>
 }
 
 export type CanvasAgentActionType =
@@ -57,6 +64,15 @@ export type CanvasAgentActionType =
   | 'trigger_generation'
   | 'apply_template'
   | 'inspect_canvas'
+  | 'request_plan_confirmation'
+
+export interface PlanConfirmationOption {
+  id: string
+  label: string
+  category: 'model' | 'resolution' | 'speed' | 'ratio' | 'general'
+  description?: string
+  defaultSelected?: boolean
+}
 
 export interface CanvasAgentAction {
   id: string
@@ -67,11 +83,13 @@ export interface CanvasAgentAction {
   status: 'pending' | 'success' | 'failed' | 'requires_confirmation'
   requiresConfirmation?: boolean
   payload?: Record<string, unknown>
+  planOptions?: PlanConfirmationOption[]
+  selectedOptions?: string[]
 }
 
 export interface AgentCreateNodeInput {
   id?: string
-  type: 'image' | 'video' | 'text' | 'group'
+  type: 'image' | 'video' | 'text' | 'group' | 'skill' | 'director'
   name: string
   prompt?: string
   text?: string
@@ -89,7 +107,7 @@ export interface AgentCreateNodeInput {
 export interface AgentConnectNodesInput {
   sourceNodeId: string
   targetNodeId: string
-  relation: 'output' | 'flow' | 'reference'
+  relation: 'output' | 'flow' | 'reference' | 'skill'
   referenceAlias?: number
 }
 
@@ -130,7 +148,7 @@ export const CANVAS_AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'create_nodes',
-      description: '在画布上批量创建新节点（图片、视频、文本、画框），支持配置画幅比例、分辨率、视频时长以及挂载参考已有节点。',
+      description: '在画布上批量创建新节点（图片、视频、文本、画框、技能规范节点、AI导演台），支持配置画幅比例、分辨率、视频时长以及挂载参考已有节点。',
       parameters: {
         type: 'object',
         properties: {
@@ -139,14 +157,15 @@ export const CANVAS_AGENT_TOOLS = [
             items: {
               type: 'object',
               properties: {
+                id: { type: 'string', description: '显式指定的节点 ID（可选，若未指定由系统自动分配）' },
                 type: {
                   type: 'string',
-                  enum: ['image', 'video', 'text', 'group'],
-                  description: '节点类型：image(图片节点), video(视频节点), text(文本节点), group(画框/分组)',
+                  enum: ['image', 'video', 'text', 'group', 'skill', 'director'],
+                  description: '节点类型：image(图片节点), video(视频节点), text(文本节点), group(画框/分组), skill(技能规范节点), director(AI导演台)',
                 },
-                name: { type: 'string', description: '节点显示名称，例如"分镜 1：雨夜街道"' },
+                name: { type: 'string', description: '节点显示名称，例如"分镜 1：雨夜街道"或"镜头拆解-skill"' },
                 prompt: { type: 'string', description: '生图或生视频提示词 (Prompt)，若引用了参考节点可在提示词中自然包含 @1, @2' },
-                text: { type: 'string', description: '文本节点的正文内容' },
+                text: { type: 'string', description: '文本节点或 Skill 节点的正文内容 (Markdown)' },
                 aspectRatio: {
                   type: 'string',
                   enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
@@ -192,7 +211,7 @@ export const CANVAS_AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'connect_nodes',
-      description: '在画布上的两个节点之间建立连线（故事流连线 flow、生成衍生连线 output、或真实参考图连线 reference）。',
+      description: '在画布上的两个节点之间建立连线（故事流连线 flow、生成衍生连线 output、真实参考图连线 reference、或技能注入连线 skill）。',
       parameters: {
         type: 'object',
         properties: {
@@ -201,12 +220,12 @@ export const CANVAS_AGENT_TOOLS = [
             items: {
               type: 'object',
               properties: {
-                sourceNodeId: { type: 'string', description: '起点节点 ID (参考源)' },
-                targetNodeId: { type: 'string', description: '目标节点 ID (引用方)' },
+                sourceNodeId: { type: 'string', description: '起点节点 ID (参考源或 Skill 节点)' },
+                targetNodeId: { type: 'string', description: '目标节点 ID (引用方或 AI 导演台)' },
                 relation: {
                   type: 'string',
-                  enum: ['flow', 'output', 'reference'],
-                  description: '连线关系：flow(分镜故事流), output(生成衍生), reference(真实参考引用)',
+                  enum: ['flow', 'output', 'reference', 'skill'],
+                  description: '连线关系：flow(分镜故事流), output(生成衍生), reference(真实参考引用), skill(技能规范注入AI导演台)',
                 },
               },
               required: ['sourceNodeId', 'targetNodeId', 'relation'],
@@ -363,6 +382,46 @@ export const CANVAS_AGENT_TOOLS = [
             description: '是否检测节点之间的空间碰撞与重叠，默认为 true',
           },
         },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'request_plan_confirmation',
+      description: '在涉及生成或关键制片执行前，向用户呈现可交互的执行方案卡片（包括模型偏好、分辨率、生成偏好选项供用户勾选确认）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: '方案标题，例如「分镜视觉生成方案」' },
+          description: { type: 'string', description: '方案简述与预期产出说明' },
+          targetNodeIds: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '方案涉及的目标节点 ID 列表',
+          },
+          options: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: '选项 ID' },
+                label: { type: 'string', description: '选项展示文本，如「高质量 1080P 模式」' },
+                category: {
+                  type: 'string',
+                  enum: ['model', 'resolution', 'speed', 'ratio', 'general'],
+                  description: '选项分类',
+                },
+                description: { type: 'string', description: '选项补充说明' },
+                defaultSelected: { type: 'boolean', description: '是否默认选中' },
+              },
+              required: ['id', 'label', 'category'],
+            },
+            description: '供用户勾选确认的配置选项',
+          },
+          estimatedCost: { type: 'string', description: '预估消耗资源或积分说明' },
+        },
+        required: ['title', 'targetNodeIds'],
       },
     },
   },

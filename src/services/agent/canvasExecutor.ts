@@ -11,6 +11,7 @@ import type {
   AgentTriggerGenerationInput,
   AgentUpdatePromptInput,
   CanvasAgentAction,
+  PlanConfirmationOption,
 } from './agentTypes'
 import { calculateSafeNodePosition, checkSpatialCollisions } from './canvasInvariants'
 
@@ -96,6 +97,14 @@ export class CanvasAgentExecutor {
         return this.handleAutoLayout(actionId, args as unknown as AgentAutoLayoutInput)
       case 'trigger_generation':
         return this.handleTriggerGeneration(actionId, args as unknown as AgentTriggerGenerationInput)
+      case 'request_plan_confirmation':
+        return this.handleRequestPlanConfirmation(actionId, args as unknown as {
+          title: string
+          description?: string
+          targetNodeIds: string[]
+          options?: PlanConfirmationOption[]
+          estimatedCost?: string
+        })
       case 'inspect_canvas':
         return this.handleInspectCanvas(actionId, args as unknown as { nodeIds?: string[]; checkCollisions?: boolean })
       default:
@@ -153,7 +162,7 @@ export class CanvasAgentExecutor {
           ? 'i'
           : item.type === 'video'
             ? 'v'
-            : item.type === 'text'
+            : item.type === 'skill' || item.type === 'text'
               ? 't'
               : 'g'
       const nodeId = item.id || createCanvasId(prefix)
@@ -172,6 +181,8 @@ export class CanvasAgentExecutor {
       } else {
         if (item.type === 'image') { width = 384; height = 216 }
         else if (item.type === 'video') { width = 480; height = 270 }
+        else if (item.type === 'skill') { width = 280; height = 160 }
+        else if (item.type === 'director') { width = 540; height = 700 }
         else if (item.type === 'text') { width = 320; height = 180 }
         else { width = 640; height = 480 }
       }
@@ -240,12 +251,36 @@ export class CanvasAgentExecutor {
             },
           },
         })
+      } else if (item.type === 'skill') {
+        const displayName = item.name.endsWith('-skill') ? item.name : `${item.name}-skill`
+        newNodes.push({
+          ...baseNode,
+          name: displayName,
+          type: 'text',
+          data: {
+            text: item.text || item.prompt || '',
+            nodeKind: 'skill',
+            url: '',
+          },
+        })
+      } else if (item.type === 'director') {
+        newNodes.push({
+          ...baseNode,
+          name: item.name || 'AI 导演台',
+          type: 'group',
+          data: {
+            childIds: [],
+            nodeKind: 'director',
+            url: '',
+          },
+        })
       } else if (item.type === 'text') {
         newNodes.push({
           ...baseNode,
           type: 'text',
           data: {
             text: item.text || item.prompt || '',
+            nodeKind: 'text',
             url: '',
           },
         })
@@ -258,16 +293,8 @@ export class CanvasAgentExecutor {
       }
     }
 
-    // 原子批量写入画布
-    const originX = Math.min(...newNodes.map((n: CanvasNode) => n.position.x))
-    const originY = Math.min(...newNodes.map((n: CanvasNode) => n.position.y))
-    const createdIds = state.pasteImportedGraph({
-      nodes: newNodes,
-      edges: [],
-      anchor: { x: originX, y: originY },
-    })
-
-    const finalNodeIds = createdIds.length > 0 ? createdIds : newNodes.map((n: CanvasNode) => n.id)
+    // 原子写入画布并保持精准 ID
+    const finalNodeIds = state.addNodes(newNodes)
 
     // 挂载真实参考关系 (Real Reference & @1 Binding)
     for (let i = 0; i < rawNodes.length; i++) {
@@ -290,6 +317,7 @@ export class CanvasAgentExecutor {
       summary: `已在画布中创建 ${newNodes.length} 个节点（${newNodes.map((n: CanvasNode) => n.name).join('、')}）`,
       details: {
         nodeIds: finalNodeIds,
+        nodes: newNodes.map((n) => ({ id: n.id, name: n.name, type: n.type, position: n.position })),
       },
       status: 'success',
     }
@@ -578,6 +606,32 @@ export class CanvasAgentExecutor {
       status: 'requires_confirmation',
       requiresConfirmation: true,
       payload: { ...input },
+    }
+  }
+
+  private handleRequestPlanConfirmation(
+    actionId: string,
+    input: {
+      title: string
+      description?: string
+      targetNodeIds: string[]
+      options?: PlanConfirmationOption[]
+      estimatedCost?: string
+    },
+  ): CanvasAgentAction {
+    return {
+      id: actionId,
+      type: 'request_plan_confirmation',
+      title: input.title || '制片方案确认',
+      summary: input.description || `针对 ${input.targetNodeIds?.length ?? 0} 个节点规划了制片执行方案，请确认后执行。`,
+      status: 'requires_confirmation',
+      requiresConfirmation: true,
+      planOptions: input.options,
+      payload: { ...input },
+      details: {
+        targetNodeIds: input.targetNodeIds,
+        estimatedCost: input.estimatedCost,
+      },
     }
   }
 }

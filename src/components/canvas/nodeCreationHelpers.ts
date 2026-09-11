@@ -13,7 +13,7 @@ export function getPointerPosition(event: MouseEvent | TouchEvent): Point | null
 export function connectedNodeSize(kind: ConnectedNodeKind): NodeSize {
   if (kind === 'image') return { width: 480, height: 320 }
   if (kind === 'video') return { width: 480, height: 270 }
-  if (kind === 'director') return { width: 560, height: 360 }
+  if (kind === 'director') return { width: 540, height: 700 }
   return { width: 350, height: 350 }
 }
 
@@ -50,8 +50,8 @@ export function createConnectedNode(
       type: 'group',
       name: '导演台',
       position,
-      size: { width: 560, height: 360 },
-      data: { childIds: [], nodeKind: 'director' },
+      size: { width: 540, height: 700 },
+      data: { childIds: [], nodeKind: 'director', url: '' },
     }
   }
 

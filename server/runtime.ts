@@ -34,6 +34,7 @@ import { JimengAdapter } from './providers/jimeng-adapter.ts'
 import { DashScopeAdapter } from './providers/dashscope-adapter.ts'
 import { KlingAdapter } from './providers/kling-adapter.ts'
 import { ComfyUIAdapter } from './providers/comfyui-adapter.ts'
+import { XiaoYunqueAdapter } from './providers/xiaoyunque-adapter.ts'
 import {
   ProviderRequestRejectedError,
   type ProviderAdapter,
@@ -46,6 +47,10 @@ import { WorkspaceService } from './workspace-service.ts'
 import { TunnelService } from './tunnel-service.ts'
 import { CanvasPersistenceService } from './canvas-storage.ts'
 import { AgentConfigStore } from './agent-config-store.ts'
+import { AgentAccessStore } from './agent-access-store.ts'
+import { CanvasDocumentService } from './canvas-document-service.ts'
+import { CanvasOperationService } from './canvas-operation-service.ts'
+import { WorkflowService } from './workflow-service.ts'
 
 export type AdapterFactory = (provider: ProviderMetadata, apiKey: string) => ProviderAdapter
 
@@ -179,6 +184,14 @@ function defaultAdapterFactory(
       stagingDir: transport.stagingDir,
     })
   }
+  if (provider.adapterType === 'xiaoyunque-video') {
+    return new XiaoYunqueAdapter({
+      apiKey,
+      providerId: provider.id,
+      baseUrl: provider.baseUrl,
+      stagingDir: transport.stagingDir,
+    })
+  }
   throw new ProviderUnavailableError('Provider adapter is not installed')
 }
 
@@ -211,6 +224,10 @@ export interface GatewayRuntime {
   readonly canvases: CanvasPersistenceService
   readonly tunnel: TunnelService
   readonly agentConfig: AgentConfigStore
+  readonly agentAccess: AgentAccessStore
+  readonly canvasDocuments: CanvasDocumentService
+  readonly canvasOperations: CanvasOperationService
+  readonly workflows: WorkflowService
   trackOperation<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
   adapterFor(providerId: string): ProviderAdapter
   updateProvider(record: ProviderRecord): Promise<ProviderMetadata>
@@ -332,6 +349,20 @@ export async function createGatewayRuntime(options: {
       return adapterFactory(provider, secret)
     }
 
+    const agentAccess = await AgentAccessStore.open(dataDir)
+    const canvasDocuments = await CanvasDocumentService.open({
+      dataDir,
+      collaboration: activeCollaboration,
+      canvases,
+    })
+    const canvasOperations = await CanvasOperationService.open(dataDir, canvasDocuments)
+    const workflows = await WorkflowService.open({
+      dataDir,
+      documents: canvasDocuments,
+      assets,
+      adapterFor,
+    })
+
     const syncProvider = (providerId: string) => trackOperation(async (signal) => {
       let catalog: ProviderCatalog
       try {
@@ -381,6 +412,10 @@ export async function createGatewayRuntime(options: {
       canvases,
       tunnel,
       agentConfig,
+      agentAccess,
+      canvasDocuments,
+      canvasOperations,
+      workflows,
       trackOperation,
       adapterFor,
       async updateProvider(record) {
@@ -453,6 +488,7 @@ export async function createGatewayRuntime(options: {
             abortController.abort(new DOMException('Gateway runtime is closing', 'AbortError'))
             await Promise.allSettled([...activeOperations])
             unsubscribeJobChanges()
+            workflows.close()
             let failure: unknown
             try {
               await activeCollaboration.close()

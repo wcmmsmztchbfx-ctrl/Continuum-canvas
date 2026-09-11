@@ -76,6 +76,7 @@ select:focus-visible {
   --layers-sidebar-rail-width: 48px;
   --layers-sidebar-width: 260px;
   --inspector-sidebar-width: 280px;
+  position: relative;
   display: flex;
   flex-direction: row;
   width: 100vw;
@@ -85,7 +86,8 @@ select:focus-visible {
 }
 
 .app-layer-sidebar {
-  position: relative;
+  position: absolute;
+  inset: 0 auto 0 0;
   flex-shrink: 0;
   display: flex;
   flex-direction: row;
@@ -107,6 +109,7 @@ select:focus-visible {
   overflow: visible;
   pointer-events: auto;
   visibility: visible;
+  box-shadow: 12px 0 32px rgba(0, 0, 0, 0.55);
 }
 
 .app-shell[data-layers-resizing] .app-layer-sidebar,
@@ -370,10 +373,10 @@ select:focus-visible {
 }
 
 .canvas-stage {
-  flex: 1 1 0%;
-  min-width: 0;
+  position: absolute;
+  inset: 0;
+  width: 100%;
   height: 100%;
-  position: relative;
   overflow: hidden;
   z-index: 1;
 }
@@ -451,7 +454,10 @@ select:focus-visible {
 }
 
 .inspector-panel {
-  position: relative;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
   flex-shrink: 0;
   width: var(--inspector-sidebar-width, 280px);
   min-width: var(--inspector-sidebar-width, 280px);
@@ -460,6 +466,7 @@ select:focus-visible {
   z-index: 45;
   background: #1e1e1e;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.55);
   transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1069,6 +1076,172 @@ select:focus-visible {
 
 .fig-agent-config-btn:hover {
   opacity: 0.9;
+}
+
+/* Referenced Nodes Bar in Bottom Input Card */
+.fig-agent-referenced-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 4px;
+}
+
+.fig-agent-referenced-bar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fig-agent-referenced-bar__title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #c084fc;
+}
+
+.fig-agent-referenced-bar__clear-btn {
+  background: transparent;
+  border: 0;
+  color: #a1a1aa;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 4px;
+  transition: color 120ms;
+}
+
+.fig-agent-referenced-bar__clear-btn:hover {
+  color: #ef4444;
+}
+
+.fig-agent-referenced-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.fig-agent-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.28);
+  border-radius: 12px;
+  padding: 2px 6px 2px 4px;
+  font-size: 11px;
+  color: #e9d5ff;
+}
+
+.fig-agent-ref-chip__thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  object-fit: cover;
+}
+
+.fig-agent-ref-chip__type {
+  font-size: 9px;
+  text-transform: uppercase;
+  background: rgba(168, 85, 247, 0.25);
+  color: #d8b4fe;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.fig-agent-ref-chip__name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fig-agent-ref-chip__remove {
+  background: transparent;
+  border: 0;
+  color: #c084fc;
+  cursor: pointer;
+  padding: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 120ms, color 120ms;
+}
+
+.fig-agent-ref-chip__remove:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+/* Referenced Nodes Pill Strip in Message Bubbles */
+.agent-msg-referenced-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.agent-msg-referenced-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #c084fc;
+  font-weight: 500;
+}
+
+.agent-msg-ref-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  border-radius: 10px;
+  padding: 1px 6px 1px 3px;
+  font-size: 11px;
+  color: #e9d5ff;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.agent-msg-ref-pill:hover {
+  background: rgba(168, 85, 247, 0.3);
+  border-color: rgba(168, 85, 247, 0.6);
+  transform: translateY(-1px);
+}
+
+.agent-msg-ref-pill__thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  object-fit: cover;
+}
+
+.agent-msg-ref-pill__type {
+  font-size: 8px;
+  text-transform: uppercase;
+  background: rgba(168, 85, 247, 0.3);
+  color: #d8b4fe;
+  padding: 0 3px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+.agent-msg-ref-pill__name {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Bottom Input Card (Figure 1) */

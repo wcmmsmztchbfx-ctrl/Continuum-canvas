@@ -117,7 +117,19 @@ export function useAppCollaboration({
       collaborationPresenceStore.setPresence(presence)
       setCollaborationPresence(presence)
     })
-    void controller.initializeFromLocation().catch(() => undefined)
+    void controller.initializeFromLocation().then(async () => {
+      const state = controller.getState()
+      if (
+        state.status === 'inactive' &&
+        !state.pendingInvite &&
+        !state.authenticatedPendingResume &&
+        !state.conflictRoomId
+      ) {
+        await controller.enable('本机用户')
+      }
+    }).catch((error: unknown) => {
+      notify(error instanceof Error ? error.message : '实时画布连接失败', 'error')
+    })
     return () => {
       unsubscribe()
       unsubscribePresence()
@@ -129,7 +141,7 @@ export function useAppCollaboration({
       }
       void controller.destroy()
     }
-  }, [canvasId, hydrated, loadedCanvasId, projectId, workspaceRepository])
+  }, [canvasId, hydrated, loadedCanvasId, notify, projectId, workspaceRepository])
 
   return {
     collaborationState,

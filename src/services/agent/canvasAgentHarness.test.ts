@@ -61,4 +61,52 @@ describe('CanvasAgentHarness', () => {
     harness.abort()
     expect(true).toBe(true)
   })
+
+  it('formats multimodal vision payload when image nodes are referenced', async () => {
+    const store = createCanvasStore(referenceProjectSnapshot)
+    store.getState().addNode({
+      id: 'image-node-test',
+      type: 'image',
+      name: '产品主图.png',
+      position: { x: 100, y: 100 },
+      size: { width: 400, height: 400 },
+      data: { url: '/api/assets/sample-asset-id' },
+    })
+
+    const harness = new CanvasAgentHarness(store)
+
+    let capturedPayload: unknown = null
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (typeof url === 'string' && url.includes('/api/agent/chat')) {
+        capturedPayload = JSON.parse(init?.body as string)
+        return new Response('data: {"choices":[{"delta":{"content":"我看到了产品主图"}}]}\n\n', {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        })
+      }
+      return originalFetch(url, init)
+    }) as typeof fetch
+
+    try {
+      await harness.runLoop({
+        userPrompt: '这个图片是什么',
+        historyMessages: [],
+        referencedNodeIds: ['image-node-test'],
+        events: {},
+      })
+
+      expect(capturedPayload).toBeDefined()
+      const userMsg = (capturedPayload as { messages: Array<{ role: string; content: unknown }> }).messages.find(
+        (m) => m.role === 'user',
+      )
+      expect(Array.isArray(userMsg?.content)).toBe(true)
+      expect(userMsg?.content).toEqual([
+        { type: 'text', text: '这个图片是什么' },
+        { type: 'image_url', image_url: { url: '/api/assets/sample-asset-id' } },
+      ])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })

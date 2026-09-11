@@ -4,15 +4,17 @@ import type { CatalogModel, ProviderCatalog, ProviderMetadata } from '../../cont
 export interface CanvasContextPayload {
   systemPrompt: string
   canvasSummary: string
+  referencedNodesDetail?: string
 }
 
 export function buildAgentContext(options: {
   snapshot: ProjectSnapshot
   selectedNodeIds: string[]
+  referencedNodeIds?: string[]
   provider?: ProviderMetadata
   catalog?: ProviderCatalog
 }): CanvasContextPayload {
-  const { snapshot, selectedNodeIds, provider, catalog } = options
+  const { snapshot, selectedNodeIds, referencedNodeIds, provider, catalog } = options
 
   const focusedIds = new Set(selectedNodeIds)
   const nodeSummaries = snapshot.nodes.map((node) => {
@@ -79,17 +81,103 @@ export function buildAgentContext(options: {
   * 单张图片、人物或场景创建时，仅创建该节点，严禁擅自与画布已有无关节点建立非必要的连线。
 - 语言风格：使用中文回复，简练高级、直奔主题，避免无意义的客套或重复解释。`
 
+  const referencedIds = new Set(referencedNodeIds ?? [])
+  let referencedNodesDetail = ''
+
+  if (referencedIds.size > 0) {
+    const referencedNodes = snapshot.nodes.filter((n) => referencedIds.has(n.id))
+    if (referencedNodes.length > 0) {
+      const details = referencedNodes.map((node, index) => {
+        const nodeData = node.data as unknown as Record<string, unknown>
+        const fullPrompt =
+          node.type === 'image' || node.type === 'video'
+            ? node.data.promptDraft || node.data.generation?.prompt || ''
+            : ''
+        const fullText =
+          node.type === 'text'
+            ? node.data.text || ''
+            : ''
+        const mediaUrl = typeof nodeData.url === 'string' ? nodeData.url : undefined
+        const posterUrl = typeof nodeData.poster === 'string' ? nodeData.poster : undefined
+        const settings = (nodeData.generationSettings ?? {}) as Record<string, unknown>
+        const upstreamEdges = snapshot.edges.filter((e) => e.target === node.id)
+        const downstreamEdges = snapshot.edges.filter((e) => e.source === node.id)
+
+        const upstreamDesc =
+          upstreamEdges.length > 0
+            ? upstreamEdges
+                .map((e) => {
+                  const src = snapshot.nodes.find((n) => n.id === e.source)
+                  return `「${src ? src.name : e.source}」(${e.relation || 'flow'})`
+                })
+                .join(', ')
+            : '无'
+
+        const downstreamDesc =
+          downstreamEdges.length > 0
+            ? downstreamEdges
+                .map((e) => {
+                  const tgt = snapshot.nodes.find((n) => n.id === e.target)
+                  return `「${tgt ? tgt.name : e.target}」(${e.relation || 'flow'})`
+                })
+                .join(', ')
+            : '无'
+
+        const lines: string[] = [
+          `[重点引用 #${index + 1}] 节点「${node.name}」:`,
+          `  - 基础信息: ID="${node.id}", 类型="${node.type}", 尺寸=${node.size.width}x${node.size.height}, 坐标=(${Math.round(node.position.x)}, ${Math.round(node.position.y)})`,
+        ]
+
+        if (fullPrompt) {
+          lines.push(`  - 完整生成提示词 (未截断): "${fullPrompt}"`)
+        }
+        if (fullText) {
+          lines.push(`  - 完整正文内容 (Markdown/规范全文):\n${fullText}`)
+        }
+        if (mediaUrl) {
+          lines.push(`  - 素材图片/视频 URL: "${mediaUrl}"`)
+        }
+        if (posterUrl) {
+          lines.push(`  - 视频封面 URL: "${posterUrl}"`)
+        }
+        if (Object.keys(settings).length > 0) {
+          lines.push(
+            `  - 生成规格参数: 模型=${settings.model || '默认'}, 比例=${settings.aspectRatio || '默认'}, 分辨率=${settings.quality || settings.resolution || '默认'}, 时长=${settings.durationSec ? settings.durationSec + 's' : '默认'}`,
+          )
+        }
+        lines.push(`  - 图谱关联拓扑: 来源上游=[${upstreamDesc}], 流向游下游=[${downstreamDesc}]`)
+
+        return lines.join('\n')
+      })
+
+      const hasReferencedImages = referencedNodes.some((n) => {
+        const nodeData = n.data as unknown as Record<string, unknown> | undefined
+        return (
+          (n.type === 'image' && typeof nodeData?.url === 'string' && nodeData.url.trim().length > 0) ||
+          (n.type === 'video' && typeof nodeData?.poster === 'string' && nodeData.poster.trim().length > 0)
+        )
+      })
+
+      let visionGuidance = ''
+      if (hasReferencedImages) {
+        visionGuidance = `\n\n【多模态视觉感知说明】\n用户引用的图片素材已作为视觉图像数据（Vision Input）直接传入当前对话。你可以直接看到图片的完整视觉像素画面（包括主体外观、细节、构图、光影与色彩风格等）。当用户询问“这个图片是什么”或要求基于图片进行创作时，请直接基于你看到的真实视觉画面进行准确、生动的解答与创作，严禁声称自己无法读取图片像素！`
+      }
+
+      referencedNodesDetail = `\n\n【用户显式引用的重点节点深度详情（核心关注）】\n用户在本次提问中特别引用了以下节点，请优先围绕这些节点的内容、画面提示词、生成参数与上下文拓扑进行深度分析、润色、回答或执行衍生构建：\n${details.join('\n\n')}${visionGuidance}`
+    }
+  }
+
   const canvasSummary = `【当前画布状态】
 画布名称: ${snapshot.name || '未命名画布'}
 节点数量: ${snapshot.nodes.length}
-选中焦点节点数: ${selectedNodeIds.length}
+选中焦点节点数: ${selectedNodeIds.length}${referencedIds.size > 0 ? `\n用户显式引用节点数: ${referencedIds.size}` : ''}
 ${modelInfo}
 
 节点列表:
 ${JSON.stringify(nodeSummaries, null, 2)}
 
 连线拓扑:
-${JSON.stringify(edgeSummaries, null, 2)}`
+${JSON.stringify(edgeSummaries, null, 2)}${referencedNodesDetail}`
 
-  return { systemPrompt, canvasSummary }
+  return { systemPrompt, canvasSummary, referencedNodesDetail }
 }

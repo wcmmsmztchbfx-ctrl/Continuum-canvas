@@ -14,6 +14,7 @@
     "dev:status": "node scripts/dev-service.mjs status",
     "dev:stop": "node scripts/dev-service.mjs stop",
     "server": "node server/main.ts",
+    "mcp": "node server/mcp-server.ts",
     "start": "node server/main.ts --production",
     "build": "tsc -b && vite build",
     "lint": "oxlint --deny-warnings",
