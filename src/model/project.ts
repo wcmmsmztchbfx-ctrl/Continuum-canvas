@@ -331,7 +331,7 @@ export type VideoNode = BaseNode<'video', VideoNodeData>
 
 export interface TextNodeData {
   text: string
-  nodeKind?: 'text' | 'audio' | 'script'
+  nodeKind?: 'text' | 'audio' | 'script' | 'skill'
   presentation?: 'plain' | 'workflow-card'
   autoWidth?: boolean
   assetId?: string
@@ -449,7 +449,7 @@ export interface CanvasEdge {
   sourceHandle?: string
   targetHandle?: string
   type?: string
-  relation?: 'reference' | 'output' | 'flow'
+  relation?: 'reference' | 'output' | 'flow' | 'skill'
   referenceAlias?: number
 }
 
@@ -902,7 +902,8 @@ function isCanvasNode(value: unknown): boolean {
         (value.data.nodeKind === undefined ||
           value.data.nodeKind === 'text' ||
           value.data.nodeKind === 'audio' ||
-          value.data.nodeKind === 'script') &&
+          value.data.nodeKind === 'script' ||
+          value.data.nodeKind === 'skill') &&
         (value.data.presentation === undefined || value.data.presentation === 'plain' || value.data.presentation === 'workflow-card') &&
         (value.data.autoWidth === undefined || typeof value.data.autoWidth === 'boolean') &&
         hasOptionalString(value.data, 'fontFamily') &&
@@ -1006,7 +1007,8 @@ function isCanvasEdge(value: unknown): boolean {
     (value.relation === undefined ||
       value.relation === 'reference' ||
       value.relation === 'output' ||
-      value.relation === 'flow') &&
+      value.relation === 'flow' ||
+      value.relation === 'skill') &&
     (value.referenceAlias === undefined ||
       (isFiniteNumber(value.referenceAlias) &&
         Number.isInteger(value.referenceAlias) &&

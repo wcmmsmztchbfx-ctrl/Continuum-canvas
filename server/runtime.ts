@@ -281,6 +281,16 @@ export async function createGatewayRuntime(options: {
       onSnapshotSaved: async (snapshot) => {
         try {
           await canvases.saveCanvas(snapshot)
+          await workspace.saveCanvasDocument(snapshot.canvasId, JSON.stringify(snapshot))
+          const manifest = await workspace.getManifest()
+          const canvas = manifest.canvases.find((c) => c.canvasId === snapshot.canvasId)
+          if (canvas) {
+            canvas.nodeCount = snapshot.nodes.length
+            if (snapshot.name && snapshot.name !== '未命名画布') {
+              canvas.name = snapshot.name
+            }
+            await workspace.commit({ manifest })
+          }
         } catch {
           // ignore
         }

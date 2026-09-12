@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rm } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   parseWorkspaceManifest,
@@ -38,17 +38,42 @@ export class WorkspaceService {
   }
 
   async getManifest(): Promise<WorkspaceManifestV1> {
-    if (this.#manifest) return structuredClone(this.#manifest)
-    try {
-      const content = await readFile(this.#filePath, 'utf8')
-      this.#manifest = parseWorkspaceManifest(content)
-      return structuredClone(this.#manifest)
-    } catch {
-      const initial = defaultWorkspaceManifest(this.#now())
-      await this.#saveManifest(initial)
-      this.#manifest = initial
-      return structuredClone(initial)
+    if (!this.#manifest) {
+      try {
+        const content = await readFile(this.#filePath, 'utf8')
+        this.#manifest = parseWorkspaceManifest(content)
+      } catch {
+        const initial = defaultWorkspaceManifest(this.#now())
+        await this.#saveManifest(initial)
+        this.#manifest = initial
+      }
     }
+
+    // Reconcile with collaboration snapshots if manifest has outdated metadata
+    let dirty = false
+    for (const canvas of this.#manifest.canvases) {
+      if (canvas.deletedAt) continue
+      const collabContent = await this.#findBestCollaborationSnapshot(canvas.canvasId)
+      if (collabContent) {
+        try {
+          const collabSnap = JSON.parse(collabContent)
+          const collabNodes = Array.isArray(collabSnap.nodes) ? collabSnap.nodes.length : 0
+          if (collabNodes > canvas.nodeCount) {
+            canvas.nodeCount = collabNodes
+            dirty = true
+          }
+          if (collabSnap.name && collabSnap.name !== '未命名画布' && canvas.name === '未命名画布') {
+            canvas.name = collabSnap.name
+            dirty = true
+          }
+        } catch {}
+      }
+    }
+    if (dirty) {
+      await this.#saveManifest(this.#manifest)
+    }
+
+    return structuredClone(this.#manifest)
   }
 
   async reset(): Promise<void> {
@@ -59,23 +84,86 @@ export class WorkspaceService {
     await rm(docsDir, { recursive: true, force: true }).catch(() => {})
   }
 
-  async getCanvasDocument(canvasId: string): Promise<string | undefined> {
-    const docPath = join(this.#workspaceDir, 'documents', `${canvasId}.json`)
+  async #findBestCollaborationSnapshot(canvasId: string): Promise<string | undefined> {
     try {
-      return await readFile(docPath, 'utf8')
-    } catch {
-      try {
-        const legacyPath = join(this.#dataDir, 'canvases', canvasId, 'snapshot.json')
-        const content = await readFile(legacyPath, 'utf8')
-        void this.saveCanvasDocument(canvasId, content).catch(() => {})
-        return content
-      } catch {
-        return undefined
+      const collabDir = join(this.#dataDir, 'collaboration')
+      const rooms = await readdir(collabDir, { withFileTypes: true })
+      let best: { content: string; nodeCount: number; mtime: number } | undefined
+      for (const room of rooms) {
+        if (!room.isDirectory()) continue
+        const snapPath = join(collabDir, room.name, 'canvas.snapshot.json')
+        try {
+          const content = await readFile(snapPath, 'utf8')
+          const snap = JSON.parse(content)
+          if (snap.canvasId === canvasId || snap.projectId === canvasId) {
+            const fileStat = await stat(snapPath)
+            const nodeCount = Array.isArray(snap.nodes) ? snap.nodes.length : 0
+            if (!best || nodeCount > best.nodeCount || (nodeCount === best.nodeCount && fileStat.mtimeMs > best.mtime)) {
+              best = { content, nodeCount, mtime: fileStat.mtimeMs }
+            }
+          }
+        } catch {}
       }
+      return best?.content
+    } catch {
+      return undefined
     }
   }
 
+  async getCanvasDocument(canvasId: string): Promise<string | undefined> {
+    const docPath = join(this.#workspaceDir, 'documents', `${canvasId}.json`)
+    let docContent: string | undefined
+    try {
+      docContent = await readFile(docPath, 'utf8')
+    } catch {
+      try {
+        const legacyPath = join(this.#dataDir, 'canvases', canvasId, 'snapshot.json')
+        docContent = await readFile(legacyPath, 'utf8')
+      } catch {
+        docContent = undefined
+      }
+    }
+
+    const collabContent = await this.#findBestCollaborationSnapshot(canvasId)
+    if (collabContent) {
+      if (!docContent) {
+        void this.saveCanvasDocument(canvasId, collabContent).catch(() => {})
+        return collabContent
+      }
+      try {
+        const docSnap = JSON.parse(docContent)
+        const collabSnap = JSON.parse(collabContent)
+        const docNodes = Array.isArray(docSnap.nodes) ? docSnap.nodes.length : 0
+        const collabNodes = Array.isArray(collabSnap.nodes) ? collabSnap.nodes.length : 0
+        if (collabNodes > docNodes) {
+          void this.saveCanvasDocument(canvasId, collabContent).catch(() => {})
+          return collabContent
+        }
+      } catch {}
+    }
+
+    if (docContent) {
+      return docContent
+    }
+    return undefined
+  }
+
   async saveCanvasDocument(canvasId: string, serialized: string): Promise<void> {
+    try {
+      const incoming = JSON.parse(serialized)
+      if (Array.isArray(incoming.nodes) && incoming.nodes.length === 0) {
+        const docPath = join(this.#workspaceDir, 'documents', `${canvasId}.json`)
+        try {
+          const existing = await readFile(docPath, 'utf8')
+          const existingSnap = JSON.parse(existing)
+          if (Array.isArray(existingSnap.nodes) && existingSnap.nodes.length > 0) {
+            // Guard: do not overwrite a populated canvas with an empty one
+            return
+          }
+        } catch {}
+      }
+    } catch {}
+
     const docsDir = join(this.#workspaceDir, 'documents')
     await mkdir(docsDir, { recursive: true })
     const docPath = join(docsDir, `${canvasId}.json`)

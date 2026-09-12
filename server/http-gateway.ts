@@ -1427,6 +1427,10 @@ async function routeApi(
       for (const doc of body.putDocuments) {
         if (doc && typeof doc.serialized === 'string') {
           const snapshot = parseCanvasSnapshot(doc.serialized)
+          const existing = await runtime.canvases.getCanvas(snapshot.canvasId)
+          if (snapshot.nodes.length === 0 && existing && existing.nodes.length > 0) {
+            continue
+          }
           await runtime.canvases.saveCanvas(snapshot)
         }
       }
@@ -1445,14 +1449,16 @@ async function routeApi(
   if (canvasPathMatch && method === 'GET') {
     const canvasId = canvasPathMatch[1]
     let canvas = await runtime.canvases.getCanvas(canvasId)
-    if (!canvas) {
-      const doc = await runtime.workspace.getCanvasDocument(canvasId)
-      if (doc) {
-        try {
-          canvas = parseCanvasSnapshot(doc)
-        } catch {
-          // ignore
+    const doc = await runtime.workspace.getCanvasDocument(canvasId)
+    if (doc) {
+      try {
+        const parsed = parseCanvasSnapshot(doc)
+        if (!canvas || parsed.nodes.length > canvas.nodes.length) {
+          canvas = parsed
+          await runtime.canvases.saveCanvas(parsed)
         }
+      } catch {
+        // ignore
       }
     }
     if (!canvas) {
@@ -1469,7 +1475,13 @@ async function routeApi(
     if (snapshot.canvasId !== canvasId) {
       throw new ApiError(400, 'invalid_input', 'Canvas ID mismatch')
     }
+    const existing = await runtime.canvases.getCanvas(canvasId)
+    if (snapshot.nodes.length === 0 && existing && existing.nodes.length > 0) {
+      sendJson(response, 200, { canvas: existing })
+      return true
+    }
     await runtime.canvases.saveCanvas(snapshot)
+    await runtime.workspace.saveCanvasDocument(canvasId, serialized).catch(() => {})
     sendJson(response, 200, { canvas: snapshot })
     return true
   }

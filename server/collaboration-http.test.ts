@@ -207,8 +207,8 @@ describe('collaboration REST gateway', () => {
     expect((await submit(ownerCookie, missingTarget)).status).toBe(400)
 
     const first = submit(ownerCookie, generationRequest('owner-job'))
-    const second = submit(editorCookie, generationRequest('editor-job'))
     await vi.waitFor(() => expect(createGeneration).toHaveBeenCalledTimes(1))
+    const second = submit(editorCookie, generationRequest('editor-job'))
     release()
     const [firstResponse, secondResponse] = await Promise.all([first, second])
     expect(firstResponse.status).toBe(202)
