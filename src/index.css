@@ -85,21 +85,25 @@ select:focus-visible {
 }
 
 .app-layer-sidebar {
-  position: relative;
-  flex-shrink: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
   display: flex;
   flex-direction: row;
   height: 100%;
   overflow: hidden;
   background: transparent;
-  z-index: 45;
-  transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 50;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.45);
+  transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .app-shell:not([data-layers-open]) .app-layer-sidebar {
   width: 0;
   pointer-events: none;
   visibility: hidden;
+  transform: translateX(-100%);
 }
 
 .app-shell[data-layers-open] .app-layer-sidebar {
@@ -107,6 +111,7 @@ select:focus-visible {
   overflow: visible;
   pointer-events: auto;
   visibility: visible;
+  transform: translateX(0);
 }
 
 .app-shell[data-layers-resizing] .app-layer-sidebar,

@@ -8,7 +8,7 @@ export interface LayersPanelProps {
   selectedIds: string[]
   open: boolean
   onOpenChange(open: boolean): void
-  onSelect(id: string): void
+  onSelect(id: string, options?: { additive?: boolean; range?: boolean }): void
   onFocusNode?(id: string): void
   onRename(id: string, name: string): void
   onToggleHidden(id: string): void
@@ -139,7 +139,11 @@ export function LayersPanel(props: LayersPanelProps) {
               data-selected={props.selectedIds.includes(node.id) || undefined}
               draggable
               key={node.id}
-              onClick={() => props.onSelect(node.id)}
+              onClick={(e) => {
+                const additive = e.ctrlKey || e.metaKey
+                const range = e.shiftKey
+                props.onSelect(node.id, { additive, range })
+              }}
               onDoubleClick={() => props.onFocusNode?.(node.id)}
               onDragEnd={() => setDropTarget(undefined)}
               onDragOver={(event) => {
@@ -259,7 +263,12 @@ export function LayersPanel(props: LayersPanelProps) {
               ) : (
                 <button
                   className="layers-panel__name"
-                  onClick={() => props.onSelect(node.id)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const additive = e.ctrlKey || e.metaKey
+                    const range = e.shiftKey
+                    props.onSelect(node.id, { additive, range })
+                  }}
                   onDoubleClick={(e) => {
                     e.stopPropagation()
                     setEditingId(node.id)

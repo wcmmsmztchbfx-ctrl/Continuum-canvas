@@ -306,6 +306,16 @@ body {
   align-items: center;
   height: 30px;
   color: #999999;
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+.app-shell[data-layers-open] .bottom-status-bar {
+  transform: translateX(calc(var(--layers-sidebar-rail-width, 48px) + var(--layers-sidebar-width)));
+}
+
+.app-shell[data-layers-resizing] .bottom-status-bar {
+  transition: none !important;
 }
 
 .bottom-status-bar .shell-icon-button {

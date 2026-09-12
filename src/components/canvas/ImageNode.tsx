@@ -19,7 +19,13 @@ import {
   requestMediaLoad,
   type LoadPriority,
 } from '../../services/mediaLoadQueue'
+import {
+  computeAppearanceStyles,
+  NOISE_SVG_DATA_URI,
+  TEXTURE_DOTS_DATA_URI,
+} from './effectStyleUtils'
 import './canvas.css'
+
 
 function ImageNodeContent({
   id,
@@ -68,8 +74,10 @@ function ImageNodeContent({
   const hasImage = Boolean(data.url) && !failed
   const isLayerMode = data.node?.type === 'image' && data.node.data.displayMode === 'layer'
   const showResizer = isLayerMode && selected && data.isSoleSelection !== false
-  const showDetails = selected && data.isSoleSelection !== false && !isLayerMode
+  const showDetails = selected && data.isSoleSelection !== false && !isLayerMode && (data.generatorOpen ?? true)
   const modelData = data.node?.type === 'image' ? data.node.data : undefined
+  const appearance = computeAppearanceStyles((modelData || {}) as Parameters<typeof computeAppearanceStyles>[0])
+
 
   const explicitThumbnail =
     data.thumbnailUrl ||
@@ -143,12 +151,6 @@ function ImageNodeContent({
       aria-label={data.name}
       style={{
         opacity: modelData?.opacity !== undefined ? modelData.opacity : undefined,
-        filter: (() => {
-          const filters: string[] = []
-          if (modelData?.blur && modelData.blur > 0) filters.push(`blur(${modelData.blur}px)`)
-          if (modelData?.shadow) filters.push(`drop-shadow(${modelData.shadow.x}px ${modelData.shadow.y}px ${modelData.shadow.blur}px ${modelData.shadow.color})`)
-          return filters.length > 0 ? filters.join(' ') : undefined
-        })(),
         transform: modelData?.rotation ? `rotate(${modelData.rotation}deg)` : undefined,
         '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))),
       } as React.CSSProperties}
@@ -187,16 +189,56 @@ function ImageNodeContent({
         className="canvas-media-node__frame"
         style={{
           borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
-          border: modelData?.stroke
-            ? `${modelData.strokeWidth ?? 1}px ${modelData.strokeStyle ?? 'solid'} ${modelData.stroke}`
-            : undefined,
+          borderColor: appearance.style.borderColor,
+          borderWidth: appearance.style.borderWidth,
+          borderStyle: appearance.style.borderStyle,
+          boxShadow: appearance.style.boxShadow,
+          filter: appearance.style.filter,
           overflow: 'hidden',
+          position: 'relative',
         }}
       >
-        {hasThumbnail && thumbnailAllowed && effectiveThumbnailUrl ? (
-          <img
-            alt={data.alt ?? data.name}
-            className="canvas-media-node__content canvas-image-thumbnail"
+        {appearance.hasNoise && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  backgroundImage: `url("${NOISE_SVG_DATA_URI}")`,
+                  pointerEvents: 'none',
+                  opacity: 0.5,
+                  zIndex: 2,
+                }}
+              />
+            )}
+            {appearance.hasTexture && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  backgroundImage: `url("${TEXTURE_DOTS_DATA_URI}")`,
+                  pointerEvents: 'none',
+                  opacity: 0.4,
+                  zIndex: 2,
+                }}
+              />
+            )}
+            {appearance.hasShader && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'linear-gradient(135deg, rgba(99,102,241,0.2) 0%, rgba(168,85,247,0.2) 50%, rgba(236,72,153,0.2) 100%)',
+                  pointerEvents: 'none',
+                  mixBlendMode: 'overlay',
+                  zIndex: 2,
+                }}
+              />
+            )}
+            {hasThumbnail && thumbnailAllowed && effectiveThumbnailUrl ? (
+              <img
+                alt={data.alt ?? data.name}
+                className="canvas-media-node__content canvas-image-thumbnail"
+
             decoding="async"
             draggable={false}
             loading="lazy"

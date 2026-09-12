@@ -3,7 +3,7 @@ import type { CanvasStoreState, StoreGet, StoreSet } from '../types'
 export function createSelectionActions(
   set: StoreSet,
   get: StoreGet,
-): Pick<CanvasStoreState, 'selectNode' | 'selectEdge' | 'setMode' | 'setViewport'> {
+): Pick<CanvasStoreState, 'selectNode' | 'selectNodes' | 'selectEdge' | 'setMode' | 'setViewport'> {
   return {
     selectNode: (nodeId, additive = false) => {
       if (nodeId === null) {
@@ -22,6 +22,20 @@ export function createSelectionActions(
             ? state.selectedNodeIds.filter((id) => id !== nodeId)
             : [...state.selectedNodeIds, nodeId],
         }
+      })
+    },
+    selectNodes: (nodeIds, additive = false) => {
+      const allNodes = get().snapshot.nodes
+      const validIds = nodeIds.filter((id) => allNodes.some((n) => n.id === id))
+      set((state) => {
+        if (!additive) {
+          return { selectedNodeIds: validIds, selectedEdgeIds: [] }
+        }
+        const setIds = new Set(state.selectedNodeIds)
+        for (const id of validIds) {
+          setIds.add(id)
+        }
+        return { selectedNodeIds: Array.from(setIds) }
       })
     },
     selectEdge: (edgeId, additive = false) => {

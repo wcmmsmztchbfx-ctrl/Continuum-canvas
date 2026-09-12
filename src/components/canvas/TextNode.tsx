@@ -5,6 +5,7 @@ import { NodeResizer, Position, useStore as useReactFlowStore, type NodeProps } 
 import type { CanvasFlowNode } from './mapping'
 import { EditableNodeLabel } from './EditableNodeLabel'
 import { NodeHandle } from './NodeHandle'
+import { computeAppearanceStyles } from './effectStyleUtils'
 
 function stripHtmlTags(str: string): string {
   if (!str || !/<[a-z][\s\S]*>/i.test(str)) return str || ''
@@ -195,6 +196,8 @@ function TextNodeContent({
     zoom = 1
   }
 
+  const appearance = computeAppearanceStyles((model?.data || {}) as Parameters<typeof computeAppearanceStyles>[0])
+
   return (
     <article
       aria-label={data.name}
@@ -206,12 +209,6 @@ function TextNodeContent({
       style={{
         opacity: model?.data.opacity !== undefined ? model?.data.opacity : undefined,
         transform: model?.data.rotation ? `rotate(${model.data.rotation}deg)` : undefined,
-        filter: (() => {
-          const filters: string[] = []
-          if (model?.data.blur && model.data.blur > 0) filters.push(`blur(${model.data.blur}px)`)
-          if (model?.data.shadow) filters.push(`drop-shadow(${model.data.shadow.x}px ${model.data.shadow.y}px ${model.data.shadow.blur}px ${model.data.shadow.color})`)
-          return filters.length > 0 ? filters.join(' ') : undefined
-        })(),
         '--resizer-scale': Math.min(1.35, Math.max(1, 1 / (zoom || 1))),
       } as React.CSSProperties}
     >
@@ -246,9 +243,14 @@ function TextNodeContent({
       <div
         className="canvas-media-node__frame canvas-text-node__frame"
         style={{
-          border: model?.data.stroke
-            ? `${model.data.strokeWidth ?? 1}px ${model.data.strokeStyle ?? 'solid'} ${model.data.stroke}`
-            : undefined,
+          borderRadius: appearance.style.borderRadius,
+          boxShadow: appearance.style.boxShadow,
+          outline: appearance.style.outline,
+          outlineOffset: appearance.style.outlineOffset,
+          background: appearance.style.background,
+          filter: appearance.style.filter,
+          backdropFilter: appearance.style.backdropFilter,
+          WebkitBackdropFilter: appearance.style.WebkitBackdropFilter,
         }}
       >
         {editing ? (

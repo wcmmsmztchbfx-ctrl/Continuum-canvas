@@ -333,6 +333,13 @@ export function CanvasWorkspace({
   const creationPreviewRef = useRef<typeof creationPreview>(undefined)
   const creationPointerId = useRef<number | undefined>(undefined)
   const suppressPaneClick = useRef(false)
+  const [activeGeneratorNodeId, setActiveGeneratorNodeId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (activeGeneratorNodeId && !selectedNodeIds.includes(activeGeneratorNodeId)) {
+      setActiveGeneratorNodeId(null)
+    }
+  }, [selectedNodeIds, activeGeneratorNodeId])
 
   useEffect(() => {
     if (activeBrushPointerId.current !== undefined) {
@@ -942,6 +949,7 @@ export function CanvasWorkspace({
             generationPending: activeGeneration !== undefined,
             generationError,
             isSoleSelection: node.id === soleSelectionId && !connectionGestureActive,
+            generatorOpen: node.id === activeGeneratorNodeId,
             onConnectionPointerDown: () => setConnectionGestureActive(true),
             references: getOrderedReferences(current, node.id).flatMap(
               ({ edge, node: reference }) =>
@@ -1069,9 +1077,10 @@ export function CanvasWorkspace({
       const isSole = selectedNodeIds.length === 1 && selectedNodeIds[0] === node.id && !connectionGestureActive
       const refPickSig = `${node.data.referencePickCandidate ? 1 : 0}:${node.data.referencePickTarget ? 1 : 0}:${node.data.referencePickerActive ? 1 : 0}`
       const isSoleSig = isSole ? 1 : 0
+      const isGenOpen = node.data.generatorOpen ? 1 : 0
       const sig = model
-        ? `${JSON.stringify(model)}#${node.zIndex ?? ''}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}:${isSoleSig}#${refPickSig}#${imagePanelMode}`
-        : `${node.id}#${node.zIndex ?? ''}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}:${isSoleSig}#${refPickSig}#${imagePanelMode}`
+        ? `${JSON.stringify(model)}#${node.zIndex ?? ''}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}:${isSoleSig}:${isGenOpen}#${refPickSig}#${imagePanelMode}`
+        : `${node.id}#${node.zIndex ?? ''}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}:${isSoleSig}:${isGenOpen}#${refPickSig}#${imagePanelMode}`
       signatures.set(node.id, sig)
 
       const previous = previousById.get(node.id)
@@ -1088,6 +1097,7 @@ export function CanvasWorkspace({
     stableProjectIdRef.current = snapshot.projectId
     return next
   }, [
+    activeGeneratorNodeId,
     decorateNodes,
     imagePanelMode,
     project.nodes,
@@ -2263,8 +2273,14 @@ export function CanvasWorkspace({
               return
             }
           }
-          if (!event.shiftKey) {
+          const isModifier = event.shiftKey || event.ctrlKey || event.metaKey
+          if (!isModifier) {
             store.getState().selectNode(node.id)
+            if (!readOnly) {
+              setActiveGeneratorNodeId(node.id)
+            }
+          } else {
+            store.getState().selectNode(node.id, true)
           }
         }}
         onConnect={handleConnect}
@@ -2346,6 +2362,7 @@ export function CanvasWorkspace({
           store.getState().selectEdge(edge.id, event.shiftKey)
         }}
         onPaneClick={() => {
+          setActiveGeneratorNodeId(null)
           cancelPendingConnection()
           setReferencePickTargetId(null)
           if (activeTool === 'brush' || activeTool === 'pen') {

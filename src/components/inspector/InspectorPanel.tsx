@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, type ChangeEvent } from 'react'
+import { useState, useCallback, useRef, useEffect, type ChangeEvent } from 'react'
 import { useStore } from 'zustand'
 import {
   Square,
@@ -38,12 +38,164 @@ import {
   Droplets,
   BoxSelect,
   Layers,
+  Plus,
 } from 'lucide-react'
 
 import type { CanvasStore, CanvasStoreState } from '../../store/canvas-store'
-import type { CanvasNode, TextNode, ImageNodeData, VideoNodeData, CanvasNodeEffectShadow } from '../../model/project'
+import type {
+  CanvasNode,
+  TextNode,
+  ImageNodeData,
+  VideoNodeData,
+  CanvasNodeEffectShadow,
+  CanvasFillItem,
+  CanvasStrokeItem,
+  CanvasStrokePosition,
+  CanvasEffectItem,
+  CanvasEffectType,
+} from '../../model/project'
+import {
+  getResolvedFills,
+  getResolvedStrokes,
+  getResolvedEffects,
+} from '../canvas/effectStyleUtils'
+import { EffectSettingsPopover } from './EffectSettingsPopover'
 import { ScrubbableLabel } from './ScrubbableLabel'
 import './inspector.css'
+
+export interface FigmaEffectOption {
+  type: CanvasEffectType
+  title: string
+  subtitle: string
+  group: 'shadow' | 'blur' | 'styling'
+}
+
+export const FIGMA_EFFECT_GROUPS = [
+  { id: 'shadow', name: '光影效果' },
+  { id: 'blur', name: '模糊滤镜' },
+  { id: 'styling', name: '质感与着色器' },
+] as const
+
+export const FIGMA_EFFECT_OPTIONS: FigmaEffectOption[] = [
+  // 光影效果
+  {
+    type: 'drop-shadow',
+    title: '投影',
+    subtitle: 'Drop Shadow',
+    group: 'shadow',
+  },
+  {
+    type: 'inner-shadow',
+    title: '内阴影',
+    subtitle: 'Inner Shadow',
+    group: 'shadow',
+  },
+  // 模糊滤镜
+  {
+    type: 'layer-blur',
+    title: '图层模糊',
+    subtitle: 'Layer Blur',
+    group: 'blur',
+  },
+  {
+    type: 'background-blur',
+    title: '背景模糊',
+    subtitle: 'Background Blur',
+    group: 'blur',
+  },
+  // 质感与着色器
+  {
+    type: 'noise',
+    title: '噪点颗粒',
+    subtitle: 'Noise',
+    group: 'styling',
+  },
+  {
+    type: 'texture',
+    title: '材质纹理',
+    subtitle: 'Texture',
+    group: 'styling',
+  },
+  {
+    type: 'glass',
+    title: '拟态玻璃',
+    subtitle: 'Glass',
+    group: 'styling',
+  },
+  {
+    type: 'shader',
+    title: '动态着色器',
+    subtitle: 'Shader',
+    group: 'styling',
+  },
+]
+
+function renderEffectIcon(type: CanvasEffectType) {
+  switch (type) {
+    case 'drop-shadow':
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect x="2.5" y="2.5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M5.5 13.5H12C12.8 13.5 13.5 12.8 13.5 12V5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeOpacity="0.4" />
+        </svg>
+      )
+    case 'inner-shadow':
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect x="2.5" y="2.5" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M5 5H10.5M5 5V10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeOpacity="0.5" />
+        </svg>
+      )
+    case 'layer-blur':
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.2" strokeDasharray="1.5 1.5" />
+          <circle cx="8" cy="8" r="2.5" fill="currentColor" />
+        </svg>
+      )
+    case 'background-blur':
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path d="M3 3L13 13M1 7L9 15M7 1L15 9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.35" />
+          <rect x="3" y="3" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.2" />
+        </svg>
+      )
+    case 'noise':
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="2.5" y="2.5" width="11" height="11" rx="2" fill="none" stroke="currentColor" strokeWidth="1.2" />
+          <circle cx="5.5" cy="5.5" r="0.75" />
+          <circle cx="9" cy="5.5" r="0.75" />
+          <circle cx="6" cy="9" r="0.75" />
+          <circle cx="10.5" cy="8.5" r="0.75" />
+          <circle cx="8" cy="11.5" r="0.75" />
+        </svg>
+      )
+    case 'texture':
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect x="2.5" y="2.5" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M3 6H13M3 10H13M6 3V13M10 3V13" stroke="currentColor" strokeWidth="0.9" strokeOpacity="0.45" />
+        </svg>
+      )
+    case 'glass':
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect x="2.5" y="2.5" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
+          <line x1="4.5" y1="11.5" x2="11.5" y2="4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          <line x1="7.5" y1="12.5" x2="12.5" y2="7.5" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" strokeOpacity="0.4" />
+        </svg>
+      )
+    case 'shader':
+      return (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path d="M2.5 5.5C4.5 3.5 6.5 7.5 9 5.5C11.5 3.5 13 6.5 13.5 5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          <path d="M2.5 10.5C4.5 8.5 6.5 12.5 9 10.5C11.5 8.5 13 11.5 13.5 10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeOpacity="0.45" />
+        </svg>
+      )
+  }
+}
+
 
 interface InspectorPanelProps {
   store: CanvasStore
@@ -95,7 +247,16 @@ export function InspectorPanel({
   const [aspectRatioLocked, setAspectRatioLocked] = useState(false)
   const [canvasNameDraft, setCanvasNameDraft] = useState<string | null>(null)
   const [nodeNameDraft, setNodeNameDraft] = useState<{ id: string; name: string } | null>(null)
+  const [effectsMenuOpen, setEffectsMenuOpen] = useState(false)
+  const [activeEffectPopoverId, setActiveEffectPopoverId] = useState<string | null>(null)
+  const [popoverAnchorY, setPopoverAnchorY] = useState(120)
   const pendingColorFrame = useRef<number | null>(null)
+
+  useEffect(() => {
+    setActiveEffectPopoverId(null)
+    setEffectsMenuOpen(false)
+  }, [selectedNodeIds])
+
 
   const selectedNodes = snapshot.nodes.filter((node: CanvasNode) =>
     selectedNodeIds.includes(node.id),
@@ -131,6 +292,31 @@ export function InspectorPanel({
       })
     },
     [activeNode, readOnly, store],
+  )
+
+  const syncEffects = useCallback(
+    (nextEffects: CanvasEffectItem[], commit = true) => {
+      if (!activeNode || readOnly) return
+      const enabled = nextEffects.filter((e) => e.enabled)
+      const legacyDropShadow = enabled.find((e) => e.type === 'drop-shadow')
+      const legacyBlur = enabled.find((e) => e.type === 'layer-blur')
+      updateActiveData(
+        {
+          effects: nextEffects,
+          shadow: legacyDropShadow
+            ? {
+                x: legacyDropShadow.x ?? 0,
+                y: legacyDropShadow.y ?? 4,
+                blur: legacyDropShadow.blur ?? 12,
+                color: legacyDropShadow.color ?? 'rgba(0,0,0,0.45)',
+              }
+            : undefined,
+          blur: legacyBlur ? (legacyBlur.blur ?? 0) : 0,
+        },
+        commit,
+      )
+    },
+    [activeNode, readOnly, updateActiveData],
   )
 
   const handleNameChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -1087,375 +1273,658 @@ export function InspectorPanel({
         ) : null}
 
         {/* Fill Section (For Frame, Shape, Path) */}
-        {'fill' in activeNode.data ? (
-          <div className="inspector-section">
-            <div className="inspector-section__header">
-              <span className="inspector-section__title">
-                <span className="inspector-section__icon"><Palette size={13} /></span>
-                <span>填充 (Fill)</span>
-              </span>
-            </div>
-            <div className="inspector-color-row">
-              <div
-                className="inspector-color-chip"
-                style={{ background: (activeNode.data as { fill: string }).fill }}
-              >
-                <input
-                  aria-label="填充颜色选择器"
-                  className="inspector-color-input-native"
-                  disabled={readOnly || isLocked}
-                  onChange={(e) => updateActiveDataThrottled({ fill: e.target.value })}
-                  type="color"
-                  value={
-                    (activeNode.data as { fill: string }).fill.startsWith('#')
-                      ? (activeNode.data as { fill: string }).fill
-                      : '#202020'
-                  }
-                />
+        {'fill' in activeNode.data || (activeNode.data as { fills?: CanvasFillItem[] }).fills ? (() => {
+          const currentFills = getResolvedFills(activeNode.data as { fill?: string; fills?: CanvasFillItem[] })
+          return (
+            <div className="inspector-section">
+              <div className="inspector-section__header">
+                <span className="inspector-section__title">
+                  <span className="inspector-section__icon"><Palette size={13} /></span>
+                  <span>填充 (Fill)</span>
+                </span>
+                <div className="inspector-section__header-actions">
+                  <button
+                    aria-label="添加填充图层"
+                    className="inspector-section__action-btn"
+                    disabled={readOnly || isLocked}
+                    onClick={() => {
+                      const newFill: CanvasFillItem = {
+                        id: `fill-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                        color: '#ffffff',
+                        opacity: 1,
+                        enabled: true,
+                      }
+                      const nextFills = [...currentFills, newFill]
+                      const firstActive = nextFills.find((f) => f.enabled)
+                      updateActiveData({
+                        fills: nextFills,
+                        fill: firstActive ? firstActive.color : 'transparent',
+                      })
+                    }}
+                    title="添加填充图层"
+                    type="button"
+                  >
+                    <Plus size={13} />
+                  </button>
+                </div>
               </div>
-              <input
-                aria-label="填充颜色十六进制"
-                className="inspector-color-hex"
-                disabled={readOnly || isLocked}
-                onChange={(e) => updateActiveDataThrottled({ fill: e.target.value })}
-                value={(activeNode.data as { fill: string }).fill}
-              />
+
+              {currentFills.map((fillItem, idx) => {
+                const isPrimary = idx === 0
+                return (
+                  <div
+                    key={fillItem.id}
+                    className={`inspector-layer-row ${!fillItem.enabled ? 'inspector-layer-row--disabled' : ''}`}
+                  >
+                    <div className="inspector-layer-row__main">
+                      <div
+                        className="inspector-color-chip"
+                        style={{ background: fillItem.enabled ? fillItem.color : '#444' }}
+                      >
+                        <input
+                          aria-label={isPrimary ? '填充颜色选择器' : `填充颜色选择器 ${idx + 1}`}
+                          className="inspector-color-input-native"
+                          disabled={readOnly || isLocked}
+                          onChange={(e) => {
+                            const nextFills = currentFills.map((f) =>
+                              f.id === fillItem.id ? { ...f, color: e.target.value } : f
+                            )
+                            const firstActive = nextFills.find((f) => f.enabled)
+                            updateActiveDataThrottled({
+                              fills: nextFills,
+                              fill: firstActive ? firstActive.color : 'transparent',
+                            })
+                          }}
+                          type="color"
+                          value={fillItem.color.startsWith('#') ? fillItem.color : '#202020'}
+                        />
+                      </div>
+                      <input
+                        aria-label={isPrimary ? '填充颜色十六进制' : `填充颜色十六进制 ${idx + 1}`}
+                        className="inspector-color-hex"
+                        disabled={readOnly || isLocked}
+                        onChange={(e) => {
+                          const nextFills = currentFills.map((f) =>
+                            f.id === fillItem.id ? { ...f, color: e.target.value } : f
+                          )
+                          const firstActive = nextFills.find((f) => f.enabled)
+                          updateActiveDataThrottled({
+                            fills: nextFills,
+                            fill: firstActive ? firstActive.color : 'transparent',
+                          })
+                        }}
+                        value={fillItem.color}
+                      />
+                      <input
+                        aria-label={`填充透明度 ${idx + 1}`}
+                        className="inspector-field__input"
+                        disabled={readOnly || isLocked}
+                        max={100}
+                        min={0}
+                        onChange={(e) => {
+                          const op = Math.max(0, Math.min(100, Number(e.target.value) || 0)) / 100
+                          const nextFills = currentFills.map((f) =>
+                            f.id === fillItem.id ? { ...f, opacity: op } : f
+                          )
+                          updateActiveData({ fills: nextFills }, true)
+                        }}
+                        style={{ width: '38px', textAlign: 'right' }}
+                        type="number"
+                        value={Math.round((fillItem.opacity ?? 1) * 100)}
+                      />
+                      <span style={{ color: '#737373', fontSize: '10px' }}>%</span>
+                    </div>
+                    <div className="inspector-layer-row__actions">
+                      <button
+                        aria-label={fillItem.enabled ? '关闭填充' : '开启填充'}
+                        className="inspector-layer-action-btn"
+                        disabled={readOnly || isLocked}
+                        onClick={() => {
+                          const nextFills = currentFills.map((f) =>
+                            f.id === fillItem.id ? { ...f, enabled: !f.enabled } : f
+                          )
+                          const firstActive = nextFills.find((f) => f.enabled)
+                          updateActiveData({
+                            fills: nextFills,
+                            fill: firstActive ? firstActive.color : 'transparent',
+                          })
+                        }}
+                        title={fillItem.enabled ? '隐藏填充' : '显示填充'}
+                        type="button"
+                      >
+                        {fillItem.enabled ? <Eye size={12} /> : <EyeOff size={12} />}
+                      </button>
+                      {currentFills.length > 1 && (
+                        <button
+                          aria-label="删除填充"
+                          className="inspector-layer-action-btn"
+                          disabled={readOnly || isLocked}
+                          onClick={() => {
+                            const nextFills = currentFills.filter((f) => f.id !== fillItem.id)
+                            const firstActive = nextFills.find((f) => f.enabled)
+                            updateActiveData({
+                              fills: nextFills,
+                              fill: firstActive ? firstActive.color : 'transparent',
+                            })
+                          }}
+                          title="删除填充"
+                          type="button"
+                        >
+                          <Minus size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-          </div>
-        ) : null}
+          )
+        })() : null}
 
         {/* Stroke Section (For Frame, Shape, Path, Media, Text) */}
-        {'stroke' in activeNode.data || nodeType === 'image' || nodeType === 'video' || nodeType === 'text' ? (
-          <div className="inspector-section">
-            <div className="inspector-section__header">
-              <span className="inspector-section__title">
-                <span className="inspector-section__icon"><Square size={13} /></span>
-                <span>描边 (Stroke)</span>
-              </span>
-            </div>
-            <div className="inspector-color-row">
-              <div
-                className="inspector-color-chip"
-                style={{ background: (activeNode.data as { stroke?: string }).stroke || '#777777' }}
-              >
-                <input
-                  aria-label="描边颜色选择器"
-                  className="inspector-color-input-native"
-                  disabled={readOnly || isLocked}
-                  onChange={(e) => updateActiveDataThrottled({ stroke: e.target.value })}
-                  type="color"
-                  value={
-                    (activeNode.data as { stroke?: string }).stroke?.startsWith('#')
-                      ? (activeNode.data as { stroke?: string }).stroke
-                      : '#777777'
-                  }
-                />
-              </div>
-              <input
-                aria-label="描边颜色十六进制"
-                className="inspector-color-hex"
-                disabled={readOnly || isLocked}
-                onChange={(e) => updateActiveDataThrottled({ stroke: e.target.value })}
-                value={(activeNode.data as { stroke?: string }).stroke ?? '#777777'}
-              />
-            </div>
-            <div className="inspector-row" style={{ marginTop: '8px' }}>
-              <div className="inspector-field">
-                <ScrubbableLabel
-                  label="线宽"
-                  max={64}
-                  min={0}
-                  onChange={(val) => updateActiveData({ strokeWidth: Math.max(0, val) }, false)}
-                  onChangeEnd={(val) => updateActiveData({ strokeWidth: Math.max(0, val) }, true)}
-                  value={(activeNode.data as { strokeWidth?: number }).strokeWidth ?? 1}
-                />
-                <input
-                  aria-label="描边线宽"
-                  className="inspector-field__input"
-                  disabled={readOnly || isLocked}
-                  min={0}
-                  onBlur={(e) => updateActiveData({ strokeWidth: Math.max(0, Number(e.target.value) || 0) }, true)}
-                  onChange={(e) => updateActiveData({ strokeWidth: Math.max(0, Number(e.target.value) || 0) }, false)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                  }}
-                  type="number"
-                  value={(activeNode.data as { strokeWidth?: number }).strokeWidth ?? 1}
-                />
-              </div>
-              <div className="inspector-seg-group" style={{ flex: 1 }}>
-                <button
-                  aria-label="实线描边"
-                  className={`inspector-seg-btn ${(activeNode.data as { strokeStyle?: string }).strokeStyle !== 'dashed' ? 'inspector-seg-btn--active' : ''}`}
-                  disabled={readOnly || isLocked}
-                  onClick={() => updateActiveData({ strokeStyle: 'solid' })}
-                  type="button"
-                >
-                  <Minus size={11} style={{ marginRight: '4px' }} /> 实线
-                </button>
-                <button
-                  aria-label="虚线描边"
-                  className={`inspector-seg-btn ${(activeNode.data as { strokeStyle?: string }).strokeStyle === 'dashed' ? 'inspector-seg-btn--active' : ''}`}
-                  disabled={readOnly || isLocked}
-                  onClick={() => updateActiveData({ strokeStyle: 'dashed' })}
-                  type="button"
-                >
-                  <MoreHorizontal size={11} style={{ marginRight: '4px' }} /> 虚线
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {/* Effects Section (For Frame, Shape, Path, Media, Text) */}
-        <div className="inspector-section">
-          <div className="inspector-section__header">
-            <span className="inspector-section__title">
-              <span className="inspector-section__icon"><Sparkles size={13} /></span>
-              <span>效果 (Effects)</span>
-            </span>
-          </div>
-
-          {/* Layer Blur Card */}
-          {(() => {
-            const blurVal = (activeNode.data as { blur?: number }).blur ?? 0
-            const blurActive = blurVal > 0
-            return (
-              <div className={`inspector-effect-card ${blurActive ? 'inspector-effect-card--active' : ''}`}>
-                <div className="inspector-effect-card__header">
-                  <span className="inspector-effect-card__title">
-                    <Droplets size={12} />
-                    <span>高斯模糊 (Blur)</span>
-                  </span>
-                  <label className="inspector-effect-switch">
-                    <input
-                      aria-label="高斯模糊开关"
-                      checked={blurActive}
-                      disabled={readOnly || isLocked}
-                      onChange={(e) => updateActiveData({ blur: e.target.checked ? 8 : 0 })}
-                      type="checkbox"
-                    />
-                    <span className="inspector-effect-switch__slider" />
-                  </label>
+        {'stroke' in activeNode.data || ['frame', 'shape', 'path', 'image', 'video', 'text'].includes(nodeType) || Boolean((activeNode.data as { strokes?: CanvasStrokeItem[] }).strokes) ? (() => {
+          const currentStrokes = getResolvedStrokes(activeNode.data as {
+            stroke?: string
+            strokeWidth?: number
+            strokeStyle?: 'solid' | 'dashed'
+            strokePosition?: CanvasStrokePosition
+            strokes?: CanvasStrokeItem[]
+          })
+          return (
+            <div className="inspector-section">
+              <div className="inspector-section__header">
+                <span className="inspector-section__title">
+                  <span className="inspector-section__icon"><Square size={13} /></span>
+                  <span>描边 (Stroke)</span>
+                </span>
+                <div className="inspector-section__header-actions">
+                  <button
+                    aria-label="添加描边图层"
+                    className="inspector-section__action-btn"
+                    disabled={readOnly || isLocked}
+                    onClick={() => {
+                      const newStroke: CanvasStrokeItem = {
+                        id: `stroke-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                        color: '#777777',
+                        width: 1,
+                        style: 'solid',
+                        position: 'outside',
+                        opacity: 1,
+                        enabled: true,
+                      }
+                      const nextStrokes = [...currentStrokes, newStroke]
+                      const firstActive = nextStrokes.find((s) => s.enabled)
+                      updateActiveData({
+                        strokes: nextStrokes,
+                        stroke: firstActive ? firstActive.color : undefined,
+                        strokeWidth: firstActive ? firstActive.width : 0,
+                        strokeStyle: firstActive?.style ?? 'solid',
+                        strokePosition: firstActive?.position ?? 'outside',
+                      })
+                    }}
+                    title="添加描边图层"
+                    type="button"
+                  >
+                    <Plus size={13} />
+                  </button>
                 </div>
-                {blurActive && (
-                  <div className="inspector-effect-card__body">
-                    <div className="inspector-row" style={{ margin: 0 }}>
+              </div>
+
+              {currentStrokes.map((strokeItem, idx) => {
+                const isPrimary = idx === 0
+                return (
+                  <div key={strokeItem.id} style={{ marginBottom: '8px' }}>
+                    <div className={`inspector-layer-row ${!strokeItem.enabled ? 'inspector-layer-row--disabled' : ''}`}>
+                      <div className="inspector-layer-row__main">
+                        <div
+                          className="inspector-color-chip"
+                          style={{ background: strokeItem.enabled ? strokeItem.color : '#444' }}
+                        >
+                          <input
+                            aria-label={isPrimary ? '描边颜色选择器' : `描边颜色选择器 ${idx + 1}`}
+                            className="inspector-color-input-native"
+                            disabled={readOnly || isLocked}
+                            onChange={(e) => {
+                              const nextStrokes = currentStrokes.map((s) =>
+                                s.id === strokeItem.id ? { ...s, color: e.target.value } : s
+                              )
+                              const firstActive = nextStrokes.find((s) => s.enabled)
+                              updateActiveDataThrottled({
+                                strokes: nextStrokes,
+                                stroke: firstActive ? firstActive.color : undefined,
+                              })
+                            }}
+                            type="color"
+                            value={strokeItem.color?.startsWith('#') ? strokeItem.color : '#777777'}
+                          />
+                        </div>
+                        <input
+                          aria-label={isPrimary ? '描边颜色十六进制' : `描边颜色十六进制 ${idx + 1}`}
+                          className="inspector-color-hex"
+                          disabled={readOnly || isLocked}
+                          onChange={(e) => {
+                            const nextStrokes = currentStrokes.map((s) =>
+                              s.id === strokeItem.id ? { ...s, color: e.target.value } : s
+                            )
+                            const firstActive = nextStrokes.find((s) => s.enabled)
+                            updateActiveDataThrottled({
+                              strokes: nextStrokes,
+                              stroke: firstActive ? firstActive.color : undefined,
+                            })
+                          }}
+                          value={strokeItem.color ?? '#777777'}
+                        />
+                      </div>
+                      <div className="inspector-layer-row__actions">
+                        <button
+                          aria-label={strokeItem.enabled ? '关闭描边' : '开启描边'}
+                          className="inspector-layer-action-btn"
+                          disabled={readOnly || isLocked}
+                          onClick={() => {
+                            const nextStrokes = currentStrokes.map((s) =>
+                              s.id === strokeItem.id ? { ...s, enabled: !s.enabled } : s
+                            )
+                            const firstActive = nextStrokes.find((s) => s.enabled)
+                            updateActiveData({
+                              strokes: nextStrokes,
+                              stroke: firstActive ? firstActive.color : undefined,
+                              strokeWidth: firstActive ? firstActive.width : 0,
+                              strokeStyle: firstActive?.style ?? 'solid',
+                              strokePosition: firstActive?.position ?? 'outside',
+                            })
+                          }}
+                          title={strokeItem.enabled ? '隐藏描边' : '显示描边'}
+                          type="button"
+                        >
+                          {strokeItem.enabled ? <Eye size={12} /> : <EyeOff size={12} />}
+                        </button>
+                        <button
+                          aria-label={isPrimary ? '删除描边' : `删除描边 ${idx + 1}`}
+                          className="inspector-layer-action-btn"
+                          disabled={readOnly || isLocked}
+                          onClick={() => {
+                            const nextStrokes = currentStrokes.filter((s) => s.id !== strokeItem.id)
+                            const firstActive = nextStrokes.find((s) => s.enabled)
+                            updateActiveData({
+                              strokes: nextStrokes,
+                              stroke: firstActive ? firstActive.color : undefined,
+                              strokeWidth: firstActive ? firstActive.width : 0,
+                              strokeStyle: firstActive?.style ?? 'solid',
+                              strokePosition: firstActive?.position ?? 'outside',
+                            })
+                          }}
+                          title="删除描边"
+                          type="button"
+                        >
+                          <Minus size={12} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="inspector-row" style={{ marginTop: '4px' }}>
                       <div className="inspector-field">
                         <ScrubbableLabel
-                          label="模糊半径"
-                          max={100}
+                          label="线宽"
+                          max={64}
                           min={0}
-                          onChange={(val) => updateActiveData({ blur: Math.max(0, val) }, false)}
-                          onChangeEnd={(val) => updateActiveData({ blur: Math.max(0, val) }, true)}
-                          value={blurVal}
+                          onChange={(val) => {
+                            const nextStrokes = currentStrokes.map((s) =>
+                              s.id === strokeItem.id ? { ...s, width: Math.max(0, val) } : s
+                            )
+                            const firstActive = nextStrokes.find((s) => s.enabled)
+                            updateActiveData(
+                              {
+                                strokes: nextStrokes,
+                                strokeWidth: firstActive ? firstActive.width : 0,
+                              },
+                              false
+                            )
+                          }}
+                          onChangeEnd={(val) => {
+                            const nextStrokes = currentStrokes.map((s) =>
+                              s.id === strokeItem.id ? { ...s, width: Math.max(0, val) } : s
+                            )
+                            const firstActive = nextStrokes.find((s) => s.enabled)
+                            updateActiveData(
+                              {
+                                strokes: nextStrokes,
+                                strokeWidth: firstActive ? firstActive.width : 0,
+                              },
+                              true
+                            )
+                          }}
+                          value={strokeItem.width}
                         />
                         <input
-                          aria-label="模糊半径数值"
+                          aria-label={isPrimary ? '描边线宽' : `描边线宽 ${idx + 1}`}
                           className="inspector-field__input"
                           disabled={readOnly || isLocked}
-                          max={100}
                           min={0}
-                          onBlur={(e) => updateActiveData({ blur: Math.max(0, Number(e.target.value) || 0) }, true)}
-                          onChange={(e) => updateActiveData({ blur: Math.max(0, Number(e.target.value) || 0) }, false)}
+                          onBlur={(e) => {
+                            const val = Math.max(0, Number(e.target.value) || 0)
+                            const nextStrokes = currentStrokes.map((s) =>
+                              s.id === strokeItem.id ? { ...s, width: val } : s
+                            )
+                            const firstActive = nextStrokes.find((s) => s.enabled)
+                            updateActiveData(
+                              {
+                                strokes: nextStrokes,
+                                strokeWidth: firstActive ? firstActive.width : 0,
+                              },
+                              true
+                            )
+                          }}
+                          onChange={(e) => {
+                            const val = Math.max(0, Number(e.target.value) || 0)
+                            const nextStrokes = currentStrokes.map((s) =>
+                              s.id === strokeItem.id ? { ...s, width: val } : s
+                            )
+                            const firstActive = nextStrokes.find((s) => s.enabled)
+                            updateActiveData(
+                              {
+                                strokes: nextStrokes,
+                                strokeWidth: firstActive ? firstActive.width : 0,
+                              },
+                              false
+                            )
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                           }}
                           type="number"
-                          value={blurVal}
-                        />
-                        <span style={{ color: '#737373', fontSize: '10px' }}>px</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })()}
-
-          {/* Drop Shadow Card */}
-          {(() => {
-            const shadowObj = (activeNode.data as { shadow?: CanvasNodeEffectShadow }).shadow
-            const shadowActive = Boolean(shadowObj)
-            const shadowColor = shadowObj?.color ?? 'rgba(0,0,0,0.45)'
-            return (
-              <div className={`inspector-effect-card ${shadowActive ? 'inspector-effect-card--active' : ''}`}>
-                <div className="inspector-effect-card__header">
-                  <span className="inspector-effect-card__title">
-                    <BoxSelect size={12} />
-                    <span>外投影 (Drop Shadow)</span>
-                  </span>
-                  <label className="inspector-effect-switch">
-                    <input
-                      aria-label="外投影开关"
-                      checked={shadowActive}
-                      disabled={readOnly || isLocked}
-                      onChange={(e) =>
-                        updateActiveData({
-                          shadow: e.target.checked
-                            ? { x: 0, y: 4, blur: 12, color: 'rgba(0,0,0,0.45)' }
-                            : undefined,
-                        })
-                      }
-                      type="checkbox"
-                    />
-                    <span className="inspector-effect-switch__slider" />
-                  </label>
-                </div>
-                {shadowActive && (
-                  <div className="inspector-effect-card__body">
-                    <div className="inspector-row">
-                      <div className="inspector-field">
-                        <ScrubbableLabel
-                          label="X 偏移"
-                          max={100}
-                          min={-100}
-                          onChange={(val) =>
-                            updateActiveData({
-                              shadow: { ...shadowObj!, x: val },
-                            }, false)
-                          }
-                          onChangeEnd={(val) =>
-                            updateActiveData({
-                              shadow: { ...shadowObj!, x: val },
-                            }, true)
-                          }
-                          value={shadowObj?.x ?? 0}
-                        />
-                        <input
-                          aria-label="阴影 X 偏移"
-                          className="inspector-field__input"
-                          disabled={readOnly || isLocked}
-                          max={100}
-                          min={-100}
-                          onBlur={(e) =>
-                            updateActiveData({
-                              shadow: { ...shadowObj!, x: Number(e.target.value) || 0 },
-                            }, true)
-                          }
-                          onChange={(e) =>
-                            updateActiveData({
-                              shadow: { ...shadowObj!, x: Number(e.target.value) || 0 },
-                            }, false)
-                          }
-                          type="number"
-                          value={shadowObj?.x ?? 0}
+                          value={strokeItem.width}
                         />
                       </div>
-                      <div className="inspector-field">
-                        <ScrubbableLabel
-                          label="Y 偏移"
-                          max={100}
-                          min={-100}
-                          onChange={(val) =>
-                            updateActiveData({
-                              shadow: { ...shadowObj!, y: val },
-                            }, false)
-                          }
-                          onChangeEnd={(val) =>
-                            updateActiveData({
-                              shadow: { ...shadowObj!, y: val },
-                            }, true)
-                          }
-                          value={shadowObj?.y ?? 4}
-                        />
-                        <input
-                          aria-label="阴影 Y 偏移"
-                          className="inspector-field__input"
+                      <div className="inspector-seg-group" style={{ flex: 1 }}>
+                        <button
+                          aria-label={isPrimary ? '实线描边' : `实线描边 ${idx + 1}`}
+                          className={`inspector-seg-btn ${strokeItem.style !== 'dashed' ? 'inspector-seg-btn--active' : ''}`}
                           disabled={readOnly || isLocked}
-                          max={100}
-                          min={-100}
-                          onBlur={(e) =>
+                          onClick={() => {
+                            const nextStrokes = currentStrokes.map((s) =>
+                              s.id === strokeItem.id ? { ...s, style: 'solid' as const } : s
+                            )
+                            const firstActive = nextStrokes.find((s) => s.enabled)
                             updateActiveData({
-                              shadow: { ...shadowObj!, y: Number(e.target.value) || 0 },
-                            }, true)
-                          }
-                          onChange={(e) =>
-                            updateActiveData({
-                              shadow: { ...shadowObj!, y: Number(e.target.value) || 0 },
-                            }, false)
-                          }
-                          type="number"
-                          value={shadowObj?.y ?? 4}
-                        />
-                      </div>
-                    </div>
-                    <div className="inspector-row" style={{ margin: 0 }}>
-                      <div className="inspector-field">
-                        <ScrubbableLabel
-                          label="模糊度"
-                          max={100}
-                          min={0}
-                          onChange={(val) =>
-                            updateActiveData({
-                              shadow: { ...shadowObj!, blur: Math.max(0, val) },
-                            }, false)
-                          }
-                          onChangeEnd={(val) =>
-                            updateActiveData({
-                              shadow: { ...shadowObj!, blur: Math.max(0, val) },
-                            }, true)
-                          }
-                          value={shadowObj?.blur ?? 12}
-                        />
-                        <input
-                          aria-label="阴影模糊半径"
-                          className="inspector-field__input"
-                          disabled={readOnly || isLocked}
-                          max={100}
-                          min={0}
-                          onBlur={(e) =>
-                            updateActiveData({
-                              shadow: { ...shadowObj!, blur: Math.max(0, Number(e.target.value) || 0) },
-                            }, true)
-                          }
-                          onChange={(e) =>
-                            updateActiveData({
-                              shadow: { ...shadowObj!, blur: Math.max(0, Number(e.target.value) || 0) },
-                            }, false)
-                          }
-                          type="number"
-                          value={shadowObj?.blur ?? 12}
-                        />
-                        <span style={{ color: '#737373', fontSize: '10px' }}>px</span>
-                      </div>
-                    </div>
-                    <div className="inspector-color-row" style={{ marginTop: '4px' }}>
-                      <div
-                        className="inspector-color-chip"
-                        style={{ background: shadowColor }}
-                      >
-                        <input
-                          aria-label="阴影颜色选择器"
-                          className="inspector-color-input-native"
-                          disabled={readOnly || isLocked}
-                          onChange={(e) =>
-                            updateActiveDataThrottled({
-                              shadow: { ...shadowObj!, color: e.target.value },
+                              strokes: nextStrokes,
+                              strokeStyle: firstActive?.style ?? 'solid',
                             })
-                          }
-                          type="color"
-                          value={shadowColor.startsWith('#') ? shadowColor : '#000000'}
-                        />
+                          }}
+                          type="button"
+                        >
+                          <Minus size={11} style={{ marginRight: '4px' }} /> 实线
+                        </button>
+                        <button
+                          aria-label={isPrimary ? '虚线描边' : `虚线描边 ${idx + 1}`}
+                          className={`inspector-seg-btn ${strokeItem.style === 'dashed' ? 'inspector-seg-btn--active' : ''}`}
+                          disabled={readOnly || isLocked}
+                          onClick={() => {
+                            const nextStrokes = currentStrokes.map((s) =>
+                              s.id === strokeItem.id ? { ...s, style: 'dashed' as const } : s
+                            )
+                            const firstActive = nextStrokes.find((s) => s.enabled)
+                            updateActiveData({
+                              strokes: nextStrokes,
+                              strokeStyle: firstActive?.style ?? 'dashed',
+                            })
+                          }}
+                          type="button"
+                        >
+                          <MoreHorizontal size={11} style={{ marginRight: '4px' }} /> 虚线
+                        </button>
                       </div>
-                      <input
-                        aria-label="阴影颜色值"
-                        className="inspector-color-hex"
-                        disabled={readOnly || isLocked}
-                        onChange={(e) =>
-                          updateActiveDataThrottled({
-                            shadow: { ...shadowObj!, color: e.target.value },
-                          })
-                        }
-                        value={shadowColor}
-                      />
+                    </div>
+                    <div className="inspector-row" style={{ marginTop: '6px', alignItems: 'center' }}>
+                      <span className="inspector-field__label" style={{ width: '38px', fontSize: '11px', color: '#888' }}>对齐</span>
+                      <div className="inspector-seg-group" style={{ flex: 1 }}>
+                        <button
+                          aria-label={isPrimary ? '外部描边' : `外部描边 ${idx + 1}`}
+                          className={`inspector-seg-btn ${(strokeItem.position ?? 'outside') === 'outside' ? 'inspector-seg-btn--active' : ''}`}
+                          disabled={readOnly || isLocked}
+                          onClick={() => {
+                            const nextStrokes = currentStrokes.map((s) =>
+                              s.id === strokeItem.id ? { ...s, position: 'outside' as const } : s
+                            )
+                            const firstActive = nextStrokes.find((s) => s.enabled)
+                            updateActiveData({
+                              strokes: nextStrokes,
+                              strokePosition: firstActive?.position ?? 'outside',
+                            })
+                          }}
+                          type="button"
+                        >
+                          外部
+                        </button>
+                        <button
+                          aria-label={isPrimary ? '居中描边' : `居中描边 ${idx + 1}`}
+                          className={`inspector-seg-btn ${strokeItem.position === 'center' ? 'inspector-seg-btn--active' : ''}`}
+                          disabled={readOnly || isLocked}
+                          onClick={() => {
+                            const nextStrokes = currentStrokes.map((s) =>
+                              s.id === strokeItem.id ? { ...s, position: 'center' as const } : s
+                            )
+                            const firstActive = nextStrokes.find((s) => s.enabled)
+                            updateActiveData({
+                              strokes: nextStrokes,
+                              strokePosition: firstActive?.position ?? 'center',
+                            })
+                          }}
+                          type="button"
+                        >
+                          居中
+                        </button>
+                        <button
+                          aria-label={isPrimary ? '内部描边' : `内部描边 ${idx + 1}`}
+                          className={`inspector-seg-btn ${strokeItem.position === 'inside' ? 'inspector-seg-btn--active' : ''}`}
+                          disabled={readOnly || isLocked}
+                          onClick={() => {
+                            const nextStrokes = currentStrokes.map((s) =>
+                              s.id === strokeItem.id ? { ...s, position: 'inside' as const } : s
+                            )
+                            const firstActive = nextStrokes.find((s) => s.enabled)
+                            updateActiveData({
+                              strokes: nextStrokes,
+                              strokePosition: firstActive?.position ?? 'inside',
+                            })
+                          }}
+                          type="button"
+                        >
+                          内部
+                        </button>
+                      </div>
                     </div>
                   </div>
-                )}
-              </div>
+                )
+              })}
+            </div>
+          )
+        })() : null}
+
+        {/* Effects Section (For Frame, Shape, Path, Media, Text) */}
+        {(() => {
+          const currentEffects = getResolvedEffects(activeNode.data as {
+            blur?: number
+            shadow?: CanvasNodeEffectShadow
+            effects?: CanvasEffectItem[]
+          })
+
+          const syncEffects = (nextEffects: CanvasEffectItem[], commit = true) => {
+            const enabled = nextEffects.filter((e) => e.enabled)
+            const legacyDropShadow = enabled.find((e) => e.type === 'drop-shadow')
+            const legacyBlur = enabled.find((e) => e.type === 'layer-blur')
+            updateActiveData(
+              {
+                effects: nextEffects,
+                shadow: legacyDropShadow
+                  ? {
+                      x: legacyDropShadow.x ?? 0,
+                      y: legacyDropShadow.y ?? 4,
+                      blur: legacyDropShadow.blur ?? 12,
+                      color: legacyDropShadow.color ?? 'rgba(0,0,0,0.45)',
+                    }
+                  : undefined,
+                blur: legacyBlur ? (legacyBlur.blur ?? 0) : 0,
+              },
+              commit
             )
-          })()}
-        </div>
+          }
+
+          const handleAddEffect = (type: CanvasEffectType) => {
+            const newEffect: CanvasEffectItem = {
+              id: `eff-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              type,
+              enabled: true,
+              ...(type === 'inner-shadow' ? { x: 0, y: 4, blur: 8, spread: 0, color: '#000000', intensity: 40 } : {}),
+              ...(type === 'drop-shadow' ? { x: 0, y: 4, blur: 12, spread: 0, color: '#000000', intensity: 45 } : {}),
+              ...(type === 'layer-blur' ? { blur: 8 } : {}),
+              ...(type === 'background-blur' ? { blur: 12 } : {}),
+              ...(type === 'noise' ? { intensity: 30, preset: 'medium' } : {}),
+              ...(type === 'texture' ? { intensity: 30, preset: 'dots', tint: '#ffffff' } : {}),
+              ...(type === 'glass' ? { blur: 16, specular: 40, tint: 'rgba(255, 255, 255, 0.12)' } : {}),
+              ...(type === 'shader' ? { intensity: 50, preset: 'wave' } : {}),
+            }
+            const next = [...currentEffects, newEffect]
+            syncEffects(next, true)
+            setActiveEffectPopoverId(newEffect.id)
+          }
+
+          return (
+            <div className="inspector-section" style={{ position: 'relative' }}>
+              <div className="inspector-section__header">
+                <span className="inspector-section__title">
+                  <span className="inspector-section__icon"><Sparkles size={13} /></span>
+                  <span>效果 (Effects)</span>
+                </span>
+                <div className="inspector-section__header-actions figma-effects-dropdown-wrap">
+                  <button
+                    aria-label="添加效果"
+                    className={`inspector-section__action-btn ${effectsMenuOpen ? 'inspector-section__action-btn--active' : ''}`}
+                    disabled={readOnly || isLocked}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setEffectsMenuOpen(!effectsMenuOpen)
+                    }}
+                    title="添加效果"
+                    type="button"
+                  >
+                    <Plus size={13} />
+                  </button>
+                  {effectsMenuOpen && (
+                    <div className="figma-effects-menu" onClick={(e) => e.stopPropagation()}>
+                      {FIGMA_EFFECT_GROUPS.map((group, groupIdx) => {
+                        const items = FIGMA_EFFECT_OPTIONS.filter((o) => o.group === group.id)
+                        return (
+                          <div key={group.id} className="figma-effects-menu__group">
+                            {groupIdx > 0 && <div className="figma-effects-menu__divider" />}
+                            <div className="figma-effects-menu__group-header">{group.name}</div>
+                            {items.map((opt) => (
+                              <button
+                                key={opt.type}
+                                aria-label={`添加效果 ${opt.title}`}
+                                className="figma-effects-menu__item"
+                                onClick={() => {
+                                  handleAddEffect(opt.type)
+                                  setEffectsMenuOpen(false)
+                                }}
+                                type="button"
+                              >
+                                <span className="figma-effects-menu__item-icon">
+                                  {renderEffectIcon(opt.type)}
+                                </span>
+                                <div className="figma-effects-menu__item-text">
+                                  <span className="figma-effects-menu__item-title">{opt.title}</span>
+                                  <span className="figma-effects-menu__item-sub">{opt.subtitle}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Figma-like Multi-Effects List */}
+              {currentEffects.map((effectItem) => {
+                const optDef = FIGMA_EFFECT_OPTIONS.find((o) => o.type === effectItem.type)
+                const effectTitle = optDef ? optDef.title : effectItem.type
+                const effectSubtitle = optDef ? optDef.subtitle : ''
+                return (
+                  <div
+                    key={effectItem.id}
+                    className={`inspector-effect-card ${effectItem.enabled ? 'inspector-effect-card--active' : ''}`}
+                  >
+                    <div className="inspector-effect-card__header">
+                      <span className="inspector-effect-card__title">
+                        <span className="inspector-effect-card__icon">
+                          {renderEffectIcon(effectItem.type)}
+                        </span>
+                        <span className="inspector-effect-card__name-wrap">
+                          <span className="inspector-effect-card__name">{effectTitle}</span>
+                          {effectSubtitle && (
+                            <span className="inspector-effect-card__sub">{effectSubtitle}</span>
+                          )}
+                        </span>
+                      </span>
+                        <div className="inspector-layer-row__actions">
+                          <button
+                            aria-label={`设置 ${effectTitle} 参数`}
+                            className={`inspector-layer-action-btn ${activeEffectPopoverId === effectItem.id ? 'inspector-layer-action-btn--active' : ''}`}
+                            disabled={readOnly || isLocked}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const btnRect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                              const panelEl = (e.currentTarget as HTMLElement).closest('.inspector-panel')
+                              const panelTop = panelEl ? panelEl.getBoundingClientRect().top : 0
+                              setPopoverAnchorY(Math.max(10, Math.round(btnRect.top - panelTop - 20)))
+                              setActiveEffectPopoverId((prev) =>
+                                prev === effectItem.id ? null : effectItem.id,
+                              )
+                            }}
+                            title="调节详细参数"
+                            type="button"
+                          >
+                            <Sliders size={12} />
+                          </button>
+                          <button
+                            aria-label={effectItem.enabled ? `关闭 ${effectTitle}` : `开启 ${effectTitle}`}
+                            className="inspector-layer-action-btn"
+                            disabled={readOnly || isLocked}
+                            onClick={() => {
+                              const next = currentEffects.map((eff) =>
+                                eff.id === effectItem.id ? { ...eff, enabled: !eff.enabled } : eff
+                              )
+                              syncEffects(next, true)
+                            }}
+                            title={effectItem.enabled ? '隐藏效果' : '显示效果'}
+                            type="button"
+                          >
+                            {effectItem.enabled ? <Eye size={12} /> : <EyeOff size={12} />}
+                          </button>
+                          <button
+                            aria-label={`删除 ${effectTitle}`}
+                            className="inspector-layer-action-btn"
+                            disabled={readOnly || isLocked}
+                            onClick={() => {
+                              const next = currentEffects.filter((eff) => eff.id !== effectItem.id)
+                              syncEffects(next, true)
+                              if (activeEffectPopoverId === effectItem.id) {
+                                setActiveEffectPopoverId(null)
+                              }
+                            }}
+                            title="删除效果"
+                            type="button"
+                          >
+                            <Minus size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          )
+        })()}
 
         {/* Layer Order Section */}
         <div className="inspector-section">
@@ -1493,6 +1962,32 @@ export function InspectorPanel({
           </div>
         </div>
       </div>
+
+      {/* Popover for Detailed Parameters Tuning, rendered directly inside .inspector-panel so it is never clipped by .inspector-body overflow-x:hidden */}
+      {activeNode && activeEffectPopoverId && (() => {
+        const effects = getResolvedEffects(activeNode.data as {
+          blur?: number
+          shadow?: CanvasNodeEffectShadow
+          effects?: CanvasEffectItem[]
+        })
+        const activeEffect = effects.find((e) => e.id === activeEffectPopoverId)
+        if (!activeEffect) return null
+        return (
+          <EffectSettingsPopover
+            disabled={readOnly || isLocked}
+            effect={activeEffect}
+            onClose={() => setActiveEffectPopoverId(null)}
+            onUpdate={(updated, commit = true) => {
+              const next = effects.map((eff) =>
+                eff.id === updated.id ? updated : eff
+              )
+              syncEffects(next, commit)
+            }}
+            readOnly={readOnly}
+            topPosition={popoverAnchorY}
+          />
+        )
+      })()}
     </aside>
   )
 }

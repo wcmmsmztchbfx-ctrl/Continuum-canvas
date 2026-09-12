@@ -243,6 +243,12 @@ export default function App({
   const [editingPathNodeId, setEditingPathNodeId] = useState<string | null>(null)
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      ;(window as any).__canvasStore = canvasStore
+    }
+  }, [])
+
+  useEffect(() => {
     if (!editingPathNodeId) return
     const unsubscribe = canvasStore.subscribe((state) => {
       if (!state.selectedNodeIds.includes(editingPathNodeId)) {
@@ -307,6 +313,7 @@ export default function App({
   const snapshot = useStore(canvasStore, (state) => state.snapshot)
   const selectedNodeIds = useStore(canvasStore, (state) => state.selectedNodeIds)
   const imageSelectionGuardRef = useRef<(nodeId: string | null) => boolean>(() => true)
+  const lastSelectedLayerNodeIdRef = useRef<string | null>(null)
 
   const copySelectedNodes = useCallback(async (selectedIds: string[]) => {
     const envelope = createCanvasClipboardEnvelope(
@@ -1234,7 +1241,21 @@ export default function App({
               onOpenChange={(layersOpen) => persistPreferences({ layersOpen })}
               onRename={(id, name) => canvasStore.getState().renameNode(id, name)}
               onReorder={(ids, targetId, placement) => canvasStore.getState().reorderNodes(ids, targetId, placement)}
-              onSelect={(id) => { if (imageSelectionGuardRef.current(id)) canvasStore.getState().selectNode(id) }}
+              onSelect={(id, options) => {
+                if (!imageSelectionGuardRef.current(id)) return
+                if (options?.range && lastSelectedLayerNodeIdRef.current) {
+                  const fromIdx = snapshot.nodes.findIndex((n) => n.id === lastSelectedLayerNodeIdRef.current)
+                  const toIdx = snapshot.nodes.findIndex((n) => n.id === id)
+                  if (fromIdx !== -1 && toIdx !== -1) {
+                    const [start, end] = fromIdx < toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx]
+                    const rangeIds = snapshot.nodes.slice(start, end + 1).map((n) => n.id)
+                    canvasStore.getState().selectNodes(rangeIds, false)
+                    return
+                  }
+                }
+                lastSelectedLayerNodeIdRef.current = id
+                canvasStore.getState().selectNode(id, options?.additive)
+              }}
               onToggleHidden={(id) => canvasStore.getState().setNodeVisibility(id, Boolean(snapshot.nodes.find((node) => node.id === id)?.hidden))}
               onToggleLocked={(id) => canvasStore.getState().setNodeLocked(id, !snapshot.nodes.find((node) => node.id === id)?.locked)}
               open
@@ -1556,7 +1577,7 @@ export default function App({
             current === 'collaboration' ? null : 'collaboration',
           )
         }}
-        onOpenSettings={() => setDialog('shortcuts')}
+        onOpenSettings={() => setDialog('settings')}
         onStartResize={startInspectorResize}
         onStartVectorEdit={(nodeId) =>
           setEditingPathNodeId((prev) => (prev === nodeId ? null : nodeId))

@@ -224,6 +224,51 @@ export interface CanvasNodeEffectShadow {
   blur: number
 }
 
+export type CanvasEffectType =
+  | 'inner-shadow'
+  | 'drop-shadow'
+  | 'layer-blur'
+  | 'background-blur'
+  | 'noise'
+  | 'texture'
+  | 'glass'
+  | 'shader'
+
+export interface CanvasEffectItem {
+  id: string
+  type: CanvasEffectType
+  enabled: boolean
+  x?: number
+  y?: number
+  blur?: number
+  spread?: number
+  color?: string
+  radius?: number
+  intensity?: number
+  specular?: number
+  tint?: string
+  preset?: string
+}
+
+export interface CanvasFillItem {
+  id: string
+  color: string
+  opacity?: number
+  enabled: boolean
+}
+
+export type CanvasStrokePosition = 'outside' | 'center' | 'inside'
+
+export interface CanvasStrokeItem {
+  id: string
+  color: string
+  width: number
+  style?: 'solid' | 'dashed'
+  opacity?: number
+  enabled: boolean
+  position?: CanvasStrokePosition
+}
+
 export interface ImageNodeData {
   url: string
   thumbnailUrl?: string
@@ -233,6 +278,9 @@ export interface ImageNodeData {
   referenceNodeIds?: string[]
   unresolvedReferenceNodeIds?: string[]
   generation?: MediaGeneration
+  fills?: CanvasFillItem[]
+  strokes?: CanvasStrokeItem[]
+  effects?: CanvasEffectItem[]
   generationSettings?: ImageGenerationSettings
   versions?: ImageVersion[]
   activeVersionId?: string
@@ -243,6 +291,7 @@ export interface ImageNodeData {
   stroke?: string
   strokeWidth?: number
   strokeStyle?: 'solid' | 'dashed'
+  strokePosition?: CanvasStrokePosition
   blur?: number
   shadow?: CanvasNodeEffectShadow
   objectFit?: 'cover' | 'contain' | 'fill'
@@ -268,8 +317,12 @@ export interface VideoNodeData {
   stroke?: string
   strokeWidth?: number
   strokeStyle?: 'solid' | 'dashed'
+  strokePosition?: CanvasStrokePosition
   blur?: number
   shadow?: CanvasNodeEffectShadow
+  fills?: CanvasFillItem[]
+  strokes?: CanvasStrokeItem[]
+  effects?: CanvasEffectItem[]
   objectFit?: 'cover' | 'contain' | 'fill'
   rotation?: number
 }
@@ -295,8 +348,12 @@ export interface TextNodeData {
   stroke?: string
   strokeWidth?: number
   strokeStyle?: 'solid' | 'dashed'
+  strokePosition?: CanvasStrokePosition
   blur?: number
   shadow?: CanvasNodeEffectShadow
+  fills?: CanvasFillItem[]
+  strokes?: CanvasStrokeItem[]
+  effects?: CanvasEffectItem[]
 }
 
 export type TextNode = BaseNode<'text', TextNodeData>
@@ -310,13 +367,17 @@ export type GroupNode = BaseNode<'group', GroupNodeData>
 
 export interface FrameNodeData {
   childIds: string[]
-  fill: string
-  stroke: string
-  strokeWidth: number
+  fill?: string
+  stroke?: string
+  strokeWidth?: number
   strokeStyle?: 'solid' | 'dashed'
+  strokePosition?: CanvasStrokePosition
   opacity?: number
   blur?: number
   shadow?: CanvasNodeEffectShadow
+  fills?: CanvasFillItem[]
+  strokes?: CanvasStrokeItem[]
+  effects?: CanvasEffectItem[]
   rotation?: number
   locked?: boolean
   hidden?: boolean
@@ -326,13 +387,17 @@ export type FrameNode = BaseNode<'frame', FrameNodeData>
 
 export interface ShapeNodeData {
   kind: 'rectangle' | 'rounded-rectangle' | 'ellipse' | 'line' | 'arrow'
-  fill: string
-  stroke: string
-  strokeWidth: number
+  fill?: string
+  stroke?: string
+  strokeWidth?: number
   strokeStyle?: 'solid' | 'dashed'
-  opacity: number
+  strokePosition?: CanvasStrokePosition
+  opacity?: number
   blur?: number
   shadow?: CanvasNodeEffectShadow
+  fills?: CanvasFillItem[]
+  strokes?: CanvasStrokeItem[]
+  effects?: CanvasEffectItem[]
   radius?: number
   rotation?: number
   locked?: boolean
@@ -352,13 +417,17 @@ export interface PathNodeData {
   kind: 'pen' | 'brush'
   anchors: PathAnchor[]
   closed: boolean
-  fill: string
-  stroke: string
-  strokeWidth: number
+  fill?: string
+  stroke?: string
+  strokeWidth?: number
   strokeStyle?: 'solid' | 'dashed'
-  opacity: number
+  strokePosition?: CanvasStrokePosition
+  opacity?: number
   blur?: number
   shadow?: CanvasNodeEffectShadow
+  fills?: CanvasFillItem[]
+  strokes?: CanvasStrokeItem[]
+  effects?: CanvasEffectItem[]
   locked?: boolean
   hidden?: boolean
 }
@@ -685,6 +754,57 @@ function hasOptionalStrokeStyle(record: UnknownRecord): boolean {
   return record.strokeStyle === undefined || ['solid', 'dashed'].includes(String(record.strokeStyle))
 }
 
+function hasOptionalStrokePosition(record: UnknownRecord): boolean {
+  return record.strokePosition === undefined || ['outside', 'center', 'inside'].includes(String(record.strokePosition))
+}
+
+function isCanvasStrokeItem(value: unknown): value is CanvasStrokeItem {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    (value.color === undefined || typeof value.color === 'string') &&
+    (value.width === undefined || (isFiniteNumber(value.width) && value.width >= 0)) &&
+    (value.enabled === undefined || typeof value.enabled === 'boolean') &&
+    (value.style === undefined || ['solid', 'dashed'].includes(value.style as string)) &&
+    (value.position === undefined || ['outside', 'center', 'inside'].includes(value.position as string)) &&
+    (value.opacity === undefined || (isFiniteNumber(value.opacity) && value.opacity >= 0 && value.opacity <= 1))
+  )
+}
+
+function hasOptionalStrokes(record: UnknownRecord): boolean {
+  if (record.strokes === undefined) return true
+  return Array.isArray(record.strokes) && record.strokes.every(isCanvasStrokeItem)
+}
+
+function isCanvasFillItem(value: unknown): value is CanvasFillItem {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.color === 'string' &&
+    (value.enabled === undefined || typeof value.enabled === 'boolean') &&
+    (value.opacity === undefined || (isFiniteNumber(value.opacity) && value.opacity >= 0 && value.opacity <= 1))
+  )
+}
+
+function hasOptionalFills(record: UnknownRecord): boolean {
+  if (record.fills === undefined) return true
+  return Array.isArray(record.fills) && record.fills.every(isCanvasFillItem)
+}
+
+function isCanvasEffectItem(value: unknown): value is CanvasEffectItem {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.type === 'string' &&
+    (value.enabled === undefined || typeof value.enabled === 'boolean')
+  )
+}
+
+function hasOptionalEffects(record: UnknownRecord): boolean {
+  if (record.effects === undefined) return true
+  return Array.isArray(record.effects) && record.effects.every(isCanvasEffectItem)
+}
+
 function hasOptionalBlur(record: UnknownRecord): boolean {
   return record.blur === undefined || (isFiniteNumber(record.blur) && record.blur >= 0)
 }
@@ -733,11 +853,15 @@ function isCanvasNode(value: unknown): boolean {
         (value.data.displayMode === undefined || value.data.displayMode === 'generation' || value.data.displayMode === 'layer') &&
         (value.data.opacity === undefined || (isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1)) &&
         (value.data.radius === undefined || (isFiniteNumber(value.data.radius) && value.data.radius >= 0)) &&
-        (value.data.stroke === undefined || validColor(value.data.stroke)) &&
+        (value.data.stroke === undefined || value.data.stroke === '' || validColor(value.data.stroke)) &&
         (value.data.strokeWidth === undefined || (isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0)) &&
         (value.data.objectFit === undefined || ['cover', 'contain', 'fill'].includes(String(value.data.objectFit))) &&
         (value.data.rotation === undefined || isFiniteNumber(value.data.rotation)) &&
         hasOptionalStrokeStyle(value.data) &&
+        hasOptionalStrokePosition(value.data) &&
+        hasOptionalStrokes(value.data) &&
+        hasOptionalFills(value.data) &&
+        hasOptionalEffects(value.data) &&
         hasOptionalBlur(value.data) &&
         hasOptionalShadow(value.data)
       )
@@ -758,11 +882,15 @@ function isCanvasNode(value: unknown): boolean {
         (value.data.displayMode === undefined || value.data.displayMode === 'generation' || value.data.displayMode === 'layer') &&
         (value.data.opacity === undefined || (isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1)) &&
         (value.data.radius === undefined || (isFiniteNumber(value.data.radius) && value.data.radius >= 0)) &&
-        (value.data.stroke === undefined || validColor(value.data.stroke)) &&
+        (value.data.stroke === undefined || value.data.stroke === '' || validColor(value.data.stroke)) &&
         (value.data.strokeWidth === undefined || (isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0)) &&
         (value.data.objectFit === undefined || ['cover', 'contain', 'fill'].includes(String(value.data.objectFit))) &&
         (value.data.rotation === undefined || isFiniteNumber(value.data.rotation)) &&
         hasOptionalStrokeStyle(value.data) &&
+        hasOptionalStrokePosition(value.data) &&
+        hasOptionalStrokes(value.data) &&
+        hasOptionalFills(value.data) &&
+        hasOptionalEffects(value.data) &&
         hasOptionalBlur(value.data) &&
         hasOptionalShadow(value.data)
       )
@@ -785,9 +913,13 @@ function isCanvasNode(value: unknown): boolean {
         (value.data.lineHeight === undefined || (isFiniteNumber(value.data.lineHeight) && value.data.lineHeight > 0)) &&
         (value.data.opacity === undefined || (isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1)) &&
         (value.data.rotation === undefined || isFiniteNumber(value.data.rotation)) &&
-        (value.data.stroke === undefined || validColor(value.data.stroke)) &&
+        (value.data.stroke === undefined || value.data.stroke === '' || validColor(value.data.stroke)) &&
         (value.data.strokeWidth === undefined || (isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0)) &&
         hasOptionalStrokeStyle(value.data) &&
+        hasOptionalStrokePosition(value.data) &&
+        hasOptionalStrokes(value.data) &&
+        hasOptionalFills(value.data) &&
+        hasOptionalEffects(value.data) &&
         hasOptionalBlur(value.data) &&
         hasOptionalShadow(value.data)
       )
@@ -801,41 +933,62 @@ function isCanvasNode(value: unknown): boolean {
           value.data.nodeKind === 'video-clip')
       )
     case 'frame':
-      return Array.isArray(value.data.childIds) &&
+      return (
+        Array.isArray(value.data.childIds) &&
         value.data.childIds.every((id) => typeof id === 'string') &&
-        validColor(value.data.fill) && validColor(value.data.stroke) &&
-        isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0 &&
+        (value.data.fill === undefined || validColor(value.data.fill)) &&
+        (value.data.stroke === undefined || value.data.stroke === '' || validColor(value.data.stroke)) &&
+        (value.data.strokeWidth === undefined || (isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0)) &&
         (value.data.rotation === undefined || isFiniteNumber(value.data.rotation)) &&
         (value.data.opacity === undefined || (isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1)) &&
         hasOptionalStrokeStyle(value.data) &&
+        hasOptionalStrokePosition(value.data) &&
+        hasOptionalStrokes(value.data) &&
+        hasOptionalFills(value.data) &&
+        hasOptionalEffects(value.data) &&
         hasOptionalBlur(value.data) &&
         hasOptionalShadow(value.data) &&
         (value.data.locked === undefined || typeof value.data.locked === 'boolean') &&
         (value.data.hidden === undefined || typeof value.data.hidden === 'boolean')
+      )
     case 'shape':
-      return ['rectangle', 'rounded-rectangle', 'ellipse', 'line', 'arrow'].includes(String(value.data.kind)) &&
-        validColor(value.data.fill) && validColor(value.data.stroke) &&
-        isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0 &&
-        isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1 &&
+      return (
+        ['rectangle', 'rounded-rectangle', 'ellipse', 'line', 'arrow'].includes(String(value.data.kind)) &&
+        (value.data.fill === undefined || validColor(value.data.fill)) &&
+        (value.data.stroke === undefined || value.data.stroke === '' || validColor(value.data.stroke)) &&
+        (value.data.strokeWidth === undefined || (isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0)) &&
+        (value.data.opacity === undefined || (isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1)) &&
         hasOptionalStrokeStyle(value.data) &&
+        hasOptionalStrokePosition(value.data) &&
+        hasOptionalStrokes(value.data) &&
+        hasOptionalFills(value.data) &&
+        hasOptionalEffects(value.data) &&
         hasOptionalBlur(value.data) &&
         hasOptionalShadow(value.data) &&
         (value.data.radius === undefined || (isFiniteNumber(value.data.radius) && value.data.radius >= 0)) &&
         (value.data.rotation === undefined || isFiniteNumber(value.data.rotation)) &&
         (value.data.locked === undefined || typeof value.data.locked === 'boolean') &&
         (value.data.hidden === undefined || typeof value.data.hidden === 'boolean')
+      )
     case 'path':
-      return (value.data.kind === 'pen' || value.data.kind === 'brush') &&
+      return (
+        (value.data.kind === 'pen' || value.data.kind === 'brush') &&
         Array.isArray(value.data.anchors) && value.data.anchors.length >= 2 &&
         value.data.anchors.every(isPathAnchor) && typeof value.data.closed === 'boolean' &&
-        validColor(value.data.fill) && validColor(value.data.stroke) &&
-        isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth > 0 &&
-        isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1 &&
+        (value.data.fill === undefined || validColor(value.data.fill)) &&
+        (value.data.stroke === undefined || value.data.stroke === '' || validColor(value.data.stroke)) &&
+        (value.data.strokeWidth === undefined || (isFiniteNumber(value.data.strokeWidth) && value.data.strokeWidth >= 0)) &&
+        (value.data.opacity === undefined || (isFiniteNumber(value.data.opacity) && value.data.opacity >= 0 && value.data.opacity <= 1)) &&
         hasOptionalStrokeStyle(value.data) &&
+        hasOptionalStrokePosition(value.data) &&
+        hasOptionalStrokes(value.data) &&
+        hasOptionalFills(value.data) &&
+        hasOptionalEffects(value.data) &&
         hasOptionalBlur(value.data) &&
         hasOptionalShadow(value.data) &&
         (value.data.locked === undefined || typeof value.data.locked === 'boolean') &&
         (value.data.hidden === undefined || typeof value.data.hidden === 'boolean')
+      )
     default:
       return false
   }

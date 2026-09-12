@@ -57,6 +57,7 @@ export interface CanvasStoreState {
   canUndo: boolean
   canRedo: boolean
   selectNode: (nodeId: string | null, additive?: boolean) => void
+  selectNodes: (nodeIds: string[], additive?: boolean) => void
   selectEdge: (edgeId: string | null, additive?: boolean) => void
   setMode: (mode: CanvasMode) => void
   moveNode: (nodeId: string, position: Point) => void
