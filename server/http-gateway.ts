@@ -1757,6 +1757,16 @@ export async function startGateway(options: {
         return
       }
       if (await serveStatic(options.distDir, request, response, url.pathname)) return
+      if (!options.distDir && url.pathname === '/' && request.headers.accept?.includes('text/html')) {
+        const frontendPort = Number(process.env.CANVAS_VITE_PORT) || 4173
+        const targetHost = request.headers.host?.split(':')[0] || '127.0.0.1'
+        response.writeHead(302, {
+          Location: `http://${targetHost}:${frontendPort}/`,
+          'Content-Type': 'text/html; charset=utf-8',
+        })
+        response.end(`<!doctype html><p>正在跳转至前端界面 <a href="http://${targetHost}:${frontendPort}/">http://${targetHost}:${frontendPort}/</a>...</p>`)
+        return
+      }
       sendJson(response, 404, { error: { code: 'not_found', message: 'Resource not found' } })
     } catch (error) {
       if (response.headersSent || response.destroyed) {
