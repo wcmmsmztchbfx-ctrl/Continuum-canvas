@@ -76,6 +76,9 @@ select:focus-visible {
   --layers-sidebar-rail-width: 48px;
   --layers-sidebar-width: 260px;
   --inspector-sidebar-width: 280px;
+  --canvas-stage-min-width: 220px;
+  --inspector-layout-width: min(var(--inspector-sidebar-width), max(220px, calc((100vw - var(--layers-sidebar-rail-width) - var(--canvas-stage-min-width)) / 2)));
+  --layers-layout-width: min(var(--layers-sidebar-width), max(220px, calc(100vw - var(--layers-sidebar-rail-width) - var(--inspector-layout-width) - var(--canvas-stage-min-width))));
   display: flex;
   flex-direction: row;
   width: 100vw;
@@ -85,10 +88,8 @@ select:focus-visible {
 }
 
 .app-layer-sidebar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
+  position: relative;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: row;
   height: 100%;
@@ -107,7 +108,7 @@ select:focus-visible {
 }
 
 .app-shell[data-layers-open] .app-layer-sidebar {
-  width: calc(var(--layers-sidebar-rail-width, 48px) + var(--layers-sidebar-width));
+  width: calc(var(--layers-sidebar-rail-width) + var(--layers-layout-width));
   overflow: visible;
   pointer-events: auto;
   visibility: visible;
@@ -207,8 +208,8 @@ select:focus-visible {
   position: relative;
   display: flex;
   flex-direction: column;
-  width: var(--layers-sidebar-width);
-  min-width: var(--layers-sidebar-width);
+  flex: 1 1 0%;
+  min-width: 0;
   height: 100%;
   overflow: hidden;
   background: #242424;
@@ -353,7 +354,7 @@ select:focus-visible {
   position: absolute;
   z-index: 100;
   top: 0;
-  right: -5px;
+  right: 0;
   bottom: 0;
   width: 10px;
   cursor: ew-resize;
@@ -458,9 +459,9 @@ select:focus-visible {
 .inspector-panel {
   position: relative;
   flex-shrink: 0;
-  width: var(--inspector-sidebar-width, 280px);
-  min-width: var(--inspector-sidebar-width, 280px);
-  max-width: var(--inspector-sidebar-width, 280px);
+  width: var(--inspector-layout-width);
+  min-width: var(--inspector-layout-width);
+  max-width: var(--inspector-layout-width);
   height: 100%;
   z-index: 45;
   background: #1e1e1e;
@@ -1548,8 +1549,11 @@ select:focus-visible {
 
 @media (max-width: 720px) {
   .app-shell,.app-shell[data-layers-open] { display: block; }
-  .app-layer-sidebar { position: absolute; z-index: 80; inset: 0 auto 0 0; width: min(var(--layers-sidebar-width), 86vw); box-shadow: 12px 0 32px #0009; transform: translateX(-100%); }
-  .app-layer-sidebar__resize-handle { display: none; }
+  .app-layer-sidebar { position: absolute; z-index: 80; inset: 0 auto 0 0; box-shadow: 12px 0 32px #0009; }
+  .app-shell[data-layers-open] .app-layer-sidebar { width: min(calc(var(--layers-sidebar-rail-width) + var(--layers-sidebar-width)), 86vw); }
+  .inspector-panel { position: absolute; inset: 0 0 0 auto; width: min(var(--inspector-sidebar-width), 86vw); min-width: 0; max-width: 86vw; }
+  .app-layer-sidebar__resize-handle,
+  .inspector-panel__resize-handle { display: none; }
   .canvas-stage { width: 100%; }
 }
 

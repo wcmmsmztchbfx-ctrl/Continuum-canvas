@@ -229,6 +229,58 @@ describe('collaboration WebSocket gateway', () => {
     editorSocket.close()
   })
 
+  it('acknowledges the checkpoint barrier only after earlier socket updates are durable and readable', async () => {
+    let blockSnapshot = false
+    let checkpointStarted = false
+    let releaseCheckpoint = () => {}
+    const checkpointGate = new Promise<void>((resolve) => { releaseCheckpoint = resolve })
+    const gateway = await start({
+      collaborationOptions: {
+        persistence: {
+          append: (path, bytes) => appendFile(path, bytes),
+          writeBytes: (path, bytes) => writeFile(path, bytes),
+          async writeJson(path, value) {
+            if (blockSnapshot && path.endsWith('canvas.snapshot.json')) {
+              checkpointStarted = true
+              await checkpointGate
+            }
+            await atomicWriteJson(path, value)
+          },
+        },
+      },
+    })
+    const owner = await createRoom(gateway)
+    const roomId = owner.payload.room.roomId as string
+    const session = await CanvasCollaborationSession.create({
+      roomId, serverSession: owner.payload.session,
+      webSocketUrl: wsUrl(gateway, roomId),
+      webSocketFactory: sessionSocketFactory(owner.cookie, gateway.origin, []),
+      persistenceFactory: memoryPersistence,
+    })
+    try {
+      await expect.poll(() => session.status.state).toBe('synced')
+      blockSnapshot = true
+      session.applySnapshot({ ...snapshot(), name: 'Final socket update' })
+      let acknowledged = false
+      let failed: unknown
+      const completion = session.flush().then(() => { acknowledged = true }, (error) => { failed = error })
+      await expect.poll(() => checkpointStarted || !!failed).toBe(true)
+      expect(failed).toBeUndefined()
+      expect(acknowledged).toBe(false)
+      releaseCheckpoint()
+      await completion
+      expect(acknowledged).toBe(true)
+      const response = await fetch(`${gateway.origin}/api/canvases/canvas-alpha`)
+      expect(response.status).toBe(200)
+      const document = await response.json() as { canvas: CanvasSnapshotV2; revision: number }
+      expect(document.canvas.name).toBe('Final socket update')
+      expect(document.revision).toBeGreaterThan(0)
+    } finally {
+      releaseCheckpoint()
+      await session.destroy()
+    }
+  })
+
   it('uploads offline nested text edits while merging concurrent online text edits', async () => {
     const gateway = await start()
     const owner = await createRoom(gateway)

@@ -21,7 +21,7 @@ import {
   OFFICIAL_AISTARTLAB_BASE_URL,
   type ImageRequestMode,
 } from '../../contracts/catalog'
-import type { ProviderUpdate } from '../../services/gatewayClient'
+import { gatewayClient, type ProviderUpdate } from '../../services/gatewayClient'
 import { useEscapeClose } from '../overlays/useEscapeClose'
 import { useProviderCatalog } from './ProviderCatalogContext'
 
@@ -323,6 +323,12 @@ export function ProviderDrawer({
     }
   }, [open, selectedId, selected?.secretConfigured, state.getProviderSecret])
 
+  useEffect(() => {
+    if (open && activeTab === 'agent' && !readOnly) {
+      void gatewayClient.ensureLocalAdminSession().catch(() => {})
+    }
+  }, [open, activeTab, readOnly])
+
   // Auto-fetch plaintext secret for selected Agent Provider
   useEffect(() => {
     if (!open || !selectedAgentId || activeTab !== 'agent') return
@@ -334,14 +340,19 @@ export function ProviderDrawer({
       return
     }
     let active = true
-    void fetch(`/api/agent/providers/${encodeURIComponent(selectedAgentId)}/secret`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (active && data && typeof data.secret === 'string') {
-          setAgentDraft((prev) => (prev.id === selectedAgentId ? { ...prev, secret: data.secret } : prev))
+    void (async () => {
+      await gatewayClient.ensureLocalAdminSession().catch(() => {})
+      if (!active) return
+      try {
+        const res = await fetch(`/api/agent/providers/${encodeURIComponent(selectedAgentId)}/secret`)
+        if (active && res.ok) {
+          const data = await res.json()
+          if (active && data && typeof data.secret === 'string') {
+            setAgentDraft((prev) => (prev.id === selectedAgentId ? { ...prev, secret: data.secret } : prev))
+          }
         }
-      })
-      .catch(() => {})
+      } catch {}
+    })()
     return () => {
       active = false
     }
@@ -590,6 +601,7 @@ export function ProviderDrawer({
     setAgentSaving(true)
     setAgentFeedback(null)
     try {
+      await gatewayClient.ensureLocalAdminSession().catch(() => {})
       const res = await fetch('/api/agent/providers', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -634,6 +646,7 @@ export function ProviderDrawer({
     setAgentTesting(true)
     setAgentFeedback(null)
     try {
+      await gatewayClient.ensureLocalAdminSession().catch(() => {})
       const res = await fetch('/api/agent/test', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -664,6 +677,7 @@ export function ProviderDrawer({
     if (!targetId) return
     if (!window.confirm('确定要清空该大模型已配置的 API Key 吗？')) return
     try {
+      await gatewayClient.ensureLocalAdminSession().catch(() => {})
       const res = await fetch(`/api/agent/providers/${encodeURIComponent(targetId)}/secret`, { method: 'DELETE' })
       if (res.ok) {
         setAgentDraft((prev) => ({ ...prev, secret: '' }))
@@ -684,6 +698,7 @@ export function ProviderDrawer({
     const displayName = found?.name || agentDraft.name || targetId
     if (!window.confirm(`确定要删除大模型配置 [${displayName}] 吗？`)) return
     try {
+      await gatewayClient.ensureLocalAdminSession().catch(() => {})
       const res = await fetch(`/api/agent/providers/${encodeURIComponent(targetId)}`, { method: 'DELETE' })
       if (res.ok) {
         onNotify?.('大模型配置已删除', 'info')

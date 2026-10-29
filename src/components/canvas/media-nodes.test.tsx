@@ -212,6 +212,7 @@ describe('media canvas nodes', () => {
     )
 
     expect(html).toContain('canvas-group-node')
+    expect(html).toContain('--group-border-width')
     expect(html).not.toContain('react-flow__resize-control')
   })
 

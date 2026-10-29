@@ -5,12 +5,14 @@ test.describe("02 - Canvas Lifecycle", () => {
     await page.goto("/")
     await expect(page.getByTestId("workspace-home")).toBeVisible()
 
-    // Create canvas
+    // Creating a canvas adds a card; naming and opening are explicit actions.
     await page.getByRole("button", { name: "新建画布" }).click()
+    await page.getByRole("button", { name: "重命名 未命名画布", exact: true }).click()
     const nameInput = page.getByRole("textbox", { name: "名称" })
     await expect(nameInput).toBeVisible()
     await nameInput.fill("生命周期测试画布")
     await nameInput.press("Enter")
+    await page.getByRole("button", { name: "生命周期测试画布，0 个节点", exact: true }).click()
 
     // Assert in canvas editor
     await expect(page.getByTestId("app-shell")).toHaveAttribute("data-hydrated", "true")

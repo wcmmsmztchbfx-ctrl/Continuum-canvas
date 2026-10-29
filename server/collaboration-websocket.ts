@@ -19,6 +19,7 @@ import {
 
 const MESSAGE_SYNC = 0
 const MESSAGE_AWARENESS = 1
+const MESSAGE_CHECKPOINT = 2
 const ROOM_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const MAX_CONTROL_MESSAGE_BYTES = 64 * 1024
 
@@ -323,6 +324,26 @@ export function attachCollaborationWebSocket(options: {
             encoding.writeVarUint(response, MESSAGE_SYNC)
             syncProtocol.readSyncMessage(decoder, response, room.document, connection)
             if (encoding.length(response) > 1) send(connection, encoding.toUint8Array(response))
+            return
+          }
+          if (type === MESSAGE_CHECKPOINT) {
+            const requestId = decoding.readVarUint(decoder)
+            if (!Number.isSafeInteger(requestId) || requestId < 1 || decoding.hasContent(decoder)) {
+              throw new Error('Invalid checkpoint request')
+            }
+            // Earlier messages on this socket have already applied their updates.
+            // The service queue includes their durable append and workspace mirror.
+            void options.service.checkpointRoom(roomId).then(() => {
+              options.service.authorizeSession({ roomId, sessionToken: token })
+              const response = encoding.createEncoder()
+              encoding.writeVarUint(response, MESSAGE_CHECKPOINT)
+              encoding.writeVarUint(response, requestId)
+              send(connection, encoding.toUint8Array(response))
+            }).catch((error: unknown) => {
+              const forbidden = error instanceof CollaborationAuthorizationError
+              connection.close(forbidden ? 1008 : 1011,
+                forbidden ? 'Forbidden' : 'Collaboration persistence failed')
+            })
             return
           }
           if (type === MESSAGE_AWARENESS) {

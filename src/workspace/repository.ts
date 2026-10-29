@@ -16,6 +16,7 @@ import {
   parseWorkspaceManifest,
 } from './model'
 import { createBrowserUuid } from '../utils/id'
+import { WorkspaceMutationQueue } from '../persistence/workspaceMutationQueue'
 import type {
   StoredCanvasDocument,
   WorkspaceCanvas,
@@ -37,8 +38,11 @@ export interface WorkspaceStorageBackend {
     create: (legacyProjects: readonly string[]) => WorkspaceInitialization,
   ): Promise<void>
   getManifest(): Promise<string | undefined>
-  getCanvasDocument(canvasId: string): Promise<string | undefined>
+  getCanvasDocument(canvasId: string, options?: { requireRemote?: boolean }): Promise<string | undefined>
   commit(commit: WorkspaceCommit): Promise<void>
+  saveCanvas?(snapshot: CanvasSnapshotV2, manifest?: string): Promise<void>
+  // Resolve after durable local staging; the returned operation waits for server confirmation.
+  stageCanvasSave?(snapshot: CanvasSnapshotV2): Promise<() => Promise<void>>
 }
 
 export interface WorkspaceRepositoryOptions {
@@ -65,7 +69,7 @@ export interface DuplicatedProject {
 
 export interface WorkspaceRepository {
   getManifest(): Promise<WorkspaceManifestV1>
-  loadCanvas(canvasId: string): Promise<CanvasSnapshotV2 | undefined>
+  loadCanvas(canvasId: string, options?: { requireRemote?: boolean }): Promise<CanvasSnapshotV2 | undefined>
   ensureInvitedCanvas?(projectId: string, canvasId: string): Promise<void>
   saveCanvas(snapshot: CanvasSnapshotV2): Promise<void>
   createProject(name: string, position?: Point): Promise<WorkspaceProject>
@@ -155,6 +159,13 @@ export function createWorkspaceRepository(
   const now = options.now ?? (() => new Date().toISOString())
   const createId = options.createId ?? createBrowserUuid
   const seedProject = options.seedProject ?? EMPTY_WORKSPACE_SEED_PROJECT
+  const mutationQueue = new WorkspaceMutationQueue()
+  const queued = <Args extends unknown[], Result>(
+    operation: (...args: Args) => Promise<Result>,
+  ) => async (...args: Args): Promise<Result> => {
+    const capturedArgs = structuredClone(args)
+    return mutationQueue.run(() => operation(...capturedArgs))
+  }
 
   const initialize = () =>
     backend.initializeFromLegacy((serializedProjects) => {
@@ -181,9 +192,9 @@ export function createWorkspaceRepository(
     return parseWorkspaceManifest(serialized)
   }
 
-  const readCanvas = async (canvasId: string) => {
+  const readCanvas = async (canvasId: string, options?: { requireRemote?: boolean }) => {
     await initialize()
-    const serialized = await backend.getCanvasDocument(canvasId)
+    const serialized = await backend.getCanvasDocument(canvasId, options)
     return serialized === undefined ? undefined : parseCanvasSnapshot(serialized)
   }
 
@@ -228,7 +239,7 @@ export function createWorkspaceRepository(
     if (project.deletedAt) throw new Error('不能使用回收站中的项目')
   }
 
-  return {
+  const operations: Required<WorkspaceRepository> = {
     getManifest: readManifest,
 
     loadCanvas: readCanvas,
@@ -282,6 +293,10 @@ export function createWorkspaceRepository(
     async saveCanvas(snapshot) {
       const serialized = serializeCanvas(snapshot)
       const parsed = parseCanvasSnapshot(serialized)
+      if (backend.saveCanvas) {
+        await backend.saveCanvas(parsed)
+        return
+      }
       const manifest = await readManifest()
       const canvas = requireCanvas(manifest, parsed.canvasId)
       if (canvas.projectId !== parsed.projectId) {
@@ -719,5 +734,41 @@ export function createWorkspaceRepository(
       manifest.viewport = structuredClone(viewport)
       await commit(manifest)
     },
+  }
+
+  // Queue whole read/modify/commit operations. Internal helpers stay unqueued
+  // so a mutation can read its inputs without waiting on its own completion.
+  return {
+    getManifest: queued(operations.getManifest),
+    loadCanvas: queued(operations.loadCanvas),
+    ensureInvitedCanvas: queued(operations.ensureInvitedCanvas),
+    saveCanvas: backend.stageCanvasSave
+      ? async (snapshot) => {
+        const captured = parseCanvasSnapshot(JSON.stringify(snapshot))
+        const confirm = await mutationQueue.run(() => backend.stageCanvasSave!(captured))
+        await confirm()
+      }
+      : queued(operations.saveCanvas),
+    createProject: queued(operations.createProject),
+    createCanvas: queued(operations.createCanvas),
+    renameProject: queued(operations.renameProject),
+    renameCanvas: queued(operations.renameCanvas),
+    duplicateProject: queued(operations.duplicateProject),
+    duplicateCanvas: queued(operations.duplicateCanvas),
+    moveProject: queued(operations.moveProject),
+    resizeProject: queued(operations.resizeProject),
+    setProjectFavorite: queued(operations.setProjectFavorite),
+    setCanvasFavorite: queued(operations.setCanvasFavorite),
+    moveCanvas: queued(operations.moveCanvas),
+    beginCanvasMove: queued(operations.beginCanvasMove),
+    completeCanvasMove: queued(operations.completeCanvasMove),
+    cancelCanvasMove: queued(operations.cancelCanvasMove),
+    trashProject: queued(operations.trashProject),
+    trashCanvas: queued(operations.trashCanvas),
+    restoreProject: queued(operations.restoreProject),
+    restoreCanvas: queued(operations.restoreCanvas),
+    permanentlyDeleteProject: queued(operations.permanentlyDeleteProject),
+    permanentlyDeleteCanvas: queued(operations.permanentlyDeleteCanvas),
+    updateViewport: queued(operations.updateViewport),
   }
 }

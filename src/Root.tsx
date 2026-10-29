@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 
-import App from './App'
 import { WorkspaceHome } from './components/workspace'
 import {
   buildCanvasRoute,
@@ -20,6 +19,10 @@ import {
   useActiveCollaboration,
 } from './collaboration/activeCollaborationStore'
 import { FloatingCollaborationBadge } from './components/collaboration/FloatingCollaborationBadge'
+import { WorkspaceSyncStatus } from './components/workspace/WorkspaceSyncStatus'
+import { defaultWorkspaceBackend } from './workspace/defaultRepository'
+
+const App = lazy(() => import('./App'))
 
 interface BrowserLocationSnapshot {
   pathname: string
@@ -194,15 +197,20 @@ export default function ApplicationRoot({
         />
       )}
       {route.kind === 'canvas' && (
-        <CanvasRoute
-          location={location}
-          navigate={navigate}
-          repository={repository}
-          thumbnailService={thumbnailService}
-        />
+        <Suspense fallback={<main aria-busy="true" className="workspace-home-loading">正在打开画布</main>}>
+          <CanvasRoute
+            location={location}
+            navigate={navigate}
+            repository={repository}
+            thumbnailService={thumbnailService}
+          />
+        </Suspense>
       )}
       {route.kind !== 'workspace' && route.kind !== 'canvas' && (
         <main aria-busy="true" className="workspace-home-loading">正在返回工作区</main>
+      )}
+      {repository === defaultWorkspaceRepository && (
+        <WorkspaceSyncStatus service={defaultWorkspaceBackend} />
       )}
       <FloatingCollaborationBadge
         activeCollab={activeCollab}

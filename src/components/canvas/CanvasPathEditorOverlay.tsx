@@ -272,7 +272,7 @@ export function CanvasPathEditorOverlay({
                 strokeDasharray={node.data.strokeStyle === 'dashed' ? '4 4' : undefined}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeWidth={Math.max(1.5, node.data.strokeWidth)}
+                strokeWidth={Math.max(1.5, node.data.strokeWidth ?? 1)}
               />
 
               {/* Selected anchor control handles */}

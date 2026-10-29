@@ -44,7 +44,7 @@ import {
   saveUiPreferences,
   type UiPreferences,
 } from './persistence'
-import { CANVAS_SNAPSHOT_VERSION } from './model/project'
+import { createCanvasSaveSession, type CapturedCanvasSave } from './persistence/canvasSaveSession'
 import {
   defaultWorkspaceRepository,
   type WorkspaceRepository,
@@ -75,8 +75,9 @@ import {
 import { useAppCollaboration } from './hooks/useAppCollaboration'
 import { useAppHotkeys } from './hooks/useAppHotkeys'
 import { useSidebarResize } from './hooks/useSidebarResize'
+import { useCanvasStageAnchor } from './hooks/useCanvasStageAnchor'
 import { useCanvasClipboard } from './hooks/useCanvasClipboard'
-import { copyImageToClipboard, copyText } from './utils/clipboard'
+import { copyImageToClipboard } from './utils/clipboard'
 
 type Popup =
   | 'workspace'
@@ -183,6 +184,8 @@ export default function App({
 }: AppProps = {}) {
   const [hydrated, setHydrated] = useState(false)
   const [loadedCanvasId, setLoadedCanvasId] = useState<string | null>()
+  const [loadError, setLoadError] = useState<string>()
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [preferences, setPreferences] = useState<UiPreferences>(() =>
     loadUiPreferences(),
   )
@@ -216,21 +219,7 @@ export default function App({
     },
   })
 
-  // Figma-grade viewport anchor compensation: keep existing nodes pinned in screen space when sidebar opens/closes or resizes
-  const prevLayersOffsetRef = useRef<number>(preferences.layersOpen ? (48 + layersWidth) : 0)
-  useEffect(() => {
-    const currentOffset = preferences.layersOpen ? (48 + layersWidth) : 0
-    const delta = currentOffset - prevLayersOffsetRef.current
-    prevLayersOffsetRef.current = currentOffset
-    if (delta !== 0) {
-      const state = canvasStore.getState()
-      const vp = state.snapshot.viewport
-      state.setViewport({
-        ...vp,
-        x: vp.x - delta,
-      })
-    }
-  }, [preferences.layersOpen, layersWidth])
+  useCanvasStageAnchor(canvasStageRef, hydrated)
 
   const getStageCenterPoint = useCallback(() => {
     const rect = canvasStageRef.current?.getBoundingClientRect()
@@ -313,7 +302,6 @@ export default function App({
   const snapshot = useStore(canvasStore, (state) => state.snapshot)
   const selectedNodeIds = useStore(canvasStore, (state) => state.selectedNodeIds)
   const imageSelectionGuardRef = useRef<(nodeId: string | null) => boolean>(() => true)
-  const lastSelectedLayerNodeIdRef = useRef<string | null>(null)
 
   const copySelectedNodes = useCallback(async (selectedIds: string[]) => {
     const envelope = createCanvasClipboardEnvelope(
@@ -325,7 +313,8 @@ export default function App({
     copiedNodeIdsRef.current = [...selectedIds]
     internalClipboardRef.current = envelope
     await writeCanvasClipboardEnvelope(envelope, navigator.clipboard ?? {})
-  }, [canvasId])
+    notify(`已复制 ${envelope.nodes.length} 个节点到剪贴板`, 'info')
+  }, [canvasId, notify])
 
   const closeFloatingUi = useCallback(() => {
     setPopup(null)
@@ -383,10 +372,51 @@ export default function App({
 
   useEffect(() => {
     let disposed = false
+    let sharedSnapshotPending = false
     let unsubscribe = () => {}
     let isHydrated = false
+    const saveSession = canvasId
+      ? createCanvasSaveSession({ canvasId, projectId, owner: workspaceRepository })
+      : undefined
     setHydrated(false)
     setLoadedCanvasId(undefined)
+    setLoadError(undefined)
+
+    const submit = (save: CapturedCanvasSave) => {
+      saveSession!.markQueued(save)
+      let persisted = false
+      void workspaceRepository.saveCanvas(save.document)
+        .then(() => {
+          persisted = true
+          if (!saveSession!.succeed(save)) return
+          const document = save.document
+          return saveSession!.publish(save, async () => {
+            thumbnailService.schedule(document)
+            if (disposed) await thumbnailService.flush(document.canvasId)
+            return gatewayClient.syncCanvasAssetReferences({
+              canvasId: document.canvasId,
+              projectId: document.projectId,
+              assetIds: [
+                ...new Set(
+                  document.nodes.flatMap((node) => {
+                    const direct = 'assetId' in node.data && typeof node.data.assetId === 'string' ? [node.data.assetId] : []
+                    const versions = node.type === 'image'
+                      ? (node.data.versions ?? []).flatMap((version) => version.assetId ? [version.assetId] : [])
+                      : []
+                    return [...direct, ...versions]
+                  }),
+                ),
+              ],
+            })
+          })
+        })
+        .catch((error: unknown) => {
+          const current = persisted ? saveSession!.isLatest(save) : saveSession!.fail(save)
+          if (!disposed && current) {
+            notify(error instanceof Error ? error.message : '自动保存画布失败', 'error')
+          }
+        })
+    }
 
     const hydrate = async () => {
       try {
@@ -419,14 +449,15 @@ export default function App({
           : activeProject ?? (await ensureReferenceProject())
 
         if (disposed) return
+        if (canvasDocument) saveSession!.acceptLoaded(canvasDocument)
         canvasStore.getState().restore(JSON.stringify(project))
         if (!canvasDocument) saveActiveProjectId(project.projectId)
         setLoadedCanvasId(canvasId ?? null)
       } catch (error: unknown) {
-        notify(
-          error instanceof Error ? error.message : '恢复本地项目失败',
-          'error',
-        )
+        if (disposed) return
+        saveSession?.failLoading()
+        setLoadError(error instanceof Error ? error.message : '恢复本地项目失败')
+        return
       }
 
       if (disposed) return
@@ -434,44 +465,14 @@ export default function App({
       setHydrated(true)
       unsubscribe = canvasStore.subscribe((state, previous) => {
         if (state.snapshot === previous.snapshot) return
-        if (collaborationControllerRef.current?.isLocalAutosaveSuppressed()) return
         const project = state.snapshot
-        if (canvasId) {
-          const document = {
-              ...project,
-              projectId: projectId ?? project.projectId,
-              version: CANVAS_SNAPSHOT_VERSION,
-              canvasId,
-            } as const
-          void workspaceRepository
-            .saveCanvas(document)
-            .then(() => {
-              thumbnailService.schedule(document)
-              if (disposed) void thumbnailService.flush(canvasId)
-              return gatewayClient.syncCanvasAssetReferences({
-                canvasId,
-                projectId: document.projectId,
-                assetIds: [
-                  ...new Set(
-                    project.nodes.flatMap((node) => {
-                      const direct = 'assetId' in node.data && typeof node.data.assetId === 'string' ? [node.data.assetId] : []
-                      const versions = node.type === 'image'
-                        ? (node.data.versions ?? []).flatMap((version) => version.assetId ? [version.assetId] : [])
-                        : []
-                      return [...direct, ...versions]
-                    }),
-                  ),
-                ],
-              })
-            })
-            .catch((error: unknown) =>
-              notify(
-                error instanceof Error ? error.message : '自动保存画布失败',
-                'error',
-              ),
-            )
+        if (saveSession) {
+          const save = saveSession.capture(project)
+          sharedSnapshotPending = collaborationControllerRef.current?.isLocalAutosaveSuppressed() ?? false
+          if (save && !sharedSnapshotPending) submit(save)
           return
         }
+        if (collaborationControllerRef.current?.isLocalAutosaveSuppressed()) return
         void defaultProjectPersistenceQueue
           .enqueue(project)
           .catch((error: unknown) =>
@@ -488,19 +489,15 @@ export default function App({
     return () => {
       disposed = true
       unsubscribe()
+      const pending = saveSession?.close()
+      // The collaboration hook clears its controller before this cleanup runs.
+      // Retain the captured snapshot's owner so shared changes stay on the Yjs path.
+      if (pending && !sharedSnapshotPending) submit(pending)
       if (canvasId && isHydrated) {
-        const currentSnapshot = canvasStore.getState().snapshot
-        const document = {
-          ...currentSnapshot,
-          projectId: projectId ?? currentSnapshot.projectId,
-          version: CANVAS_SNAPSHOT_VERSION,
-          canvasId,
-        } as const
-        void workspaceRepository.saveCanvas(document).catch(() => undefined)
         void thumbnailService.flush(canvasId)
       }
     }
-  }, [canvasId, notify, projectId, thumbnailService, workspaceRepository])
+  }, [canvasId, loadAttempt, notify, projectId, thumbnailService, workspaceRepository])
 
 
   useEffect(() => {
@@ -935,10 +932,17 @@ export default function App({
     } else if (action === 'paste') {
       void readClipboardContents(navigator.clipboard ?? {})
         .then(importClipboardContents)
-        .catch((error: unknown) => notify(
-          error instanceof Error ? error.message : '浏览器未允许读取剪贴板',
-          'error',
-        ))
+        .catch((error: unknown) => {
+          if (internalClipboardRef.current) {
+            void importClipboardContents({ files: [], html: '', text: '', internal: '' })
+              .catch((err) => notify(err instanceof Error ? err.message : '无法粘贴内容', 'error'))
+            return
+          }
+          notify(
+            error instanceof Error ? error.message : '浏览器未允许读取剪贴板',
+            'error',
+          )
+        })
     }
   }
 
@@ -988,7 +992,7 @@ export default function App({
       withBulkLease(selectedIds, () => canvasStore.getState().duplicateNodes(selectedIds))
       return
     }
-    if (action === 'copy-node') {
+    if (action === 'copy-node' || action === 'copy-to-clipboard') {
       void copySelectedNodes(selectedIds)
         .catch(() => notify('浏览器未允许写入剪贴板', 'error'))
       return
@@ -1002,8 +1006,17 @@ export default function App({
         notify('当前节点未包含有效图片数据', 'warning')
         return
       }
+      const envelope = createCanvasClipboardEnvelope(snapshot, [node.id], canvasId)
+      internalClipboardRef.current = envelope
+      copiedNodeIdsRef.current = [node.id]
       void copyImageToClipboard(node.data.url)
-        .then(() => notify('已复制图片到剪贴板', 'info'))
+        .then((result) => {
+          if (result?.fallback) {
+            notify('已复制图片内容与链接（当前网络环境不支持直接写入图片文件）', 'info')
+          } else {
+            notify('已复制图片到剪贴板', 'info')
+          }
+        })
         .catch((error: unknown) =>
           notify(
             error instanceof Error ? error.message : '无法复制图片到剪贴板',
@@ -1015,18 +1028,17 @@ export default function App({
     if (action === 'paste') {
       void readClipboardContents(navigator.clipboard ?? {})
         .then(importClipboardContents)
-        .catch((error: unknown) => notify(
-          error instanceof Error ? error.message : '浏览器未允许读取剪贴板',
-          'error',
-        ))
-      return
-    }
-    if (action === 'copy-to-clipboard') {
-      const nodes = canvasStore
-        .getState()
-        .snapshot.nodes.filter((node) => selectedIds.includes(node.id))
-      void copyText(JSON.stringify(nodes, null, 2))
-        .catch(() => notify('浏览器未允许写入剪贴板', 'error'))
+        .catch((error: unknown) => {
+          if (internalClipboardRef.current) {
+            void importClipboardContents({ files: [], html: '', text: '', internal: '' })
+              .catch((err) => notify(err instanceof Error ? err.message : '无法粘贴内容', 'error'))
+            return
+          }
+          notify(
+            error instanceof Error ? error.message : '浏览器未允许读取剪贴板',
+            'error',
+          )
+        })
       return
     }
   }
@@ -1081,6 +1093,21 @@ export default function App({
       withBulkLease(state.selectedNodeIds, () => state.layoutNodes(state.selectedNodeIds))
       return
     }
+  }
+
+  if (loadError) {
+    return (
+      <main className="workspace-home-loading" data-testid="app-shell" data-hydrated="false" data-load-state="error">
+        <section role="alert">
+          <h1>无法打开画布</h1>
+          <p>{loadError}</p>
+          <button onClick={() => setLoadAttempt((attempt) => attempt + 1)}>重新加载画布</button>
+          {onNavigateWorkspace
+            ? <button onClick={() => onNavigateWorkspace()}>返回工作区</button>
+            : <a href="/">返回工作区</a>}
+        </section>
+      </main>
+    )
   }
 
   return (
@@ -1243,17 +1270,10 @@ export default function App({
               onReorder={(ids, targetId, placement) => canvasStore.getState().reorderNodes(ids, targetId, placement)}
               onSelect={(id, options) => {
                 if (!imageSelectionGuardRef.current(id)) return
-                if (options?.range && lastSelectedLayerNodeIdRef.current) {
-                  const fromIdx = snapshot.nodes.findIndex((n) => n.id === lastSelectedLayerNodeIdRef.current)
-                  const toIdx = snapshot.nodes.findIndex((n) => n.id === id)
-                  if (fromIdx !== -1 && toIdx !== -1) {
-                    const [start, end] = fromIdx < toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx]
-                    const rangeIds = snapshot.nodes.slice(start, end + 1).map((n) => n.id)
-                    canvasStore.getState().selectNodes(rangeIds, false)
-                    return
-                  }
+                if (options?.range && options.rangeIds && options.rangeIds.length > 0) {
+                  canvasStore.getState().selectNodes(options.rangeIds, false)
+                  return
                 }
-                lastSelectedLayerNodeIdRef.current = id
                 canvasStore.getState().selectNode(id, options?.additive)
               }}
               onToggleHidden={(id) => canvasStore.getState().setNodeVisibility(id, Boolean(snapshot.nodes.find((node) => node.id === id)?.hidden))}

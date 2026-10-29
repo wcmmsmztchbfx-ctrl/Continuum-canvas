@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
-import { X, Palette, Sparkles, Sliders } from 'lucide-react'
+import { useEffect, useRef } from 'react'
+import { X, Sliders } from 'lucide-react'
 import type { CanvasEffectItem } from '../../model/project'
 import { ScrubbableLabel } from './ScrubbableLabel'
+import { ScrubbableNumberInput } from './ScrubbableNumberInput'
 
 interface EffectSettingsPopoverProps {
   effect: CanvasEffectItem
@@ -63,44 +64,26 @@ export function EffectSettingsPopover({
           <div className="effect-popover__body">
             <div className="inspector-row">
               <div className="inspector-field">
-                <ScrubbableLabel
-                  label="X 偏移"
-                  max={100}
-                  min={-100}
-                  onChange={(val) => onUpdate({ ...effect, x: val }, false)}
-                  onChangeEnd={(val) => onUpdate({ ...effect, x: val }, true)}
-                  value={x}
-                />
-                <input
+                <ScrubbableNumberInput
                   aria-label="X 偏移"
-                  className="inspector-field__input"
                   disabled={isLocked}
-                  max={100}
+                  label="X 偏移"
                   min={-100}
-                  onBlur={(e) => onUpdate({ ...effect, x: Number(e.target.value) || 0 }, true)}
-                  onChange={(e) => onUpdate({ ...effect, x: Number(e.target.value) || 0 }, false)}
-                  type="number"
+                  max={100}
+                  onValueChange={(val, commit) => onUpdate({ ...effect, x: val }, commit)}
+                  scrubProps={{ min: -100, max: 100 }}
                   value={x}
                 />
               </div>
               <div className="inspector-field">
-                <ScrubbableLabel
-                  label="Y 偏移"
-                  max={100}
-                  min={-100}
-                  onChange={(val) => onUpdate({ ...effect, y: val }, false)}
-                  onChangeEnd={(val) => onUpdate({ ...effect, y: val }, true)}
-                  value={y}
-                />
-                <input
+                <ScrubbableNumberInput
                   aria-label="Y 偏移"
-                  className="inspector-field__input"
                   disabled={isLocked}
-                  max={100}
+                  label="Y 偏移"
                   min={-100}
-                  onBlur={(e) => onUpdate({ ...effect, y: Number(e.target.value) || 0 }, true)}
-                  onChange={(e) => onUpdate({ ...effect, y: Number(e.target.value) || 0 }, false)}
-                  type="number"
+                  max={100}
+                  onValueChange={(val, commit) => onUpdate({ ...effect, y: val }, commit)}
+                  scrubProps={{ min: -100, max: 100 }}
                   value={y}
                 />
               </div>
@@ -108,44 +91,26 @@ export function EffectSettingsPopover({
 
             <div className="inspector-row">
               <div className="inspector-field">
-                <ScrubbableLabel
-                  label="模糊 (Blur)"
-                  max={100}
-                  min={0}
-                  onChange={(val) => onUpdate({ ...effect, blur: Math.max(0, val) }, false)}
-                  onChangeEnd={(val) => onUpdate({ ...effect, blur: Math.max(0, val) }, true)}
-                  value={blur}
-                />
-                <input
+                <ScrubbableNumberInput
                   aria-label="模糊半径"
-                  className="inspector-field__input"
                   disabled={isLocked}
-                  max={100}
+                  label="模糊 (Blur)"
                   min={0}
-                  onBlur={(e) => onUpdate({ ...effect, blur: Math.max(0, Number(e.target.value) || 0) }, true)}
-                  onChange={(e) => onUpdate({ ...effect, blur: Math.max(0, Number(e.target.value) || 0) }, false)}
-                  type="number"
+                  max={100}
+                  onValueChange={(val, commit) => onUpdate({ ...effect, blur: Math.max(0, val) }, commit)}
+                  scrubProps={{ min: 0, max: 100 }}
                   value={blur}
                 />
               </div>
               <div className="inspector-field">
-                <ScrubbableLabel
-                  label="扩散 (Spread)"
-                  max={100}
-                  min={-100}
-                  onChange={(val) => onUpdate({ ...effect, spread: val }, false)}
-                  onChangeEnd={(val) => onUpdate({ ...effect, spread: val }, true)}
-                  value={spread}
-                />
-                <input
+                <ScrubbableNumberInput
                   aria-label="扩散半径"
-                  className="inspector-field__input"
                   disabled={isLocked}
-                  max={100}
+                  label="扩散 (Spread)"
                   min={-100}
-                  onBlur={(e) => onUpdate({ ...effect, spread: Number(e.target.value) || 0 }, true)}
-                  onChange={(e) => onUpdate({ ...effect, spread: Number(e.target.value) || 0 }, false)}
-                  type="number"
+                  max={100}
+                  onValueChange={(val, commit) => onUpdate({ ...effect, spread: val }, commit)}
+                  scrubProps={{ min: -100, max: 100 }}
                   value={spread}
                 />
               </div>
@@ -208,23 +173,14 @@ export function EffectSettingsPopover({
           <div className="effect-popover__body">
             <div className="inspector-row">
               <div className="inspector-field" style={{ width: '100%' }}>
-                <ScrubbableLabel
-                  label="模糊半径"
-                  max={100}
-                  min={0}
-                  onChange={(val) => onUpdate({ ...effect, blur: Math.max(0, val) }, false)}
-                  onChangeEnd={(val) => onUpdate({ ...effect, blur: Math.max(0, val) }, true)}
-                  value={blur}
-                />
-                <input
+                <ScrubbableNumberInput
                   aria-label="模糊半径"
-                  className="inspector-field__input"
                   disabled={isLocked}
-                  max={100}
+                  label="模糊半径"
                   min={0}
-                  onBlur={(e) => onUpdate({ ...effect, blur: Math.max(0, Number(e.target.value) || 0) }, true)}
-                  onChange={(e) => onUpdate({ ...effect, blur: Math.max(0, Number(e.target.value) || 0) }, false)}
-                  type="number"
+                  max={100}
+                  onValueChange={(val, commit) => onUpdate({ ...effect, blur: Math.max(0, val) }, commit)}
+                  scrubProps={{ min: 0, max: 100 }}
                   value={blur}
                 />
                 <span style={{ color: '#737373', fontSize: '10px' }}>px</span>
@@ -374,23 +330,14 @@ export function EffectSettingsPopover({
           <div className="effect-popover__body">
             <div className="inspector-row">
               <div className="inspector-field" style={{ width: '100%' }}>
-                <ScrubbableLabel
-                  label="毛玻璃模糊"
-                  max={60}
-                  min={0}
-                  onChange={(val) => onUpdate({ ...effect, blur: Math.max(0, val) }, false)}
-                  onChangeEnd={(val) => onUpdate({ ...effect, blur: Math.max(0, val) }, true)}
-                  value={blur}
-                />
-                <input
+                <ScrubbableNumberInput
                   aria-label="玻璃模糊"
-                  className="inspector-field__input"
                   disabled={isLocked}
-                  max={60}
+                  label="毛玻璃模糊"
                   min={0}
-                  onBlur={(e) => onUpdate({ ...effect, blur: Math.max(0, Number(e.target.value) || 0) }, true)}
-                  onChange={(e) => onUpdate({ ...effect, blur: Math.max(0, Number(e.target.value) || 0) }, false)}
-                  type="number"
+                  max={60}
+                  onValueChange={(val, commit) => onUpdate({ ...effect, blur: Math.max(0, val) }, commit)}
+                  scrubProps={{ min: 0, max: 60 }}
                   value={blur}
                 />
                 <span style={{ color: '#737373', fontSize: '10px' }}>px</span>

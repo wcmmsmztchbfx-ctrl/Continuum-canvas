@@ -23,7 +23,15 @@ test.describe("03 - Canvas CRUD & Persistence", () => {
 
     // 3. Trash
     await page.getByRole("button", { name: "全部", exact: true }).click()
-    await page.getByRole("button", { name: "移入回收站 已重命名画布" }).click()
+    const confirmTrash = page.waitForEvent("dialog").then(async (dialog) => {
+      expect(dialog.type()).toBe("confirm")
+      expect(dialog.message()).toBe("确定将画布“已重命名画布”移入回收站？")
+      await dialog.accept()
+    })
+    await Promise.all([
+      confirmTrash,
+      page.getByRole("button", { name: "移入回收站 已重命名画布" }).click(),
+    ])
     await expect(page.getByText("已重命名画布")).toHaveCount(0)
 
     // 4. Restore from trash

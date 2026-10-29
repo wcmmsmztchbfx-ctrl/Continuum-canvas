@@ -9,8 +9,10 @@ import {
 import type { CanvasStoreState } from '../store/canvas-store'
 import {
   contentsFromDataTransfer,
+  parseEnvelope,
   persistRemoteClipboardMedia,
   resolveClipboardContents,
+  safeMediaUrl,
   type CanvasClipboardEnvelope,
   type ClipboardContents,
 } from '../clipboard-import'
@@ -122,8 +124,13 @@ export function useCanvasClipboard({
       }
       pasteGraph(nodes, [], `files:${resolved.files.map((file) => `${file.name}:${file.size}`).join('|')}`)
     } else if (resolved.kind === 'url') {
-      let asset: { assetId: string; url: string }
-      if (/^data:/i.test(resolved.url)) {
+      let asset: { assetId?: string; url: string }
+      const localMatch = /^\/api\/assets\/([0-9a-f-]{36})$/i.exec(
+        new URL(resolved.url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost').pathname
+      )
+      if (localMatch) {
+        asset = { assetId: localMatch[1], url: `/api/assets/${localMatch[1]}` }
+      } else if (/^data:/i.test(resolved.url)) {
         const response = await fetch(resolved.url)
         const blob = await response.blob()
         asset = await persistLocalMedia(new File(
@@ -134,17 +141,108 @@ export function useCanvasClipboard({
       } else {
         asset = await persistRemoteClipboardMedia(resolved.url, resolved.media, gatewayClient)
       }
+
+      let size = resolved.media === 'image' ? { width: 480, height: 320 } : { width: 480, height: 270 }
+      if (resolved.media === 'image' && typeof Image !== 'undefined') {
+        try {
+          const probe = new Image()
+          probe.src = asset.url
+          await new Promise<void>((res) => {
+            if (probe.complete && probe.naturalWidth) return res()
+            probe.onload = () => res()
+            probe.onerror = () => res()
+            setTimeout(res, 350)
+          })
+          if (probe.naturalWidth && probe.naturalHeight) {
+            const aspect = probe.naturalWidth / probe.naturalHeight
+            const width = Math.min(640, Math.max(160, probe.naturalWidth))
+            size = { width, height: Math.round(width / aspect) }
+          }
+        } catch {}
+      }
+
       pasteGraph([{
         id: 'clipboard-remote-source',
         type: resolved.media,
         name: resolved.media === 'image' ? '剪贴板图片' : '剪贴板视频',
         position: { x: 0, y: 0 },
-        size: resolved.media === 'image'
-          ? { width: 480, height: 320 }
-          : { width: 480, height: 270 },
-        data: { url: asset.url, assetId: asset.assetId },
+        size,
+        data: {
+          url: asset.url,
+          assetId: asset.assetId,
+          displayMode: 'layer',
+          generationSettings: resolved.media === 'image'
+            ? DEFAULT_IMAGE_GENERATION_SETTINGS
+            : DEFAULT_VIDEO_GENERATION_SETTINGS,
+        },
       } as CanvasNode], [], `url:${resolved.url}`)
     } else {
+      const trimmed = resolved.text.trim()
+      // Guard 1: Double-check if text is actually a serialized canvas envelope or node array
+      const maybeEnvelope = parseEnvelope(trimmed)
+      if (maybeEnvelope) {
+        importEnvelope(maybeEnvelope)
+        return
+      }
+
+      // Guard 2: Double-check if text is actually an image / media URL or asset path
+      const maybeMedia = safeMediaUrl(trimmed)
+      if (maybeMedia) {
+        let asset: { assetId?: string; url: string }
+        const localMatch = /^\/api\/assets\/([0-9a-f-]{36})$/i.exec(
+          new URL(maybeMedia.url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost').pathname
+        )
+        if (localMatch) {
+          asset = { assetId: localMatch[1], url: `/api/assets/${localMatch[1]}` }
+        } else if (/^data:/i.test(maybeMedia.url)) {
+          const response = await fetch(maybeMedia.url)
+          const blob = await response.blob()
+          asset = await persistLocalMedia(new File(
+            [blob],
+            `clipboard.${maybeMedia.media === 'image' ? 'png' : 'mp4'}`,
+            { type: blob.type },
+          ))
+        } else {
+          asset = await persistRemoteClipboardMedia(maybeMedia.url, maybeMedia.media, gatewayClient)
+        }
+
+        let size = maybeMedia.media === 'image' ? { width: 480, height: 320 } : { width: 480, height: 270 }
+        if (maybeMedia.media === 'image' && typeof Image !== 'undefined') {
+          try {
+            const probe = new Image()
+            probe.src = asset.url
+            await new Promise<void>((res) => {
+              if (probe.complete && probe.naturalWidth) return res()
+              probe.onload = () => res()
+              probe.onerror = () => res()
+              setTimeout(res, 350)
+            })
+            if (probe.naturalWidth && probe.naturalHeight) {
+              const aspect = probe.naturalWidth / probe.naturalHeight
+              const width = Math.min(640, Math.max(160, probe.naturalWidth))
+              size = { width, height: Math.round(width / aspect) }
+            }
+          } catch {}
+        }
+
+        pasteGraph([{
+          id: 'clipboard-remote-source',
+          type: maybeMedia.media,
+          name: maybeMedia.media === 'image' ? '剪贴板图片' : '剪贴板视频',
+          position: { x: 0, y: 0 },
+          size,
+          data: {
+            url: asset.url,
+            assetId: asset.assetId,
+            displayMode: 'layer',
+            generationSettings: maybeMedia.media === 'image'
+              ? DEFAULT_IMAGE_GENERATION_SETTINGS
+              : DEFAULT_VIDEO_GENERATION_SETTINGS,
+          },
+        } as CanvasNode], [], `url:${maybeMedia.url}`)
+        return
+      }
+
       pasteGraph([{
         id: 'clipboard-text-source',
         type: 'text',

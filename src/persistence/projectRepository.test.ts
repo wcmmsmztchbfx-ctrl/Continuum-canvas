@@ -7,6 +7,7 @@ import {
   WORKSPACE_MANIFEST_STORE_NAME,
   CANVAS_DOCUMENT_STORE_NAME,
   CANVAS_THUMBNAIL_STORE_NAME,
+  WORKSPACE_SYNC_STORE_NAME,
   createProjectRepository,
   deleteProject,
   listProjects,
@@ -84,13 +85,14 @@ describe('project repository', () => {
       createObjectStore,
     })
 
-    expect(DATABASE_VERSION).toBe(3)
+    expect(DATABASE_VERSION).toBe(4)
     expect([...stores].sort()).toEqual(
       [
         PROJECT_STORE_NAME,
         WORKSPACE_MANIFEST_STORE_NAME,
         CANVAS_DOCUMENT_STORE_NAME,
         CANVAS_THUMBNAIL_STORE_NAME,
+        WORKSPACE_SYNC_STORE_NAME,
       ].sort(),
     )
   })

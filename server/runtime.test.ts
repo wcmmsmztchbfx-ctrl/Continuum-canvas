@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -8,10 +8,12 @@ import type { ProviderCatalog } from '../src/contracts/generation.ts'
 import { DataDirectoryLock } from './data-directory-lock.ts'
 import { atomicWriteJson } from './atomic-json.ts'
 import { CollaborationService } from './collaboration-service.ts'
+import { defaultInitialCanvas } from './canvas-storage.ts'
 import { GenerationRunner } from './jobs.ts'
 import { startGateway } from './http-gateway.ts'
 import { ProviderRequestRejectedError } from './providers/provider-adapter.ts'
 import { createGatewayRuntime, ProviderUnavailableError, type GatewayRuntime } from './runtime.ts'
+import { WorkspaceService } from './workspace-service.ts'
 
 const catalog: ProviderCatalog = {
   providerId: 'aistartlab', version: 'catalog-v1', fetchedAt: new Date().toISOString(), stale: false,
@@ -31,6 +33,64 @@ afterEach(async () => {
 })
 
 describe('gateway runtime provider adapters', () => {
+  it('binds an existing active room to an identical migrated legacy canvas on startup', async () => {
+    const dataDir = await tempDirectory()
+    const canvas = defaultInitialCanvas('legacy-active', 'legacy-active', 'Shared')
+    const seed = await CollaborationService.open({ dataDir })
+    const owner = await seed.enableRoom({ canvasId: canvas.canvasId, projectId: canvas.projectId,
+      snapshot: canvas, deviceId: 'device-owner', displayName: 'Owner' })
+    await seed.close()
+    await mkdir(join(dataDir, 'workspace', 'documents'), { recursive: true })
+    await writeFile(join(dataDir, 'workspace', 'documents', `${canvas.canvasId}.json`), JSON.stringify(canvas), 'utf8')
+
+    const runtime = await createGatewayRuntime({ dataDir, envFile: join(dataDir, '.env.local'), env: {} })
+    runtimes.push(runtime)
+    expect(await runtime.workspace.getCanvasRecord(canvas.canvasId)).toMatchObject({
+      revision: 0, roomId: owner.room.roomId, epoch: expect.any(String),
+    })
+    expect(runtime.collaboration.getRoomStatus(owner.room.roomId, owner.sessionToken))
+      .toMatchObject({ roomId: owner.room.roomId })
+  })
+
+  it('invalidates a divergent restored room without overwriting the canvas or blocking startup', async () => {
+    const dataDir = await tempDirectory()
+    const stale = defaultInitialCanvas('legacy-stale', 'legacy-stale', 'Old room')
+    const authoritative = { ...stale, name: 'Current workspace' }
+    const seed = await CollaborationService.open({ dataDir })
+    const owner = await seed.enableRoom({ canvasId: stale.canvasId, projectId: stale.projectId,
+      snapshot: stale, deviceId: 'device-owner', displayName: 'Owner' })
+    await seed.close()
+    await mkdir(join(dataDir, 'workspace', 'documents'), { recursive: true })
+    await writeFile(join(dataDir, 'workspace', 'documents', `${stale.canvasId}.json`), JSON.stringify(authoritative), 'utf8')
+
+    const runtime = await createGatewayRuntime({ dataDir, envFile: join(dataDir, '.env.local'), env: {} })
+    runtimes.push(runtime)
+    expect(JSON.parse((await runtime.workspace.getCanvasDocument(stale.canvasId))!).name).toBe('Current workspace')
+    expect(() => runtime.collaboration.getRoomStatus(owner.room.roomId, owner.sessionToken)).toThrow()
+    const roomDir = join(dataDir, 'collaboration', owner.room.roomId)
+    expect(JSON.parse(await readFile(join(roomDir, 'metadata.json'), 'utf8'))).toMatchObject({ enabled: false })
+    expect((await readFile(join(roomDir, 'snapshot.bin'))).byteLength).toBeGreaterThan(0)
+  })
+
+  it('invalidates an obsolete restored room even when its content matches another bound room', async () => {
+    const dataDir = await tempDirectory()
+    const canvas = defaultInitialCanvas('obsolete-room-canvas')
+    const seed = await CollaborationService.open({ dataDir })
+    const old = await seed.enableRoom({ canvasId: canvas.canvasId, projectId: canvas.projectId,
+      snapshot: canvas, deviceId: 'device-owner', displayName: 'Owner' })
+    await seed.close()
+    const workspace = new WorkspaceService({ dataDir })
+    await workspace.applyWorkspaceMutation({ protocolVersion: 1, operationId: 'obsolete-canvas-save',
+      kind: 'save-canvas', expectedRevision: 0, canvas })
+    expect(await workspace.applyCollaborationCheckpoint({ snapshot: canvas,
+      roomId: 'current-room', epoch: 'current-epoch', sourceRevision: 'current', initial: true })).toBe(true)
+
+    const runtime = await createGatewayRuntime({ dataDir, envFile: join(dataDir, '.env.local'), env: {} })
+    runtimes.push(runtime)
+    expect(() => runtime.collaboration.getRoomStatus(old.room.roomId, old.sessionToken)).toThrow()
+    expect(await runtime.workspace.getCanvasRecord(canvas.canvasId)).toMatchObject({ roomId: 'current-room' })
+  })
+
   it('refreshes the provider catalog before creating a new generation job', async () => {
     const dataDir = await tempDirectory()
     const oldCatalog: ProviderCatalog = {
@@ -460,6 +520,27 @@ describe('gateway runtime provider adapters', () => {
     await closing
     const nextOwner = await DataDirectoryLock.acquire({ dataDir, token: () => 'next-instance' })
     await nextOwner.release()
+  })
+
+  it('does not acknowledge a current room checkpoint after another save takes ownership', async () => {
+    const dataDir = await tempDirectory()
+    const runtime = await createGatewayRuntime({ dataDir, envFile: join(dataDir, '.env.local'), env: {} })
+    runtimes.push(runtime)
+    const canvas = { version: 2 as const, canvasId: 'canvas-alpha', projectId: 'project-alpha',
+      name: 'Shared', viewport: { x: 0, y: 0, zoom: 1 }, nodes: [], edges: [] }
+    await runtime.workspace.applyWorkspaceMutation({ protocolVersion: 1, operationId: 'before-room',
+      kind: 'save-canvas', expectedRevision: 0, canvas })
+    const owner = await runtime.collaboration.enableRoom({ canvasId: canvas.canvasId,
+      projectId: canvas.projectId, snapshot: canvas, deviceId: 'device-owner', displayName: 'Owner' })
+    await runtime.workspace.applyWorkspaceMutation({ protocolVersion: 1, operationId: 'later-save',
+      kind: 'save-canvas', expectedRevision: 1, canvas: { ...canvas, name: 'Other save' } })
+    runtime.collaboration.documentForRoom(owner.room.roomId).getMap('meta').set('pending', true)
+    await expect(runtime.collaboration.checkpointRoom(owner.room.roomId))
+      .rejects.toMatchObject({ code: 'collaboration_persistence_failed' })
+    await expect(runtime.collaboration.closeRoom({ roomId: owner.room.roomId, sessionToken: owner.sessionToken }))
+      .rejects.toMatchObject({ code: 'collaboration_persistence_failed' })
+    expect(JSON.parse((await runtime.workspace.getCanvasDocument(canvas.canvasId))!).name).toBe('Other save')
+    await runtime.collaboration.closeCanvasRoom(canvas.projectId, canvas.canvasId)
   })
 
   it('awaits collaboration cleanup before releasing the lock when runner resume fails', async () => {

@@ -5,7 +5,6 @@ import type {
   CanvasStrokeItem,
   CanvasStrokePosition,
   CanvasNodeEffectShadow,
-  CanvasEffectType,
 } from '../../model/project'
 
 export interface ResolvedAppearance {

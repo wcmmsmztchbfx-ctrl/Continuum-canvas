@@ -363,6 +363,10 @@ export class GatewayClient {
     this.collaborationRoomId = roomId
   }
 
+  getCollaborationRoomId(): string | undefined {
+    return this.collaborationRoomId
+  }
+
   private async request<T>(
     path: string,
     init: RequestInit = {},
@@ -422,7 +426,7 @@ export class GatewayClient {
     }
   }
 
-  private async ensureLocalAdminSession(options?: GatewayRequestOptions): Promise<void> {
+  async ensureLocalAdminSession(options?: GatewayRequestOptions): Promise<void> {
     if (this.collaborationRoomId || this.localAdminSessionReady) return
     if (!this.localAdminSessionFlight) {
       this.localAdminSessionFlight = this.request<{ ok: boolean; created: boolean }>(
@@ -437,7 +441,7 @@ export class GatewayClient {
     return this.localAdminSessionFlight
   }
 
-  private async ensureSensitiveAccess(options?: GatewayRequestOptions): Promise<void> {
+  async ensureSensitiveAccess(options?: GatewayRequestOptions): Promise<void> {
     if (!this.collaborationRoomId) await this.ensureLocalAdminSession(options)
   }
 

@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InspectorPanel } from './InspectorPanel'
 import { createCanvasStore } from '../../store/canvas-store'
+import type { CanvasEffectItem } from '../../model/project'
 
 const mockSnapshot = {
   id: 'test',
@@ -13,6 +14,22 @@ const mockSnapshot = {
   nodes: [],
   edges: [],
   viewport: { x: 0, y: 0, zoom: 1 },
+}
+
+function createNumericEditStore(effects: CanvasEffectItem[] = []) {
+  const store = createCanvasStore({
+    ...mockSnapshot,
+    nodes: [{
+      id: 'numeric-edit',
+      type: 'shape',
+      name: '矩形',
+      position: { x: 10, y: 20 },
+      size: { width: 100, height: 80 },
+      data: { kind: 'rectangle', fill: '#333333', effects },
+    }],
+  })
+  store.getState().selectNode('numeric-edit')
+  return store
 }
 
 describe('InspectorPanel', () => {
@@ -182,6 +199,82 @@ describe('InspectorPanel', () => {
 
     expect((store.getState().snapshot.nodes[0].data as { opacity?: number }).opacity).toBe(0.9)
     expect((store.getState().snapshot.nodes[1].data as { opacity?: number }).opacity).toBe(0.9)
+  })
+
+  it('previews numeric edits until blur and restores the original size with one undo', () => {
+    const store = createNumericEditStore()
+    render(<InspectorPanel store={store} />)
+
+    const width = screen.getByLabelText('宽度')
+    fireEvent.change(width, { target: { value: '140' } })
+    fireEvent.change(width, { target: { value: '180' } })
+    expect(store.getState().snapshot.nodes[0].size.width).toBe(180)
+    expect(store.getState().canUndo).toBe(false)
+
+    fireEvent.blur(width)
+    expect(store.getState().canUndo).toBe(true)
+    act(() => store.getState().undo())
+    expect(screen.getByLabelText('宽度')).toHaveValue(100)
+    expect(store.getState().canUndo).toBe(false)
+  })
+
+  it('commits numeric transform edits when Enter blurs the input', () => {
+    const store = createNumericEditStore()
+    render(<InspectorPanel store={store} />)
+
+    const x = screen.getByLabelText('X 坐标')
+    act(() => x.focus())
+    fireEvent.change(x, { target: { value: '-30' } })
+    expect(store.getState().canUndo).toBe(false)
+    fireEvent.keyDown(x, { key: 'Enter' })
+    expect(x).not.toHaveFocus()
+    expect(store.getState().canUndo).toBe(true)
+
+    act(() => store.getState().undo())
+    expect(screen.getByLabelText('X 坐标')).toHaveValue(10)
+    expect(store.getState().canUndo).toBe(false)
+  })
+
+  it('previews label drags and commits one undo step on pointer release', () => {
+    const store = createNumericEditStore()
+    render(<InspectorPanel store={store} />)
+
+    const label = screen.getByText('W')
+    // jsdom does not implement native pointer capture.
+    label.setPointerCapture = () => {}
+    label.releasePointerCapture = () => {}
+    fireEvent.pointerDown(label, { button: 0, pointerId: 1, clientX: 100 })
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 120 })
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 140 })
+    expect(screen.getByLabelText('宽度')).toHaveValue(120)
+    expect(store.getState().canUndo).toBe(false)
+
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 140 })
+    expect(store.getState().canUndo).toBe(true)
+    act(() => store.getState().undo())
+    expect(screen.getByLabelText('宽度')).toHaveValue(100)
+    expect(store.getState().canUndo).toBe(false)
+  })
+
+  it('previews effect parameters until blur and undoes the entire edit once', () => {
+    const store = createNumericEditStore([
+      { id: 'shadow', type: 'inner-shadow', enabled: true, blur: 8 },
+    ])
+    render(<InspectorPanel store={store} />)
+    fireEvent.click(screen.getByLabelText('设置 内阴影 参数'))
+
+    const blur = screen.getByLabelText('模糊半径')
+    fireEvent.change(blur, { target: { value: '16' } })
+    fireEvent.change(blur, { target: { value: '24' } })
+    expect(blur).toHaveValue(24)
+    expect(store.getState().canUndo).toBe(false)
+
+    fireEvent.blur(blur)
+    expect(store.getState().canUndo).toBe(true)
+    act(() => store.getState().undo())
+    fireEvent.click(screen.getByLabelText('设置 内阴影 参数'))
+    expect(screen.getByLabelText('模糊半径')).toHaveValue(8)
+    expect(store.getState().canUndo).toBe(false)
   })
 
   it('renders path specific controls (edit vector and closed toggle) for a path node', () => {

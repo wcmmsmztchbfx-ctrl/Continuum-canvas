@@ -187,7 +187,7 @@ export async function renderCanvasThumbnail(
       context.textBaseline = 'top'
       context.fillText(node.data.text.slice(0, 80), position.x + 6, position.y + 6, Math.max(1, width - 12))
     } else {
-      context.strokeStyle = node.type === 'shape' ? node.data.stroke : '#68707c'
+      context.strokeStyle = (node.type === 'shape' ? node.data.stroke : undefined) || '#68707c'
       context.strokeRect(position.x, position.y, width, height)
     }
   }

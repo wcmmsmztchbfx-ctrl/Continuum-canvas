@@ -33,6 +33,7 @@ import {
 
 const MESSAGE_SYNC = 0
 const MESSAGE_AWARENESS = 1
+const MESSAGE_CHECKPOINT = 2
 const SOCKET_OPEN = 1
 const INITIAL_RECONNECT_DELAY_MS = 250
 const MAX_RECONNECT_DELAY_MS = 2_500
@@ -484,6 +485,8 @@ export class CanvasCollaborationSession {
   private terminal = false
   private reconcilingLeases = false
   private destroyPromise?: Promise<void>
+  private checkpointSequence = 0
+  private pendingCheckpoint?: { id: number; promise: Promise<void>; resolve(): void; reject(error: Error): void; timer: unknown }
   private currentStatus: CanvasCollaborationStatus = { state: 'connecting' }
   private stopEntityChanges: () => void = () => undefined
   private publishedSnapshot?: CanvasSnapshotV2
@@ -813,6 +816,36 @@ export class CanvasCollaborationSession {
     return readableSnapshot(this.#document)
   }
 
+  flush(): Promise<void> {
+    if (this.pendingCheckpoint) return this.pendingCheckpoint.promise
+    if (this.destroyed || this.stopped || this.currentStatus.state !== 'synced' || this.socket?.readyState !== SOCKET_OPEN) {
+      return Promise.reject(new Error('离线协作修改已保留，请恢复连接后再退出'))
+    }
+    const id = ++this.checkpointSequence
+    let resolve!: () => void
+    let reject!: (error: Error) => void
+    const promise = new Promise<void>((accept, fail) => { resolve = accept; reject = fail })
+    const timer = this.timers.setTimeout(() => {
+      this.rejectCheckpoint(new Error('等待协作检查点超时，本地修改已保留，请重试'))
+    }, 15_000)
+    this.pendingCheckpoint = { id, promise, resolve, reject, timer }
+    const message = encoding.createEncoder()
+    encoding.writeVarUint(message, MESSAGE_CHECKPOINT)
+    encoding.writeVarUint(message, id)
+    try { this.send(encoding.toUint8Array(message)) } catch {
+      this.rejectCheckpoint(new Error('协作连接已断开，本地修改已保留'))
+    }
+    return promise
+  }
+
+  private rejectCheckpoint(error: Error): void {
+    const pending = this.pendingCheckpoint
+    if (!pending) return
+    this.pendingCheckpoint = undefined
+    this.timers.clearTimeout(pending.timer)
+    pending.reject(error)
+  }
+
   stop(): void {
     if (this.stopped) return
     this.stopped = true
@@ -906,11 +939,13 @@ export class CanvasCollaborationSession {
       },
       error: () => {
         if (current() && !this.terminal) {
+          this.rejectCheckpoint(new Error('协作连接失败，本地修改已保留'))
           this.setStatus({ state: 'offline', error: 'Collaboration connection failed' })
         }
       },
       close: (event) => {
         if (!current()) return
+        this.rejectCheckpoint(new Error('协作连接已断开，本地修改已保留'))
         this.handleLeaseDisconnect()
         if (this.terminal || TERMINAL_CLOSE_CODES.has(event.code ?? 0)) {
           this.terminal = true
@@ -930,6 +965,7 @@ export class CanvasCollaborationSession {
   }
 
   private detachSocket(close: boolean): void {
+    this.rejectCheckpoint(new Error('协作连接已停止，本地修改已保留'))
     const listeners = this.socketListeners
     const socket = listeners?.socket ?? this.socket
     if (!socket) return
@@ -994,6 +1030,17 @@ export class CanvasCollaborationSession {
     }
     const decoder = decoding.createDecoder(bytes)
     const messageType = decoding.readVarUint(decoder)
+    if (messageType === MESSAGE_CHECKPOINT) {
+      const id = decoding.readVarUint(decoder)
+      if (decoding.hasContent(decoder)) throw new Error('Invalid checkpoint acknowledgment')
+      const pending = this.pendingCheckpoint
+      if (pending?.id === id) {
+        this.pendingCheckpoint = undefined
+        this.timers.clearTimeout(pending.timer)
+        pending.resolve()
+      }
+      return
+    }
     if (messageType === MESSAGE_SYNC) {
       const inspector = decoding.createDecoder(bytes)
       decoding.readVarUint(inspector)
@@ -1028,6 +1075,7 @@ export class CanvasCollaborationSession {
 
   private protocolFailure(code: number, reason: string, detail: string): void {
     if (this.terminal || this.destroyed) return
+    this.rejectCheckpoint(new Error(detail))
     this.terminal = true
     this.cancelReconnect()
     this.setStatus({ state: 'error', error: detail })

@@ -13,13 +13,6 @@ export interface ActiveCollaboration {
 
 const STORAGE_KEY = 'libtv.active-collaboration.v1'
 
-// Clean up legacy localStorage entries from older versions
-try {
-  globalThis.localStorage?.removeItem(STORAGE_KEY)
-} catch {
-  // Ignore storage errors
-}
-
 const listeners = new Set<(collab: ActiveCollaboration | null) => void>()
 
 export function getActiveCollaboration(): ActiveCollaboration | null {

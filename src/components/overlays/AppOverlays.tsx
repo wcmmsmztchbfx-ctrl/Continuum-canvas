@@ -8,26 +8,16 @@ import { canvasStore } from '../../store/canvas-store'
 import type { WorkspaceRepository } from '../../workspace'
 import { copyText } from '../../utils/clipboard'
 
-import {
-  AddNodeMenu,
-  BlankContextMenu,
-  CollaborationNicknameDialog,
-  CollaborationPopover,
-  ConfirmDialog,
-  HelpPopover,
-  KeyboardShortcutsDialog,
-  NodeContextMenu,
-  RenameProjectDialog,
-  SidePanel,
-  WorkspaceDropdown,
-  type AddNodeKind,
-  type BlankContextAction,
-  type HelpAction,
-  type NodeContextAction,
-  type OverlayPosition,
-  type SidePanelKind,
-  type WorkspaceAction,
-} from './index'
+import { AddNodeMenu, type AddNodeKind } from './AddNodeMenu'
+import { BlankContextMenu, NodeContextMenu, type BlankContextAction, type NodeContextAction } from './ContextMenus'
+import { CollaborationNicknameDialog, CollaborationPopover } from './CollaborationPopover'
+import { ConfirmDialog } from './ConfirmDialog'
+import { HelpPopover, type HelpAction } from './HelpPopover'
+import { KeyboardShortcutsDialog } from './KeyboardShortcutsDialog'
+import { RenameProjectDialog } from './RenameProjectDialog'
+import { SidePanel, type SidePanelKind } from './SidePanel'
+import { WorkspaceDropdown, type WorkspaceAction } from './WorkspaceDropdown'
+import type { OverlayPosition } from './primitives'
 import { GenerationHistoryModal } from './GenerationHistoryModal'
 import { AssetManagerModal } from './AssetManagerModal'
 import { SettingsModal } from './SettingsModal'

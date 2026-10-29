@@ -464,6 +464,56 @@ function sharedBroadcastPersistence() {
 }
 
 describe('CanvasCollaborationSession', () => {
+  it('flushes preceding local updates only after a matching checkpoint acknowledgment', async () => {
+    const sockets: FakeWebSocket[] = []
+    const server = createCollaborativeCanvasDocument(snapshot)
+    const session = await CanvasCollaborationSession.create({ roomId: editor.roomId, serverSession: editor,
+      persistenceFactory: persistence().factory, webSocketFactory: socketFactory(sockets) })
+    try {
+      const socket = sockets[0]!
+      attachServer(socket, server.doc)
+      await vi.waitFor(() => expect(session.status.state).toBe('synced'))
+      session.applySnapshot({ ...snapshot, name: '已发送的本地修改' })
+      const completed = vi.fn()
+      const pending = session.flush().then(completed)
+      await Promise.resolve()
+      expect(completed).not.toHaveBeenCalled()
+      const request = decoding.createDecoder(socket.sent.at(-1)!)
+      expect(decoding.readVarUint(request)).toBe(2)
+      const requestId = decoding.readVarUint(request)
+      expect(exportCollaborativeCanvasSnapshot(server).name).toBe('已发送的本地修改')
+      const ack = (id: number) => {
+        const encoder = encoding.createEncoder()
+        encoding.writeVarUint(encoder, 2); encoding.writeVarUint(encoder, id)
+        socket.receive(encoding.toUint8Array(encoder))
+      }
+      ack(requestId + 1)
+      await Promise.resolve(); await Promise.resolve()
+      expect(completed).not.toHaveBeenCalled()
+      ack(requestId)
+      await pending
+      expect(completed).toHaveBeenCalledOnce()
+    } finally { await session.destroy(); server.destroy() }
+  })
+
+  it.each(['disconnect', 'timeout', 'destroy'] as const)('rejects an unacknowledged checkpoint on %s without treating it as saved', async (failure) => {
+    const sockets: FakeWebSocket[] = []
+    const server = createCollaborativeCanvasDocument(snapshot)
+    const clock = new ManualClock()
+    const session = await CanvasCollaborationSession.create({ roomId: editor.roomId, serverSession: editor,
+      persistenceFactory: persistence().factory, webSocketFactory: socketFactory(sockets), timers: clock.timers })
+    try {
+      attachServer(sockets[0]!, server.doc)
+      await vi.waitFor(() => expect(session.status.state).toBe('synced'))
+      const pending = session.flush()
+      const rejected = expect(pending).rejects.toThrow()
+      if (failure === 'disconnect') sockets[0]!.disconnect()
+      else if (failure === 'timeout') clock.advance(15_000)
+      else await session.destroy()
+      await rejected
+    } finally { await session.destroy(); server.destroy() }
+  })
+
   it('lets only the server seed two concurrent first sessions sharing one broadcast cache', async () => {
     const seededSnapshot: CanvasSnapshotV2 = {
       ...snapshot,

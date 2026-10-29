@@ -1,12 +1,20 @@
 import { createReadStream } from 'node:fs'
 import { readdir, stat, unlink } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { BlockList, isIP } from 'node:net'
-import { networkInterfaces } from 'node:os'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { RemoteAssetTimeoutError, RemoteAssetValidationError } from './asset-store.ts'
 import { resolveCollaborationNetworkConfig, type GatewayEnvironment } from './config.ts'
+import {
+  formatGatewayOrigin,
+  hasLoopbackBrowserOrigin,
+  isAllowedHost,
+  isAllowedRemoteAddress,
+  isLoopbackHost,
+  isLoopbackRemoteAddress,
+  isPrivateLanHost,
+  selectPrivateLanAddress,
+} from './gateway-network.ts'
 import type { ProviderRecord } from './provider-registry.ts'
 import { IMAGE_REQUEST_MODES, type ImageRequestMode } from '../src/contracts/catalog.ts'
 import {
@@ -44,6 +52,8 @@ import {
 } from './collaboration-service.ts'
 import type { CollaborationServiceOptions } from './collaboration-service.ts'
 import { parseCanvasSnapshot } from '../src/model/project.ts'
+import { createCanvasStateResolver } from './canvas-state-resolver.ts'
+import { parseWorkspaceMutation, WorkspaceConflictError, WorkspaceInputError, WorkspaceOperationIdConflictError, WorkspacePreconditionError } from './workspace-commit.ts'
 import { attachCollaborationWebSocket } from './collaboration-websocket.ts'
 import {
   collaborationCookieName,
@@ -57,6 +67,16 @@ import {
   localAdminTokenFromCookie,
 } from './local-admin-service.ts'
 
+export {
+  formatGatewayOrigin,
+  isAllowedHost,
+  isAllowedRemoteAddress,
+  isLoopbackHost,
+  isLoopbackRemoteAddress,
+  isPrivateLanHost,
+  isPrivateLanRemoteAddress,
+  selectPrivateLanAddress,
+} from './gateway-network.ts'
 
 class ApiError extends Error {
   readonly status: number
@@ -87,10 +107,6 @@ class BodyLimitError extends ApiError {
 const JSON_LIMIT = 1024 * 1024
 const RAW_LIMIT = 100 * 1024 * 1024
 const COLLABORATION_ROOM_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
-const LOOPBACK_ADDRESSES = new BlockList()
-LOOPBACK_ADDRESSES.addSubnet('127.0.0.0', 8, 'ipv4')
-LOOPBACK_ADDRESSES.addAddress('::1', 'ipv6')
-LOOPBACK_ADDRESSES.addSubnet('::ffff:127.0.0.0', 104, 'ipv6')
 const STATIC_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -433,120 +449,6 @@ function canvasAssetReferenceCanvasId(path: string): string | undefined {
   return canvasId
 }
 
-function normalizeHost(host: string): string {
-  const normalized = host.trim().toLowerCase()
-  return normalized.startsWith('[') && normalized.endsWith(']')
-    ? normalized.slice(1, -1)
-    : normalized
-}
-
-export function isLoopbackRemoteAddress(address: string | undefined): boolean {
-  if (!address) return false
-  const normalized = normalizeHost(address)
-  const family = isIP(normalized)
-  if (family === 4) return LOOPBACK_ADDRESSES.check(normalized, 'ipv4')
-  if (family === 6) return LOOPBACK_ADDRESSES.check(normalized, 'ipv6')
-  return false
-}
-
-export function isPrivateLanRemoteAddress(address: string | undefined): boolean {
-  if (!address) return false
-  const normalized = normalizeHost(address)
-  const family = isIP(normalized)
-  if (family === 4) {
-    const octets = normalized.split('.').map(Number)
-    return octets[0] === 10 ||
-      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-      (octets[0] === 192 && octets[1] === 168) ||
-      (octets[0] === 169 && octets[1] === 254)
-  }
-  return family === 6 && (normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe8'))
-}
-
-export function isLoopbackHost(host: string): boolean {
-  const normalized = normalizeHost(host)
-  return normalized === 'localhost' || isLoopbackRemoteAddress(normalized)
-}
-
-export function isPrivateLanHost(host: string): boolean {
-  const normalized = normalizeHost(host)
-  return isPrivateLanRemoteAddress(normalized)
-}
-
-const VIRTUAL_ADAPTER = /(vmware|virtual|vethernet|hyper-v|wsl|docker|loopback|tunnel|vpn|tap|tun)/i
-
-export function selectPrivateLanAddress(): string | undefined {
-  const adapters = networkInterfaces()
-  const candidates = Object.entries(adapters).flatMap(([name, addresses = []]) =>
-    addresses
-      .filter((entry) => entry.family === 'IPv4' && !entry.internal && isPrivateLanRemoteAddress(entry.address))
-      .map((entry) => ({ name, address: entry.address })),
-  )
-  return candidates.find((entry) => !VIRTUAL_ADAPTER.test(entry.name))?.address
-    ?? candidates[0]?.address
-}
-
-export function isAllowedHost(
-  request: IncomingMessage,
-  dynamicAllowedOrigins: readonly string[] = [],
-  dynamicPublicOrigin?: string,
-): boolean {
-  const host = request.headers.host
-  if (!host || host.includes('@')) return false
-  let hostname: string
-  try {
-    hostname = new URL(`http://${host}`).hostname.toLowerCase()
-  } catch {
-    return false
-  }
-  if (isLoopbackHost(hostname) || isPrivateLanHost(hostname) || hostname === '0.0.0.0') return true
-  if (dynamicPublicOrigin) {
-    try {
-      if (new URL(dynamicPublicOrigin).hostname.toLowerCase() === hostname) return true
-    } catch {}
-  }
-  for (const origin of dynamicAllowedOrigins) {
-    try {
-      if (new URL(origin).hostname.toLowerCase() === hostname) return true
-    } catch {}
-  }
-  return false
-}
-
-export function isAllowedRemoteAddress(
-  address: string | undefined,
-  hasPublicOrigin: boolean,
-  localHostOnly: boolean,
-): boolean {
-  if (!localHostOnly || hasPublicOrigin) return true
-  return isLoopbackRemoteAddress(address) || isPrivateLanRemoteAddress(address)
-}
-
-function hasLoopbackBrowserOrigin(request: IncomingMessage): boolean {
-  const origin = request.headers.origin
-  if (typeof origin !== 'string') return false
-  try {
-    const parsed = new URL(origin)
-    return (
-      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
-      !parsed.username && !parsed.password &&
-      (isLoopbackHost(parsed.hostname) || isPrivateLanHost(parsed.hostname))
-    )
-  } catch {
-    return false
-  }
-}
-
-export function formatGatewayOrigin(host: string, port: number): string {
-  const normalized = normalizeHost(host)
-  if (normalized === '0.0.0.0') return `http://127.0.0.1:${port}`
-  if (isIP(normalized) === 6) {
-    const hostname = new URL(`http://[${normalized}]`).hostname
-    return `http://${hostname === '[::]' ? '[::1]' : hostname}:${port}`
-  }
-  return `http://${normalized}:${port}`
-}
-
 async function calculateDirStats(dirPath: string): Promise<{ bytes: number; count: number }> {
   let bytes = 0
   let count = 0
@@ -634,6 +536,11 @@ function classifyApiPath(pathname: string): { reserved: boolean; encoded: boolea
 
 function publicError(error: unknown): ApiError {
   if (error instanceof ApiError) return error
+  if (error instanceof WorkspacePreconditionError) return new ApiError(428, error.code, error.message)
+  if (error instanceof WorkspaceConflictError || error instanceof WorkspaceOperationIdConflictError) {
+    return new ApiError(409, error.code, error.message)
+  }
+  if (error instanceof WorkspaceInputError) return new ApiError(400, error.code, error.message)
   if (error instanceof RuntimeNotFoundError || /not found/i.test((error as Error).message)) {
     return new ApiError(404, 'not_found', 'Resource not found')
   }
@@ -713,7 +620,13 @@ async function serveAsset(
   if (!asset) throw new RuntimeNotFoundError('Asset not found')
   try {
     const opened = await runtime.assets.openResponse(assetId, request.headers.range)
-    response.writeHead(opened.status, { ...opened.headers, 'x-content-type-options': 'nosniff' })
+    response.writeHead(opened.status, {
+      ...opened.headers,
+      'x-content-type-options': 'nosniff',
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET, HEAD, OPTIONS',
+      'cross-origin-resource-policy': 'cross-origin',
+    })
     if (request.method === 'HEAD') {
       opened.stream.destroy()
       response.end()
@@ -726,6 +639,9 @@ async function serveAsset(
       'content-range': `bytes */${asset.size}`,
       'accept-ranges': 'bytes',
       'content-length': '0',
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET, HEAD, OPTIONS',
+      'cross-origin-resource-policy': 'cross-origin',
     })
     response.end()
   }
@@ -764,21 +680,37 @@ async function serveStatic(
   return true
 }
 
-async function routeApi(
-  runtime: GatewayRuntime,
-  localAdmin: LocalAdminService,
-  request: IncomingMessage,
-  response: ServerResponse,
-  url: URL,
-  rawBodyLimit: number,
-  signal: AbortSignal,
-  secureCollaborationCookies: boolean,
-  localAdminAllowed: boolean,
-  localAdminRecoveryAllowed: boolean,
-  frontendPort: number = 4173,
-  onReset?: () => Promise<void>,
-  isE2eMode?: boolean,
-): Promise<boolean> {
+interface ApiRouteContext {
+  runtime: GatewayRuntime
+  localAdmin: LocalAdminService
+  request: IncomingMessage
+  response: ServerResponse
+  url: URL
+  rawBodyLimit: number
+  signal: AbortSignal
+  secureCollaborationCookies: boolean
+  localAdminAllowed: boolean
+  localAdminRecoveryAllowed: boolean
+  frontendPort?: number
+  onReset?: () => Promise<void>
+  isE2eMode?: boolean
+}
+
+async function routeApi({
+  runtime,
+  localAdmin,
+  request,
+  response,
+  url,
+  rawBodyLimit,
+  signal,
+  secureCollaborationCookies,
+  localAdminAllowed,
+  localAdminRecoveryAllowed,
+  frontendPort = 4173,
+  onReset,
+  isE2eMode,
+}: ApiRouteContext): Promise<boolean> {
   const method = request.method ?? 'GET'
   const path = url.pathname
   if (path !== '/api' && !path.startsWith('/api/')) return false
@@ -1212,7 +1144,20 @@ async function routeApi(
   }
 
   if (method === 'POST' && path === '/api/agent/chat') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
+    const roomHeader = request.headers['x-collaboration-room']
+    if (typeof roomHeader === 'string' && roomHeader) {
+      const cookieRooms = collaborationRoomIdsFromCookieHeader(request.headers.cookie)
+      if (!COLLABORATION_ROOM_ID.test(roomHeader) || !cookieRooms.includes(roomHeader)) {
+        throw new CollaborationAuthorizationError('A matching collaboration room is required')
+      }
+      const session = runtime.collaboration.authorizeSession({
+        roomId: roomHeader,
+        sessionToken: collaborationSessionToken(request, roomHeader),
+      })
+      if (session.role === 'viewer') {
+        throw new CollaborationAuthorizationError('Viewers cannot use the agent')
+      }
+    }
     const body = record(await readJson(request))
     const messages = Array.isArray(body.messages) ? body.messages : []
     const tools = Array.isArray(body.tools) ? body.tools : undefined
@@ -1401,6 +1346,7 @@ async function routeApi(
     const deletedAssetIds = await runtime.trackOperation(async () => {
       const candidates = await runtime.canvasAssetReferences.release({ projectId, canvasId })
       const protectedIds = runtime.canvasAssetReferences.referencedAssetIds()
+      for (const id of (await runtime.workspace.getReferencedAssetMap()).keys()) protectedIds.add(id)
       for (const id of runtime.history.referencedAssetIds()) protectedIds.add(id)
       for (const id of runtime.jobs.referencedAssetIds()) protectedIds.add(id)
       return runtime.assets.deleteUnreferenced(candidates, protectedIds)
@@ -1409,80 +1355,49 @@ async function routeApi(
     return true
   }
   if (method === 'GET' && path === '/api/workspace/manifest') {
-    const manifest = await runtime.workspace.getManifest()
-    sendJson(response, 200, { manifest })
+    sendJson(response, 200, await runtime.workspace.getWorkspaceState())
     return true
   }
   if (method === 'POST' && path === '/api/workspace/commit') {
-    const body = await readJson(request) as {
-      manifest?: unknown
-      putDocuments?: Array<{ canvasId: string; serialized: string }>
-      deleteCanvasIds?: string[]
-    }
-    if (!body || typeof body !== 'object') {
-      throw new ApiError(400, 'invalid_input', 'Invalid workspace commit payload')
-    }
-    const manifest = await runtime.workspace.commit(body as import('../src/workspace/model.ts').WorkspaceCommit)
-    if (Array.isArray(body.putDocuments)) {
-      for (const doc of body.putDocuments) {
-        if (doc && typeof doc.serialized === 'string') {
-          const snapshot = parseCanvasSnapshot(doc.serialized)
-          const existing = await runtime.canvases.getCanvas(snapshot.canvasId)
-          if (snapshot.nodes.length === 0 && existing && existing.nodes.length > 0) {
-            continue
-          }
-          await runtime.canvases.saveCanvas(snapshot)
-        }
+    const mutation = parseWorkspaceMutation(await readJson(request))
+    const receipt = await runtime.workspace.applyWorkspaceMutation(mutation)
+    if (mutation.kind === 'edit-workspace') {
+      for (const canvasId of mutation.commit.deleteCanvasIds ?? []) {
+        const tombstone = await runtime.workspace.getCanvasRecord(canvasId)
+        if (tombstone?.deleted) await runtime.collaboration.closeCanvasRoom(tombstone.projectId, canvasId)
+        await runtime.canvases.deleteCanvas(canvasId)
       }
     }
-    if (Array.isArray(body.deleteCanvasIds)) {
-      for (const canvasId of body.deleteCanvasIds) {
-        if (typeof canvasId === 'string') {
-          await runtime.canvases.deleteCanvas(canvasId)
-        }
-      }
-    }
-    sendJson(response, 200, { manifest })
+    sendJson(response, 200, receipt)
     return true
   }
   const canvasPathMatch = /^\/api\/canvases\/([A-Za-z0-9._:-]+)$/.exec(path)
   if (canvasPathMatch && method === 'GET') {
     const canvasId = canvasPathMatch[1]
-    let canvas = await runtime.canvases.getCanvas(canvasId)
-    const doc = await runtime.workspace.getCanvasDocument(canvasId)
-    if (doc) {
-      try {
-        const parsed = parseCanvasSnapshot(doc)
-        if (!canvas || parsed.nodes.length > canvas.nodes.length) {
-          canvas = parsed
-          await runtime.canvases.saveCanvas(parsed)
-        }
-      } catch {
-        // ignore
-      }
+    const resolved = await createCanvasStateResolver(runtime.workspace)({ canvasId })
+    if (resolved) {
+      sendJson(response, 200, { canvas: resolved.snapshot, revision: resolved.revision,
+        workspaceRevision: resolved.workspaceRevision })
+      return true
     }
+    const record = await runtime.workspace.getCanvasRecord(canvasId)
+    if (record) throw new ApiError(404, 'canvas_not_found', `Canvas ${canvasId} not found`)
+    const canvas = await runtime.canvases.getCanvas(canvasId)
     if (!canvas) {
       throw new ApiError(404, 'canvas_not_found', `Canvas ${canvasId} not found`)
     }
-    sendJson(response, 200, { canvas })
+    sendJson(response, 200, { canvas, revision: 0,
+      workspaceRevision: (await runtime.workspace.getVersionState()).workspaceRevision })
     return true
   }
   if (canvasPathMatch && method === 'PUT') {
     const canvasId = canvasPathMatch[1]
-    const body = await readJson(request) as { canvas?: unknown } | Record<string, unknown>
-    const serialized = JSON.stringify(body && typeof body === 'object' && 'canvas' in body ? (body as { canvas: unknown }).canvas : body)
-    const snapshot = parseCanvasSnapshot(serialized)
-    if (snapshot.canvasId !== canvasId) {
+    const mutation = parseWorkspaceMutation(await readJson(request))
+    if (mutation.kind !== 'save-canvas' || mutation.canvas.canvasId !== canvasId) {
       throw new ApiError(400, 'invalid_input', 'Canvas ID mismatch')
     }
-    const existing = await runtime.canvases.getCanvas(canvasId)
-    if (snapshot.nodes.length === 0 && existing && existing.nodes.length > 0) {
-      sendJson(response, 200, { canvas: existing })
-      return true
-    }
-    await runtime.canvases.saveCanvas(snapshot)
-    await runtime.workspace.saveCanvasDocument(canvasId, serialized).catch(() => {})
-    sendJson(response, 200, { canvas: snapshot })
+    const receipt = await runtime.workspace.applyWorkspaceMutation(mutation)
+    sendJson(response, 200, { ...receipt, canvas: mutation.canvas, revision: receipt.canvasRevisions[canvasId] })
     return true
   }
   const canvasAgentChatMatch = /^\/api\/canvases\/([A-Za-z0-9._:-]+)\/agent-chat$/.exec(path)
@@ -1493,7 +1408,6 @@ async function routeApi(
     return true
   }
   if (canvasAgentChatMatch && method === 'PUT') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
     const canvasId = canvasAgentChatMatch[1]
     const body = await readJson(request) as { messages?: unknown[] }
     const messages = Array.isArray(body?.messages) ? body.messages : []
@@ -1502,7 +1416,6 @@ async function routeApi(
     return true
   }
   if (canvasAgentChatMatch && method === 'DELETE') {
-    authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
     const canvasId = canvasAgentChatMatch[1]
     await runtime.canvases.clearAgentChat(canvasId)
     sendJson(response, 200, { ok: true })
@@ -1568,6 +1481,16 @@ async function routeApi(
     return true
   }
   const assetMatch = /^\/api\/assets\/([0-9a-f-]{36})$/i.exec(path)
+  if (assetMatch && method === 'OPTIONS') {
+    response.writeHead(204, {
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET, HEAD, OPTIONS',
+      'access-control-allow-headers': '*',
+      'cross-origin-resource-policy': 'cross-origin',
+    })
+    response.end()
+    return true
+  }
   if (assetMatch && (method === 'GET' || method === 'HEAD')) {
     await serveAsset(runtime, request, response, assetMatch[1])
     return true
@@ -1730,19 +1653,19 @@ export async function startGateway(options: {
         const frontendPort = options.distDir
           ? (options.port ?? 4173)
           : (Number(process.env.CANVAS_VITE_PORT) || 4173)
-        await routeApi(
+        await routeApi({
           runtime,
           localAdmin,
           request,
           response,
           url,
-          options.rawBodyLimit ?? RAW_LIMIT,
+          rawBodyLimit: options.rawBodyLimit ?? RAW_LIMIT,
           signal,
-          (dynamicPublicOrigin ?? publicOrigin)?.toLowerCase().startsWith('https://') ?? false,
-          (localHostOnly && isLoopbackHost(host)) || loopbackBrowserOrigin,
-          loopbackBrowserOrigin,
+          secureCollaborationCookies: (dynamicPublicOrigin ?? publicOrigin)?.toLowerCase().startsWith('https://') ?? false,
+          localAdminAllowed: (localHostOnly && isLoopbackHost(host)) || loopbackBrowserOrigin,
+          localAdminRecoveryAllowed: loopbackBrowserOrigin,
           frontendPort,
-          async () => {
+          onReset: async () => {
             await runtime.workspace.reset()
             runtime.jobs.clear?.()
             runtime.canvases.clear?.()
@@ -1752,8 +1675,8 @@ export async function startGateway(options: {
             await rm(join(runtime.dataDir, 'jobs.json'), { force: true }).catch(() => {})
             await runtime.collaboration.reset?.()
           },
-          options.processEnv?.CONTINUUM_E2E === '1',
-        )
+          isE2eMode: options.processEnv?.CONTINUUM_E2E === '1',
+        })
         return
       }
       if (await serveStatic(options.distDir, request, response, url.pathname)) return

@@ -1,0 +1,44 @@
+.workspace-sync-status {
+  position: fixed;
+  z-index: 80;
+  bottom: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(480px, calc(100vw - 32px));
+  padding: 7px 11px;
+  color: #bfc6c8;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+  background: rgba(26, 29, 31, 0.94);
+  border: 1px solid #393e41;
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.workspace-sync-status:has(+ .floating-collab-badge) { bottom: 240px; }
+
+.workspace-sync-status[data-phase='pending'],
+.workspace-sync-status[data-phase='conflict'],
+.workspace-sync-status[data-phase='error'] {
+  color: #f1d7a3;
+}
+
+.workspace-sync-status__count { margin-left: 8px; color: #aeb5b8; }
+.workspace-sync-status__message { margin: 5px 0 0; overflow-wrap: anywhere; }
+.workspace-sync-status__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 6px; }
+.workspace-sync-status__actions button {
+  padding: 4px 7px;
+  color: #e7e9ea;
+  font: inherit;
+  background: #303638;
+  border: 1px solid #4a5256;
+  border-radius: 5px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.workspace-sync-status__actions button:hover { background: #3a4347; }
+.workspace-sync-status__actions button:focus-visible { outline: 2px solid #98bfcd; outline-offset: 2px; }
+.workspace-sync-status__actions button:disabled { cursor: wait; opacity: 0.55; }

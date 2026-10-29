@@ -86,6 +86,7 @@ export interface CollaborationSessionHandle {
   getLease(nodeId: string): NodeLease | undefined
   subscribeLeaseLost(listener: (lease: NodeLease) => void): () => void
   getSnapshot(): CanvasSnapshotV2 | undefined
+  flush(): Promise<void>
   applySnapshot(snapshot: CanvasSnapshotV2, options?: { includeViewport?: boolean }): void
   applySnapshotChange(previous: CanvasSnapshotV2, next: CanvasSnapshotV2): void
   applyEntityChanges(changes: CanvasEntityChangeSet): void
@@ -211,6 +212,8 @@ export class CanvasCollaborationController {
   private readonly leaseSettleMs: number
   private readonly leaseSettleTimers: NonNullable<CollaborationControllerOptions['leaseSettleTimers']>
   private readonly pendingLeaseSettles = new Set<() => void>()
+  private exiting?: { kind: 'leave' | 'close'; promise: Promise<void> }
+  private completedExitRoomId?: string
 
   constructor(options: CollaborationControllerOptions) {
     this.options = options
@@ -290,6 +293,7 @@ export class CanvasCollaborationController {
     kind: NodeLeaseKind,
     operation: () => T | Promise<T>,
   ): Promise<Awaited<T> | undefined> {
+    if (this.exiting || this.completedExitRoomId) return undefined
     if (!this.canvasSession) return await operation()
     const lease = this.acquireLease(nodeIds, kind)
     if (!lease) return undefined
@@ -564,6 +568,7 @@ export class CanvasCollaborationController {
   }
 
   refreshRoom(): Promise<void> {
+    if (this.exiting || this.completedExitRoomId) return Promise.resolve()
     const roomId = this.state.room?.roomId ?? this.state.authenticatedPendingResume
     if (!roomId || this.disposed) return Promise.resolve()
     if (this.refreshPromise) return this.refreshPromise
@@ -597,10 +602,12 @@ export class CanvasCollaborationController {
   }
 
   undo(): void {
+    if (this.exiting || this.completedExitRoomId) return
     this.canvasSession?.undo()
   }
 
   redo(): void {
+    if (this.exiting || this.completedExitRoomId) return
     this.canvasSession?.redo()
   }
 
@@ -612,25 +619,55 @@ export class CanvasCollaborationController {
     return this.canvasSession?.canRedo() ?? false
   }
 
-  async leave(): Promise<void> {
+  leave(): Promise<void> {
     const room = this.state.room
-    if (!room || !this.canvasSession) return
-    this.invalidateLifecycle()
-    await this.persistLatestSharedSnapshot()
-    await this.client.leaveRoom(room.roomId)
-    await this.detach()
-    this.clearRoomFromUrl()
-    clearActiveCollaboration()
+    if (!room || !this.canvasSession) return Promise.resolve()
+    return this.exitSession('leave', room)
   }
 
-  async closeRoom(): Promise<void> {
+  closeRoom(): Promise<void> {
     const room = this.requireOwnerRoom()
+    return this.exitSession('close', room)
+  }
+
+  private exitSession(kind: 'leave' | 'close', room: CollaborationRoom): Promise<void> {
+    if (this.exiting) return this.exiting.kind === kind ? this.exiting.promise : Promise.reject(new Error('正在退出协作，请稍候'))
+    const session = this.canvasSession
+    if (!session || this.disposed) return Promise.resolve()
     this.invalidateLifecycle()
-    await this.persistLatestSharedSnapshot()
-    await this.client.closeRoom(room.roomId)
-    await this.detach()
-    this.clearRoomFromUrl()
-    clearActiveCollaboration()
+    const epoch = this.operationEpoch
+    this.patch({ status: 'connecting', error: undefined })
+    const promise = Promise.resolve().then(async () => {
+      if (this.completedExitRoomId !== room.roomId) {
+        await session.flush()
+        this.assertCurrent(epoch)
+        if (kind === 'close') await this.client.closeRoom(room.roomId)
+        else await this.client.leaveRoom(room.roomId)
+        this.assertCurrent(epoch)
+        this.completedExitRoomId = room.roomId
+      }
+      const authoritative = await this.options.repository.loadCanvas(this.options.canvasId, { requireRemote: true })
+      this.assertCurrent(epoch)
+      if (!authoritative || authoritative.canvasId !== this.options.canvasId || authoritative.projectId !== this.options.projectId) {
+        throw new Error('无法读取协作检查点，请重试退出')
+      }
+      this.applyRemoteSnapshot(authoritative)
+      await this.detach()
+      this.completedExitRoomId = undefined
+      this.clearRoomFromUrl()
+      clearActiveCollaboration()
+    }).catch((error: unknown) => {
+      if (this.isCurrent(epoch)) {
+        this.patch({ status: this.completedExitRoomId ? 'connecting' : session.status.state,
+          error: error instanceof Error ? error.message : '协作退出失败，请重试' })
+        if (!this.completedExitRoomId) this.startRefreshLoop()
+      }
+      throw error
+    }).finally(() => {
+      if (this.exiting?.promise === promise) this.exiting = undefined
+    })
+    this.exiting = { kind, promise }
+    return promise
   }
 
   async destroy(): Promise<void> {
@@ -695,6 +732,7 @@ export class CanvasCollaborationController {
       }
     }
     this.unsubscribeSessionStatus = session.subscribeStatus((status) => {
+      if (this.exiting || this.completedExitRoomId) return
       this.patch({ status: status.state, error: status.error })
       const nextPresence = status.state === 'synced'
         ? session.getRemotePresence()
@@ -750,7 +788,7 @@ export class CanvasCollaborationController {
       const changes = diffCanvasEntities(previousSnapshot, current, 'local')
       if (!hasCanvasEntityChanges(changes)) return
       const shared = session.getSnapshot()
-      if (serverSession.role === 'viewer') {
+      if (serverSession.role === 'viewer' || this.exiting || this.completedExitRoomId) {
         if (shared) this.applyRemoteSnapshot(shared)
         return
       }
@@ -787,14 +825,6 @@ export class CanvasCollaborationController {
     } finally {
       this.applyingRemote = false
     }
-  }
-
-  private async persistLatestSharedSnapshot(): Promise<void> {
-    const snapshot = this.canvasSession?.getSnapshot()
-    if (!snapshot) return
-    const local = { ...snapshot, viewport: this.options.store.getState().snapshot.viewport }
-    this.applyRemoteSnapshot(local)
-    await this.options.repository.saveCanvas(local)
   }
 
   private async detach(resetState = true): Promise<void> {

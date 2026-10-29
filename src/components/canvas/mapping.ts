@@ -23,6 +23,7 @@ export type CanvasFlowNodeType =
   | 'frame'
   | 'shape'
   | 'path'
+  | 'skill'
 
 export type CanvasFlowNodeData = {
   canvasId?: string
@@ -125,7 +126,7 @@ export type CanvasFlowNodeData = {
 export type CanvasFlowNode = Node<CanvasFlowNodeData, CanvasFlowNodeType>
 export interface CanvasFlowEdgeData extends Record<string, unknown> {
   linkedToSelected?: boolean
-  relation: 'reference' | 'output' | 'flow'
+  relation: 'reference' | 'output' | 'flow' | 'skill'
   referenceAlias?: number
 }
 

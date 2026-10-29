@@ -24,6 +24,9 @@ import {
 } from '../../services/gatewayClient'
 
 export interface ProviderGateway {
+  ensureLocalAdminSession?: (
+    options?: GatewayRequestOptions,
+  ) => Promise<void>
   listProviders: (
     options?: GatewayRequestOptions,
   ) => Promise<ProviderMetadata[]>
@@ -351,8 +354,11 @@ export function ProviderCatalogProvider({
     const controller = new AbortController()
     lifecycleRef.current = controller
     void refreshProviders()
+    if (typeof gateway.ensureLocalAdminSession === 'function') {
+      void gateway.ensureLocalAdminSession({ signal: controller.signal }).catch(() => {})
+    }
     return () => controller.abort()
-  }, [refreshProviders])
+  }, [gateway, refreshProviders])
 
   const selectProvider = useCallback(
     async (providerId: string) => {

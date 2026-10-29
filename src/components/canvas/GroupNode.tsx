@@ -1,12 +1,30 @@
 import { memo } from 'react'
-import type { NodeProps } from '@xyflow/react'
+import { useStore as useReactFlowStore, type NodeProps } from '@xyflow/react'
 
 import { EditableNodeLabel } from './EditableNodeLabel'
 import type { CanvasFlowNode } from './mapping'
 
 function GroupNodeContent({ id, data }: NodeProps<CanvasFlowNode>) {
+  let zoom = 1
+  try {
+    zoom = useReactFlowStore((s) => s.transform[2])
+  } catch {
+    zoom = 1
+  }
+
+  const safeZoom = Math.max(0.01, zoom || 1)
+  const borderWidth = Math.max(2, Math.min(40, Math.round(2 / safeZoom)))
+  const borderRadius = Math.max(4, Math.min(40, Math.round(4 / safeZoom)))
+
   return (
-    <article aria-label={data.name} className="canvas-group-node">
+    <article
+      aria-label={data.name}
+      className="canvas-group-node"
+      style={{
+        '--group-border-width': `${borderWidth}px`,
+        '--group-border-radius': `${borderRadius}px`,
+      } as React.CSSProperties}
+    >
       <EditableNodeLabel
         name={data.name}
         nodeId={id}

@@ -1,6 +1,7 @@
 import type { CanvasAgentAction } from './agentTypes'
 import { CANVAS_AGENT_TOOLS } from './agentTypes'
 import type { CanvasAgentExecutor } from './canvasExecutor'
+import { gatewayClient } from '../gatewayClient'
 
 export interface AgentChatStreamCallbacks {
   onToken: (token: string) => void
@@ -37,10 +38,15 @@ export class AgentChatClient {
     const latestUserMessage = messages.filter((m) => m.role === 'user').at(-1)?.content || ''
 
     try {
+      const roomId = gatewayClient.getCollaborationRoomId()
+      const headers: Record<string, string> = { 'content-type': 'application/json' }
+      if (roomId) {
+        headers['x-collaboration-room'] = roomId
+      }
       // 尝试向本地 Gateway 的 /api/agent/chat 发送请求
       const response = await fetch('/api/agent/chat', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify({
           providerId: options.providerId,
           model: options.model,

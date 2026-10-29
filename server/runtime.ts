@@ -39,6 +39,7 @@ import {
   type ProviderAdapter,
 } from './providers/provider-adapter.ts'
 import {
+  CollaborationCheckpointRejectedError,
   CollaborationService,
   type CollaborationServiceOptions,
 } from './collaboration-service.ts'
@@ -275,25 +276,13 @@ export async function createGatewayRuntime(options: {
     const canvasAssetReferences = await CanvasAssetReferenceStore.open({ dataDir })
     const workspace = new WorkspaceService({ dataDir })
     const canvases = new CanvasPersistenceService({ dataDir })
+    await workspace.getManifest()
     const activeCollaboration = await CollaborationService.open({
       ...options.collaborationOptions,
       dataDir,
-      onSnapshotSaved: async (snapshot) => {
-        try {
-          await canvases.saveCanvas(snapshot)
-          await workspace.saveCanvasDocument(snapshot.canvasId, JSON.stringify(snapshot))
-          const manifest = await workspace.getManifest()
-          const canvas = manifest.canvases.find((c) => c.canvasId === snapshot.canvasId)
-          if (canvas) {
-            canvas.nodeCount = snapshot.nodes.length
-            if (snapshot.name && snapshot.name !== '未命名画布') {
-              canvas.name = snapshot.name
-            }
-            await workspace.commit({ manifest })
-          }
-        } catch {
-          // ignore
-        }
+      onSnapshotSaved: async (checkpoint) => {
+        const accepted = await workspace.applyCollaborationCheckpoint(checkpoint)
+        if (!accepted) throw new CollaborationCheckpointRejectedError()
       },
     })
     collaboration = activeCollaboration

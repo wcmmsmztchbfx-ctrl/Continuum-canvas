@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   MAX_INSPECTOR_WIDTH,
   MAX_LAYERS_WIDTH,
@@ -22,9 +22,9 @@ export function useSidebarResize({
   initialInspectorWidth,
   onPersistPreferences,
 }: UseSidebarResizeOptions) {
-  const [layersWidth, setLayersWidth] = useState(initialLayersWidth)
+  const [layersWidth, setLayersWidth] = useState(() => normalizeLayersWidth(initialLayersWidth))
   const [layersResizing, setLayersResizing] = useState(false)
-  const [inspectorWidth, setInspectorWidth] = useState(initialInspectorWidth)
+  const [inspectorWidth, setInspectorWidth] = useState(() => normalizeInspectorWidth(initialInspectorWidth))
   const [inspectorResizing, setInspectorResizing] = useState(false)
 
   const layersResizeRef = useRef<{
@@ -40,6 +40,36 @@ export function useSidebarResize({
     width: number
     cleanup: () => void
   } | undefined>(undefined)
+
+  const renderedWidth = useCallback((selector: string, fallback: number) =>
+    appShellRef.current?.querySelector(selector)?.getBoundingClientRect().width || fallback,
+  [appShellRef])
+
+  const maximumWidth = useCallback((side: 'layers' | 'inspector') => {
+    const shell = appShellRef.current
+    const available = shell?.getBoundingClientRect().width || window.innerWidth
+    const style = shell ? getComputedStyle(shell) : undefined
+    const rail = Number.parseFloat(style?.getPropertyValue('--layers-sidebar-rail-width') || '') || 48
+    const stageMinimum = Number.parseFloat(style?.getPropertyValue('--canvas-stage-min-width') || '') || 220
+    if (side === 'inspector') {
+      return Math.max(MIN_INSPECTOR_WIDTH, Math.min(
+        MAX_INSPECTOR_WIDTH, Math.floor(window.innerWidth * 0.5),
+        (available - rail - stageMinimum) / 2,
+        available - rail - renderedWidth('.app-layer-sidebar__content', layersWidth) - stageMinimum,
+      ))
+    }
+    return Math.max(MIN_LAYERS_WIDTH, Math.min(
+      MAX_LAYERS_WIDTH, Math.floor(window.innerWidth * 0.7),
+      available - rail - renderedWidth('.inspector-panel', inspectorWidth) - stageMinimum,
+    ))
+  }, [appShellRef, inspectorWidth, layersWidth, renderedWidth])
+
+  useEffect(() => () => {
+    layersResizeRef.current?.cleanup()
+    inspectorResizeRef.current?.cleanup()
+    layersResizeRef.current = undefined
+    inspectorResizeRef.current = undefined
+  }, [])
 
   const finishLayersResize = useCallback(() => {
     const resize = layersResizeRef.current
@@ -59,7 +89,7 @@ export function useSidebarResize({
       const move = (moveEvent: MouseEvent) => {
         const resize = layersResizeRef.current
         if (!resize) return
-        const maximum = Math.min(MAX_LAYERS_WIDTH, Math.floor(window.innerWidth * 0.7))
+        const maximum = maximumWidth('layers')
         const width = Math.min(
           maximum,
           Math.max(MIN_LAYERS_WIDTH, resize.startWidth + moveEvent.clientX - resize.startX),
@@ -77,8 +107,8 @@ export function useSidebarResize({
       }
       layersResizeRef.current = {
         startX: event.clientX,
-        startWidth: layersWidth,
-        width: layersWidth,
+        startWidth: renderedWidth('.app-layer-sidebar__content', layersWidth),
+        width: renderedWidth('.app-layer-sidebar__content', layersWidth),
         cleanup,
       }
       window.addEventListener('mousemove', move)
@@ -86,7 +116,7 @@ export function useSidebarResize({
       window.addEventListener('blur', end)
       setLayersResizing(true)
     },
-    [appShellRef, finishLayersResize, layersWidth],
+    [appShellRef, finishLayersResize, layersWidth, maximumWidth, renderedWidth],
   )
 
   const finishInspectorResize = useCallback(() => {
@@ -105,10 +135,10 @@ export function useSidebarResize({
       event.preventDefault()
       event.stopPropagation()
       const startX = event.clientX
-      const startWidth = inspectorWidth
+      const startWidth = renderedWidth('.inspector-panel', inspectorWidth)
       const move = (moveEvent: MouseEvent) => {
         const delta = startX - moveEvent.clientX
-        const maximum = Math.min(MAX_INSPECTOR_WIDTH, Math.floor(window.innerWidth * 0.6))
+        const maximum = maximumWidth('inspector')
         const width = Math.min(maximum, Math.max(MIN_INSPECTOR_WIDTH, startWidth + delta))
         const normalized = normalizeInspectorWidth(width)
         if (inspectorResizeRef.current) {
@@ -135,7 +165,7 @@ export function useSidebarResize({
       window.addEventListener('blur', end)
       setInspectorResizing(true)
     },
-    [appShellRef, finishInspectorResize, inspectorWidth],
+    [appShellRef, finishInspectorResize, inspectorWidth, maximumWidth, renderedWidth],
   )
 
   const resizeLayersByKeyboard = useCallback(
@@ -144,15 +174,16 @@ export function useSidebarResize({
       event.preventDefault()
       event.stopPropagation()
       const step = event.shiftKey ? 40 : 10
-      const maximum = Math.min(MAX_LAYERS_WIDTH, Math.floor(window.innerWidth * 0.7))
+      const maximum = maximumWidth('layers')
+      const currentWidth = renderedWidth('.app-layer-sidebar__content', layersWidth)
       const width = Math.min(
         maximum,
-        Math.max(MIN_LAYERS_WIDTH, layersWidth + (event.key === 'ArrowRight' ? step : -step)),
+        Math.max(MIN_LAYERS_WIDTH, currentWidth + (event.key === 'ArrowRight' ? step : -step)),
       )
       setLayersWidth(width)
       onPersistPreferences({ layersWidth: width })
     },
-    [layersWidth, onPersistPreferences],
+    [layersWidth, maximumWidth, onPersistPreferences, renderedWidth],
   )
 
   return {

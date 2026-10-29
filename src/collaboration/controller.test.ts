@@ -98,6 +98,7 @@ class FakeSession implements CollaborationSessionHandle {
   }))
   readonly getLease = vi.fn((_nodeId: string) => undefined as NodeLease | undefined)
   readonly destroy = vi.fn(async () => undefined)
+  readonly flush = vi.fn(async () => undefined)
   private readonly statusListeners = new Set<(status: CanvasCollaborationStatus) => void>()
   private readonly snapshotListeners = new Set<(snapshot: CanvasSnapshotV2) => void>()
   private readonly entityChangeListeners = new Set<(changes: CanvasEntityChangeSet) => void>()
@@ -174,6 +175,7 @@ function setup(input: {
   const events: string[] = []
   const saved: CanvasSnapshotV2[] = []
   const repository = {
+    loadCanvas: vi.fn(async () => structuredClone(session.snapshot)),
     saveCanvas: vi.fn(async (snapshot: CanvasSnapshotV2) => {
       events.push('backup')
       saved.push(structuredClone(snapshot))
@@ -217,6 +219,75 @@ function setup(input: {
 }
 
 describe('CanvasCollaborationController', () => {
+  it.each(['leave', 'closeRoom'] as const)('refreshes the server checkpoint during %s without saving against the old revision', async (action) => {
+    const subject = setup()
+    await subject.controller.enable('Owner')
+    vi.mocked(subject.repository.saveCanvas).mockRejectedValue(Object.assign(new Error('旧 revision 冲突'), { status: 409 }))
+    const order: string[] = []
+    subject.session.flush.mockImplementation(async () => { order.push('checkpoint') })
+    const clientAction = action === 'leave' ? subject.client.leaveRoom : subject.client.closeRoom
+    vi.mocked(clientAction).mockImplementation(async () => { order.push('exit') })
+    const authoritative = { ...v2(), name: '服务端最新检查点' }
+    vi.mocked(subject.repository.loadCanvas).mockImplementation(async () => { order.push('load'); return authoritative })
+
+    await subject.controller[action]()
+
+    expect(order).toEqual(['checkpoint', 'exit', 'load'])
+    expect(subject.repository.saveCanvas).toHaveBeenCalledTimes(1)
+    expect(subject.repository.loadCanvas).toHaveBeenLastCalledWith('canvas-a', { requireRemote: true })
+    expect(subject.store.getState().snapshot.name).toBe('服务端最新检查点')
+    expect(subject.controller.getState().status).toBe('inactive')
+    expect(subject.controller.isLocalAutosaveSuppressed()).toBe(false)
+  })
+
+  it('keeps editing disabled throughout the checkpoint barrier despite session status updates', async () => {
+    const subject = setup()
+    await subject.controller.enable('Owner')
+    let release!: () => void
+    subject.session.flush.mockImplementation(() => new Promise<void>((resolve) => { release = resolve }))
+    const closing = subject.controller.closeRoom()
+    await vi.waitFor(() => expect(subject.session.flush).toHaveBeenCalledOnce())
+    subject.session.emitStatus({ state: 'offline' })
+    subject.session.emitStatus({ state: 'synced' })
+    expect(subject.controller.getState().status).toBe('connecting')
+    subject.store.getState().renameNode('text-a', '禁止退出中修改')
+    expect(subject.store.getState().snapshot.nodes[0]?.name).toBe('Text A')
+    expect(subject.client.closeRoom).not.toHaveBeenCalled()
+    expect(subject.controller.isLocalAutosaveSuppressed()).toBe(true)
+    release()
+    await closing
+  })
+
+  it('retains the offline session and its local shared updates when leaving cannot checkpoint', async () => {
+    const subject = setup()
+    await subject.controller.enable('Owner')
+    subject.store.getState().renameNode('text-a', '离线协作修改')
+    subject.session.emitStatus({ state: 'offline' })
+    subject.session.flush.mockRejectedValueOnce(new Error('离线修改已保留，请连接后重试'))
+    await expect(subject.controller.leave()).rejects.toThrow('连接后重试')
+    expect(subject.session.destroy).not.toHaveBeenCalled()
+    expect(subject.client.leaveRoom).not.toHaveBeenCalled()
+    expect(subject.controller.isLocalAutosaveSuppressed()).toBe(true)
+    expect(subject.session.snapshot.nodes[0]?.name).toBe('离线协作修改')
+    subject.session.emitStatus({ state: 'synced' })
+    await subject.controller.leave()
+    expect(subject.controller.getState().status).toBe('inactive')
+  })
+
+  it('retries only the authoritative reload if closing already succeeded', async () => {
+    const subject = setup()
+    await subject.controller.enable('Owner')
+    vi.mocked(subject.repository.loadCanvas).mockRejectedValueOnce(new Error('权威版本暂不可读'))
+    await expect(subject.controller.closeRoom()).rejects.toThrow('权威版本暂不可读')
+    expect(subject.controller.getState().status).toBe('connecting')
+    expect(subject.session.destroy).not.toHaveBeenCalled()
+    expect(subject.controller.isLocalAutosaveSuppressed()).toBe(true)
+    await subject.controller.closeRoom()
+    expect(subject.session.flush).toHaveBeenCalledOnce()
+    expect(subject.client.closeRoom).toHaveBeenCalledOnce()
+    expect(subject.controller.getState().status).toBe('inactive')
+  })
+
   it('resumes an existing room when enabling the same canvas conflicts', async () => {
     const subject = setup()
     vi.mocked(subject.client.enableRoom).mockRejectedValueOnce(

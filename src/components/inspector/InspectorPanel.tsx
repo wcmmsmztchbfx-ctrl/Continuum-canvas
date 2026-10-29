@@ -35,8 +35,6 @@ import {
   CornerUpRight,
   Minus,
   MoreHorizontal,
-  Droplets,
-  BoxSelect,
   Layers,
   Plus,
 } from 'lucide-react'
@@ -61,6 +59,7 @@ import {
 } from '../canvas/effectStyleUtils'
 import { EffectSettingsPopover } from './EffectSettingsPopover'
 import { ScrubbableLabel } from './ScrubbableLabel'
+import { ScrubbableNumberInput } from './ScrubbableNumberInput'
 import './inspector.css'
 
 export interface FigmaEffectOption {
@@ -525,31 +524,14 @@ export function InspectorPanel({
             </div>
             <div className="inspector-row">
               <div className="inspector-field">
-                <ScrubbableLabel
-                  label="不透明度"
-                  max={100}
-                  min={0}
-                  onChange={(val) => updateSelectedNodesData({ opacity: Math.min(1, Math.max(0, val / 100)) }, false)}
-                  onChangeEnd={(val) => updateSelectedNodesData({ opacity: Math.min(1, Math.max(0, val / 100)) }, true)}
-                  value={averageOpacity}
-                />
-                <input
+                <ScrubbableNumberInput
                   aria-label="批量透明度百分比"
-                  className="inspector-field__input"
                   disabled={readOnly}
-                  max={100}
+                  label="不透明度"
                   min={0}
-                  onBlur={(e) =>
-                    updateSelectedNodesData({
-                      opacity: Math.min(1, Math.max(0, (Number(e.target.value) || 0) / 100)),
-                    }, true)
-                  }
-                  onChange={(e) =>
-                    updateSelectedNodesData({
-                      opacity: Math.min(1, Math.max(0, (Number(e.target.value) || 0) / 100)),
-                    }, false)
-                  }
-                  type="number"
+                  max={100}
+                  onValueChange={(val, commit) => updateSelectedNodesData({ opacity: Math.min(1, Math.max(0, val / 100)) }, commit)}
+                  scrubProps={{ min: 0, max: 100 }}
                   value={averageOpacity}
                 />
                 <span style={{ color: '#737373', fontSize: '10px' }}>%</span>
@@ -835,86 +817,58 @@ export function InspectorPanel({
           </div>
           <div className="inspector-row">
             <div className="inspector-field">
-              <ScrubbableLabel
-                label="X"
-                onChange={(val) => handlePosChange('x', val, false)}
-                onChangeEnd={(val) => handlePosChange('x', val, true)}
-                value={Math.round(activeNode.position.x)}
-              />
-              <input
+              <ScrubbableNumberInput
                 aria-label="X 坐标"
-                className="inspector-field__input"
                 disabled={readOnly || isLocked}
-                onBlur={(e) => handlePosChange('x', Number(e.target.value), true)}
-                onChange={(e) => handlePosChange('x', Number(e.target.value), false)}
+                label="X"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                 }}
-                type="number"
+                onValueChange={(val, commit) => handlePosChange('x', val, commit)}
+                parseInput={Number}
                 value={Math.round(activeNode.position.x)}
               />
             </div>
             <div className="inspector-field">
-              <ScrubbableLabel
-                label="Y"
-                onChange={(val) => handlePosChange('y', val, false)}
-                onChangeEnd={(val) => handlePosChange('y', val, true)}
-                value={Math.round(activeNode.position.y)}
-              />
-              <input
+              <ScrubbableNumberInput
                 aria-label="Y 坐标"
-                className="inspector-field__input"
                 disabled={readOnly || isLocked}
-                onBlur={(e) => handlePosChange('y', Number(e.target.value), true)}
-                onChange={(e) => handlePosChange('y', Number(e.target.value), false)}
+                label="Y"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                 }}
-                type="number"
+                onValueChange={(val, commit) => handlePosChange('y', val, commit)}
+                parseInput={Number}
                 value={Math.round(activeNode.position.y)}
               />
             </div>
           </div>
           <div className="inspector-row">
             <div className="inspector-field">
-              <ScrubbableLabel
-                label="W"
-                min={1}
-                onChange={(val) => handleSizeChange('width', val, false)}
-                onChangeEnd={(val) => handleSizeChange('width', val, true)}
-                value={Math.round(activeNode.size.width)}
-              />
-              <input
+              <ScrubbableNumberInput
                 aria-label="宽度"
-                className="inspector-field__input"
                 disabled={readOnly || isLocked}
-                onBlur={(e) => handleSizeChange('width', Number(e.target.value), true)}
-                onChange={(e) => handleSizeChange('width', Number(e.target.value), false)}
+                label="W"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                 }}
-                type="number"
+                onValueChange={(val, commit) => handleSizeChange('width', val, commit)}
+                parseInput={Number}
+                scrubProps={{ min: 1 }}
                 value={Math.round(activeNode.size.width)}
               />
             </div>
             <div className="inspector-field">
-              <ScrubbableLabel
-                label="H"
-                min={1}
-                onChange={(val) => handleSizeChange('height', val, false)}
-                onChangeEnd={(val) => handleSizeChange('height', val, true)}
-                value={Math.round(activeNode.size.height)}
-              />
-              <input
+              <ScrubbableNumberInput
                 aria-label="高度"
-                className="inspector-field__input"
                 disabled={readOnly || isLocked}
-                onBlur={(e) => handleSizeChange('height', Number(e.target.value), true)}
-                onChange={(e) => handleSizeChange('height', Number(e.target.value), false)}
+                label="H"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                 }}
-                type="number"
+                onValueChange={(val, commit) => handleSizeChange('height', val, commit)}
+                parseInput={Number}
+                scrubProps={{ min: 1 }}
                 value={Math.round(activeNode.size.height)}
               />
             </div>
@@ -925,22 +879,14 @@ export function InspectorPanel({
             {'rotation' in activeNode.data ? (
               <div className="inspector-field">
                 <span className="inspector-field__prefix-icon"><RotateCw size={11} /></span>
-                <ScrubbableLabel
-                  label="旋转°"
-                  onChange={(val) => updateActiveData({ rotation: val }, false)}
-                  onChangeEnd={(val) => updateActiveData({ rotation: val }, true)}
-                  value={Math.round((activeNode.data as { rotation?: number }).rotation ?? 0)}
-                />
-                <input
+                <ScrubbableNumberInput
                   aria-label="旋转角度"
-                  className="inspector-field__input"
                   disabled={readOnly || isLocked}
-                  onBlur={(e) => updateActiveData({ rotation: Number(e.target.value) || 0 }, true)}
-                  onChange={(e) => updateActiveData({ rotation: Number(e.target.value) || 0 }, false)}
+                  label="旋转°"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                   }}
-                  type="number"
+                  onValueChange={(val, commit) => updateActiveData({ rotation: val }, commit)}
                   value={Math.round((activeNode.data as { rotation?: number }).rotation ?? 0)}
                 />
               </div>
@@ -948,24 +894,16 @@ export function InspectorPanel({
             {'radius' in activeNode.data || nodeType === 'image' || nodeType === 'video' ? (
               <div className="inspector-field">
                 <span className="inspector-field__prefix-icon"><CornerUpRight size={11} /></span>
-                <ScrubbableLabel
+                <ScrubbableNumberInput
+                  aria-label="圆角大小"
+                  disabled={readOnly || isLocked}
                   label="圆角"
                   min={0}
-                  onChange={(val) => updateActiveData({ radius: Math.max(0, val) }, false)}
-                  onChangeEnd={(val) => updateActiveData({ radius: Math.max(0, val) }, true)}
-                  value={Math.round((activeNode.data as { radius?: number }).radius ?? 0)}
-                />
-                <input
-                  aria-label="圆角大小"
-                  className="inspector-field__input"
-                  disabled={readOnly || isLocked}
-                  min={0}
-                  onBlur={(e) => updateActiveData({ radius: Math.max(0, Number(e.target.value) || 0) }, true)}
-                  onChange={(e) => updateActiveData({ radius: Math.max(0, Number(e.target.value) || 0) }, false)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                   }}
-                  type="number"
+                  onValueChange={(val, commit) => updateActiveData({ radius: Math.max(0, val) }, commit)}
+                  scrubProps={{ min: 0 }}
                   value={Math.round((activeNode.data as { radius?: number }).radius ?? 0)}
                 />
               </div>
@@ -1011,34 +949,17 @@ export function InspectorPanel({
           </div>
           <div className="inspector-row">
             <div className="inspector-field">
-              <ScrubbableLabel
-                label="不透明度"
-                max={100}
-                min={0}
-                onChange={(val) => updateActiveData({ opacity: Math.min(1, Math.max(0, val / 100)) }, false)}
-                onChangeEnd={(val) => updateActiveData({ opacity: Math.min(1, Math.max(0, val / 100)) }, true)}
-                value={Math.round(((activeNode.data as { opacity?: number }).opacity ?? 1) * 100)}
-              />
-              <input
+              <ScrubbableNumberInput
                 aria-label="透明度百分比"
-                className="inspector-field__input"
                 disabled={readOnly || isLocked}
-                max={100}
+                label="不透明度"
                 min={0}
-                onBlur={(e) =>
-                  updateActiveData({
-                    opacity: Math.min(1, Math.max(0, (Number(e.target.value) || 0) / 100)),
-                  }, true)
-                }
-                onChange={(e) =>
-                  updateActiveData({
-                    opacity: Math.min(1, Math.max(0, (Number(e.target.value) || 0) / 100)),
-                  }, false)
-                }
+                max={100}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                 }}
-                type="number"
+                onValueChange={(val, commit) => updateActiveData({ opacity: Math.min(1, Math.max(0, val / 100)) }, commit)}
+                scrubProps={{ min: 0, max: 100 }}
                 value={Math.round(((activeNode.data as { opacity?: number }).opacity ?? 1) * 100)}
               />
               <span style={{ color: '#737373', fontSize: '10px' }}>%</span>

@@ -1,4 +1,5 @@
 import type { CanvasEdge, CanvasNode, CanvasSnapshotV2 } from './model/project'
+import { copyText } from './utils/clipboard'
 
 export const CANVAS_CLIPBOARD_MIME = 'application/x-libtv-canvas-nodes+json'
 const ENVELOPE_KIND = 'libtv-canvas-nodes'
@@ -107,35 +108,124 @@ async function mediaFiles(files: File[]): Promise<File[]> {
   return resolved
 }
 
-function safeMediaUrl(value: string): { media: 'image' | 'video'; url: string } | undefined {
+function isLikeCanvasNode(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return typeof candidate.id === 'string' && typeof candidate.type === 'string'
+}
+
+function normalizeNodeLike(node: any, index: number): CanvasNode {
+  return {
+    id: typeof node.id === 'string' && node.id ? node.id : `imported-node-${index}`,
+    type: typeof node.type === 'string' ? node.type : 'text',
+    name: typeof node.name === 'string' ? node.name : '导入节点',
+    position: node.position && typeof node.position.x === 'number' && typeof node.position.y === 'number'
+      ? { x: node.position.x, y: node.position.y }
+      : { x: index * 40, y: index * 40 },
+    size: node.size && typeof node.size.width === 'number' && typeof node.size.height === 'number'
+      ? { width: node.size.width, height: node.size.height }
+      : { width: 300, height: 200 },
+    parentId: typeof node.parentId === 'string' ? node.parentId : undefined,
+    data: node.data && typeof node.data === 'object' ? node.data : {},
+  } as CanvasNode
+}
+
+export function safeMediaUrl(value: string): { media: 'image' | 'video'; url: string } | undefined {
   const trimmed = value.trim()
   if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(trimmed)) return { media: 'image', url: trimmed }
   if (/^data:video\/[a-z0-9.+-]+;base64,/i.test(trimmed)) return { media: 'video', url: trimmed }
+  if (trimmed.startsWith('blob:')) return { media: 'image', url: trimmed }
+
   let url: URL
   try {
-    url = new URL(trimmed)
+    const base = typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'http://localhost'
+    url = new URL(trimmed, base)
   } catch {
     return undefined
   }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined
+  if (url.protocol !== 'http:' && url.protocol !== 'https:' && url.protocol !== 'blob:') return undefined
+
+  if (
+    url.pathname.includes('/api/assets/') ||
+    url.pathname.startsWith('/api/assets') ||
+    url.pathname.startsWith('/asset')
+  ) {
+    return { media: 'image', url: url.href }
+  }
+
   const extension = extensionOf(url.pathname)
   if (imageExtensions.has(extension)) return { media: 'image', url: url.href }
   if (videoExtensions.has(extension)) return { media: 'video', url: url.href }
   return undefined
 }
 
-function parseEnvelope(value: string): CanvasClipboardEnvelope | undefined {
+export function parseEnvelope(value: string): CanvasClipboardEnvelope | undefined {
   if (!value.trim()) return undefined
   try {
-    const parsed = JSON.parse(value) as Partial<CanvasClipboardEnvelope>
+    const parsed = JSON.parse(value) as any
+
+    // Case 1: Standard envelope with kind === ENVELOPE_KIND
     if (
-      parsed.kind !== ENVELOPE_KIND ||
-      parsed.version !== ENVELOPE_VERSION ||
-      typeof parsed.sourceCanvasId !== 'string' ||
-      !Array.isArray(parsed.nodes) ||
-      !Array.isArray(parsed.edges)
-    ) return undefined
-    return parsed as CanvasClipboardEnvelope
+      parsed &&
+      typeof parsed === 'object' &&
+      parsed.kind === ENVELOPE_KIND &&
+      Array.isArray(parsed.nodes)
+    ) {
+      return {
+        kind: ENVELOPE_KIND,
+        version: ENVELOPE_VERSION,
+        sourceCanvasId: typeof parsed.sourceCanvasId === 'string' ? parsed.sourceCanvasId : '',
+        nodes: parsed.nodes.map(normalizeNodeLike),
+        edges: Array.isArray(parsed.edges) ? parsed.edges : [],
+      }
+    }
+
+    // Case 2: Array of CanvasNode objects (e.g. from copy-to-clipboard: [ { id: '...', type: '...', ... } ])
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every(isLikeCanvasNode)
+    ) {
+      return {
+        kind: ENVELOPE_KIND,
+        version: ENVELOPE_VERSION,
+        sourceCanvasId: '',
+        nodes: parsed.map(normalizeNodeLike),
+        edges: [],
+      }
+    }
+
+    // Case 3: Object with nodes array: { nodes: [...], edges?: [...] }
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      Array.isArray(parsed.nodes) &&
+      parsed.nodes.length > 0 &&
+      parsed.nodes.every(isLikeCanvasNode)
+    ) {
+      return {
+        kind: ENVELOPE_KIND,
+        version: ENVELOPE_VERSION,
+        sourceCanvasId: typeof parsed.sourceCanvasId === 'string' ? parsed.sourceCanvasId : '',
+        nodes: parsed.nodes.map(normalizeNodeLike),
+        edges: Array.isArray(parsed.edges) ? parsed.edges : [],
+      }
+    }
+
+    // Case 4: Single CanvasNode object: { id: '...', type: '...', ... }
+    if (isLikeCanvasNode(parsed)) {
+      return {
+        kind: ENVELOPE_KIND,
+        version: ENVELOPE_VERSION,
+        sourceCanvasId: '',
+        nodes: [normalizeNodeLike(parsed, 0)],
+        edges: [],
+      }
+    }
+
+    return undefined
   } catch {
     return undefined
   }
@@ -147,6 +237,28 @@ export function createCanvasClipboardEnvelope(
   sourceCanvasId = snapshot.canvasId,
 ): CanvasClipboardEnvelope {
   const selected = new Set(selectedNodeIds)
+  let addedDescendant = true
+  while (addedDescendant) {
+    addedDescendant = false
+    for (const node of snapshot.nodes) {
+      if (selected.has(node.id)) {
+        if (node.type === 'group' || node.type === 'frame') {
+          for (const childId of (node.data.childIds ?? [])) {
+            if (!selected.has(childId)) {
+              selected.add(childId)
+              addedDescendant = true
+            }
+          }
+        }
+        continue
+      }
+      if (node.parentId && selected.has(node.parentId)) {
+        selected.add(node.id)
+        addedDescendant = true
+      }
+    }
+  }
+
   return {
     kind: ENVELOPE_KIND,
     version: ENVELOPE_VERSION,
@@ -243,10 +355,19 @@ export async function writeCanvasClipboardEnvelope(
     }
   }
   if (clipboard.writeText) {
-    await clipboard.writeText(serialized)
-    return serialized
+    try {
+      await clipboard.writeText(serialized)
+      return serialized
+    } catch {
+      // Fall through to copyText fallback
+    }
   }
-  throw new Error('浏览器未允许写入剪贴板')
+  try {
+    await copyText(serialized)
+    return serialized
+  } catch {
+    throw new Error('浏览器未允许写入剪贴板')
+  }
 }
 
 export function materializeCanvasClipboardEnvelope(

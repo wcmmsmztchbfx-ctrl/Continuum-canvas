@@ -3,18 +3,19 @@ import type { DBSchema, IDBPDatabase } from 'idb'
 
 import { parseProjectSnapshot } from '../model/project'
 import type { ProjectSnapshotV1 } from '../model/project'
+import { emptyWorkspaceSyncRecord, type WorkspaceSyncRecord, type WorkspaceSyncStorageBackend } from './workspaceSyncState'
 import type {
   WorkspaceCommit,
   WorkspaceInitialization,
-  WorkspaceStorageBackend,
 } from '../workspace/repository'
 
 const DEFAULT_DATABASE_NAME = 'libtv-canvas'
-export const DATABASE_VERSION = 3
+export const DATABASE_VERSION = 4
 export const PROJECT_STORE_NAME = 'projects'
 export const WORKSPACE_MANIFEST_STORE_NAME = 'workspace-manifests'
 export const CANVAS_DOCUMENT_STORE_NAME = 'canvas-documents'
 export const CANVAS_THUMBNAIL_STORE_NAME = 'canvas-thumbnails'
+export const WORKSPACE_SYNC_STORE_NAME = 'workspace-sync'
 const WORKSPACE_MANIFEST_KEY = 'workspace'
 
 interface StoredProject {
@@ -57,6 +58,10 @@ interface ProjectDatabase extends DBSchema {
   'canvas-thumbnails': {
     key: string
     value: CanvasThumbnailRecord
+  }
+  'workspace-sync': {
+    key: string
+    value: WorkspaceSyncRecord
   }
 }
 
@@ -105,6 +110,9 @@ export function upgradeProjectDatabase(database: DatabaseUpgradeTarget): void {
   if (!database.objectStoreNames.contains(CANVAS_THUMBNAIL_STORE_NAME)) {
     database.createObjectStore(CANVAS_THUMBNAIL_STORE_NAME, { keyPath: 'canvasId' })
   }
+  if (!database.objectStoreNames.contains(WORKSPACE_SYNC_STORE_NAME)) {
+    database.createObjectStore(WORKSPACE_SYNC_STORE_NAME, { keyPath: 'id' })
+  }
 }
 
 function createDatabasePromise(
@@ -120,7 +128,8 @@ function createDatabasePromise(
               | typeof PROJECT_STORE_NAME
               | typeof WORKSPACE_MANIFEST_STORE_NAME
               | typeof CANVAS_DOCUMENT_STORE_NAME
-              | typeof CANVAS_THUMBNAIL_STORE_NAME,
+              | typeof CANVAS_THUMBNAIL_STORE_NAME
+              | typeof WORKSPACE_SYNC_STORE_NAME,
             options as IDBObjectStoreParameters,
           ),
       })
@@ -270,7 +279,7 @@ export function createIndexedDbProjectBackend(
 
 export function createIndexedDbWorkspaceBackend(
   options: IndexedDbProjectBackendOptions = {},
-): WorkspaceStorageBackend {
+): WorkspaceSyncStorageBackend {
   let databasePromise: Promise<IDBPDatabase<ProjectDatabase>> | undefined
   const getDatabase = () => {
     databasePromise ??= createDatabasePromise(
@@ -280,6 +289,51 @@ export function createIndexedDbWorkspaceBackend(
   }
 
   return {
+    async readSyncRecord() {
+      const database = await getDatabase()
+      return (await database.get(WORKSPACE_SYNC_STORE_NAME, WORKSPACE_MANIFEST_KEY)) ?? emptyWorkspaceSyncRecord()
+    },
+    async readSyncSnapshot(canvasId) {
+      const database = await getDatabase()
+      const transaction = database.transaction([WORKSPACE_MANIFEST_STORE_NAME, CANVAS_DOCUMENT_STORE_NAME, WORKSPACE_SYNC_STORE_NAME], 'readonly')
+      const [record, manifest, document] = await Promise.all([
+        transaction.objectStore(WORKSPACE_SYNC_STORE_NAME).get(WORKSPACE_MANIFEST_KEY),
+        transaction.objectStore(WORKSPACE_MANIFEST_STORE_NAME).get(WORKSPACE_MANIFEST_KEY),
+        canvasId ? transaction.objectStore(CANVAS_DOCUMENT_STORE_NAME).get(canvasId) : undefined,
+      ])
+      await transaction.done
+      return { record: record ?? emptyWorkspaceSyncRecord(), manifest: manifest?.serialized, document: document?.serialized }
+    },
+    async transactSync(update) {
+      const database = await getDatabase()
+      const transaction = database.transaction(
+        [WORKSPACE_MANIFEST_STORE_NAME, CANVAS_DOCUMENT_STORE_NAME, WORKSPACE_SYNC_STORE_NAME], 'readwrite',
+      )
+      try {
+        const syncStore = transaction.objectStore(WORKSPACE_SYNC_STORE_NAME)
+        const [storedRecord, manifest] = await Promise.all([
+          syncStore.get(WORKSPACE_MANIFEST_KEY),
+          transaction.objectStore(WORKSPACE_MANIFEST_STORE_NAME).get(WORKSPACE_MANIFEST_KEY),
+        ])
+        const record = storedRecord ?? emptyWorkspaceSyncRecord()
+        const changes = update(record, manifest?.serialized)
+        await syncStore.put(record)
+        if (changes?.manifest !== undefined) {
+          await transaction.objectStore(WORKSPACE_MANIFEST_STORE_NAME).put({
+            id: WORKSPACE_MANIFEST_KEY,
+            serialized: typeof changes.manifest === 'string' ? changes.manifest : JSON.stringify(changes.manifest),
+          })
+        }
+        const documents = transaction.objectStore(CANVAS_DOCUMENT_STORE_NAME)
+        for (const document of changes?.putDocuments ?? []) await documents.put(document)
+        for (const canvasId of changes?.deleteCanvasIds ?? []) await documents.delete(canvasId)
+        await transaction.done
+      } catch (error) {
+        try { transaction.abort() } catch { /* The transaction may already be aborted. */ }
+        await transaction.done.catch(() => undefined)
+        throw error
+      }
+    },
     async initializeFromLegacy(create) {
       const database = await getDatabase()
       const transaction = database.transaction(

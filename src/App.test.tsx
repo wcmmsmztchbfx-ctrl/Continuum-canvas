@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest'
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
@@ -11,6 +11,8 @@ import { ProviderCatalogProvider } from './components/providers/ProviderCatalogC
 import { canvasStore } from './store/canvas-store'
 import type { CanvasSnapshotV2 } from './model/project'
 import type { WorkspaceRepository } from './workspace'
+import { gatewayClient } from './services'
+import { CanvasCollaborationController } from './collaboration/controller'
 
 beforeAll(() => {
   class ResizeObserverStub {
@@ -25,10 +27,82 @@ beforeAll(() => {
   })
 })
 
-afterEach(cleanup)
+afterEach(async () => {
+  cleanup()
+  await act(async () => {})
+  vi.restoreAllMocks()
+})
 beforeEach(() => localStorage.clear())
 
 describe('canvas application integration', () => {
+  it('does not submit a captured collaboration snapshot when the editor unmounts', async () => {
+    vi.spyOn(CanvasCollaborationController.prototype, 'isLocalAutosaveSuppressed').mockReturnValue(true)
+    const document: CanvasSnapshotV2 = {
+      version: 3, canvasId: 'shared', projectId: 'shared', name: '协作画布',
+      viewport: { x: 0, y: 0, zoom: 1 }, nodes: [], edges: [],
+    }
+    const repository = {
+      loadCanvas: vi.fn(async () => document), saveCanvas: vi.fn(async () => undefined),
+    } as unknown as WorkspaceRepository
+    const view = render(<App canvasId="shared" projectId="shared" workspaceRepository={repository} />)
+    await waitFor(() => expect(screen.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'true'))
+    act(() => canvasStore.getState().setViewport({ x: 25, y: 0, zoom: 1 }))
+    expect(repository.saveCanvas).not.toHaveBeenCalled()
+    view.unmount()
+    await act(async () => {})
+    expect(repository.saveCanvas).not.toHaveBeenCalled()
+  })
+
+  it.each(['rejected', 'missing', 'wrong-canvas', 'wrong-project'] as const)(
+    'does not enable editing or save after a %s canvas load',
+    async (failure) => {
+      const document: CanvasSnapshotV2 = {
+        version: 3, canvasId: 'target', projectId: 'target-project', name: '目标',
+        viewport: { x: 0, y: 0, zoom: 1 }, nodes: [], edges: [],
+      }
+      canvasStore.getState().restore(JSON.stringify({
+        ...document, version: 1, projectId: 'previous-project', name: '上一画布',
+      }))
+      const repository = {
+        loadCanvas: vi.fn(async () => {
+          if (failure === 'rejected') throw new Error('读取失败')
+          if (failure === 'missing') return undefined
+          return {
+            ...document,
+            canvasId: failure === 'wrong-canvas' ? 'another' : document.canvasId,
+            projectId: failure === 'wrong-project' ? 'another-project' : document.projectId,
+          }
+        }),
+        saveCanvas: vi.fn(async () => undefined),
+      } as unknown as WorkspaceRepository
+      const view = render(<App canvasId="target" projectId="target-project" workspaceRepository={repository} />)
+
+      await waitFor(() => expect(screen.getByTestId('app-shell')).toHaveAttribute('data-load-state', 'error'))
+      expect(screen.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'false')
+      expect(screen.queryByTestId('canvas-workspace')).toBeNull()
+      act(() => canvasStore.getState().setViewport({ x: 25, y: 0, zoom: 1 }))
+      view.unmount()
+      expect(repository.saveCanvas).not.toHaveBeenCalled()
+      expect(canvasStore.getState().snapshot.name).toBe('上一画布')
+    },
+  )
+
+  it('can retry a failed canvas load without saving the previous canvas', async () => {
+    const document: CanvasSnapshotV2 = {
+      version: 3, canvasId: 'retry', projectId: 'retry', name: '重试成功',
+      viewport: { x: 0, y: 0, zoom: 1 }, nodes: [], edges: [],
+    }
+    const repository = {
+      loadCanvas: vi.fn().mockRejectedValueOnce(new Error('暂时无法读取')).mockResolvedValue(document),
+      saveCanvas: vi.fn(async () => undefined),
+    } as unknown as WorkspaceRepository
+    render(<App canvasId="retry" projectId="retry" workspaceRepository={repository} />)
+    fireEvent.click(await screen.findByRole('button', { name: '重新加载画布' }))
+    await waitFor(() => expect(screen.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'true'))
+    expect(canvasStore.getState().snapshot.name).toBe('重试成功')
+    expect(repository.saveCanvas).not.toHaveBeenCalled()
+  })
+
   it('queues a thumbnail only after a canvas save and flushes it on leave', async () => {
     const document: CanvasSnapshotV2 = {
       version: 2,
@@ -69,6 +143,91 @@ describe('canvas application integration', () => {
 
     view.unmount()
     expect(thumbnailService.flush).toHaveBeenCalledWith(document.canvasId)
+  })
+
+  it('does not publish stale thumbnails or references when save completions arrive late', async () => {
+    const document: CanvasSnapshotV2 = {
+      version: 3, canvasId: 'ordered', projectId: 'ordered', name: '保存顺序',
+      viewport: { x: 0, y: 0, zoom: 1 }, nodes: [], edges: [],
+    }
+    const completions: Array<() => void> = []
+    const saveCanvas = vi.fn(() => new Promise<void>((resolve) => completions.push(resolve)))
+    const repository = { loadCanvas: async () => document, saveCanvas } as unknown as WorkspaceRepository
+    const thumbnailService = { schedule: vi.fn(), flush: vi.fn(async () => undefined) }
+    const syncReferences = vi.spyOn(gatewayClient, 'syncCanvasAssetReferences').mockResolvedValue({ canvasId: document.canvasId, assetCount: 0 })
+    render(<App canvasId="ordered" projectId="ordered" workspaceRepository={repository} thumbnailService={thumbnailService} />)
+    await waitFor(() => expect(screen.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'true'))
+    act(() => canvasStore.getState().setViewport({ x: 10, y: 0, zoom: 1 }))
+    act(() => canvasStore.getState().setViewport({ x: 20, y: 0, zoom: 1 }))
+    expect(completions).toHaveLength(2)
+    await act(async () => { completions[1]!() })
+    await act(async () => { completions[0]!() })
+    expect(thumbnailService.schedule).toHaveBeenCalledTimes(1)
+    expect(thumbnailService.schedule).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 20, y: 0, zoom: 1 } }))
+    expect(syncReferences).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not schedule successful-save side effects when persistence rejects', async () => {
+    const document: CanvasSnapshotV2 = {
+      version: 3, canvasId: 'failed-save', projectId: 'failed-save', name: '保存失败',
+      viewport: { x: 0, y: 0, zoom: 1 }, nodes: [], edges: [],
+    }
+    const repository = {
+      loadCanvas: async () => document,
+      saveCanvas: vi.fn(async () => { throw new Error('本地和服务器均保存失败') }),
+    } as unknown as WorkspaceRepository
+    const thumbnailService = { schedule: vi.fn(), flush: vi.fn(async () => undefined) }
+    const syncReferences = vi.spyOn(gatewayClient, 'syncCanvasAssetReferences').mockResolvedValue({ canvasId: document.canvasId, assetCount: 0 })
+    render(<App canvasId="failed-save" projectId="failed-save" workspaceRepository={repository} thumbnailService={thumbnailService} />)
+    await waitFor(() => expect(screen.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'true'))
+    act(() => canvasStore.getState().setViewport({ x: 10, y: 0, zoom: 1 }))
+    expect(await screen.findByText('本地和服务器均保存失败')).toBeVisible()
+    expect(thumbnailService.schedule).not.toHaveBeenCalled()
+    expect(syncReferences).not.toHaveBeenCalled()
+  })
+
+  it('serializes asset-reference publication when an earlier request is still in flight', async () => {
+    const document: CanvasSnapshotV2 = {
+      version: 3, canvasId: 'reference-order', projectId: 'reference-order', name: '素材引用顺序',
+      viewport: { x: 0, y: 0, zoom: 1 }, nodes: [], edges: [],
+    }
+    const repository = {
+      loadCanvas: async () => document, saveCanvas: vi.fn(async () => undefined),
+    } as unknown as WorkspaceRepository
+    const thumbnailService = { schedule: vi.fn(), flush: vi.fn(async () => undefined) }
+    const assetId = 'f97a7a7b-cfff-4ab0-9b10-101010101010'
+    let finishFirst!: () => void
+    const firstPublication = new Promise<void>((resolve) => { finishFirst = resolve })
+    let storedAssetIds: string[] = []
+    const publications: string[][] = []
+    vi.spyOn(gatewayClient, 'syncCanvasAssetReferences').mockImplementation(async (input) => {
+      // Other canvases may finish their accepted writes after unmounting.
+      if (input.canvasId === document.canvasId) {
+        publications.push(input.assetIds)
+        if (input.assetIds.length) await firstPublication
+        storedAssetIds = input.assetIds
+      }
+      return { canvasId: input.canvasId, assetCount: input.assetIds.length }
+    })
+    render(<App canvasId={document.canvasId} projectId={document.projectId} workspaceRepository={repository} thumbnailService={thumbnailService} />)
+    await waitFor(() => expect(screen.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'true'))
+    act(() => canvasStore.getState().addNode({
+      id: 'asset-node', type: 'image', name: '引用图片', position: { x: 0, y: 0 },
+      size: { width: 100, height: 100 }, data: { url: `/api/assets/${assetId}`, assetId },
+    }))
+    let firstAssetPublication = -1
+    try {
+      // Initial viewport updates can publish an empty reference list first.
+      await waitFor(() => expect(publications).toContainEqual([assetId]))
+      firstAssetPublication = publications.findIndex((ids) => ids.includes(assetId))
+      act(() => canvasStore.getState().deleteNodes(['asset-node']))
+      await waitFor(() => expect(repository.saveCanvas).toHaveBeenLastCalledWith(expect.objectContaining({ nodes: [] })))
+      expect(publications.slice(firstAssetPublication)).toEqual([[assetId]])
+    } finally {
+      await act(async () => { finishFirst() })
+    }
+    await waitFor(() => expect(publications.slice(firstAssetPublication)).toEqual([[assetId], []]))
+    expect(storedAssetIds).toEqual([])
   })
 
   it('never restores or starts collaboration from a stale canvas load', async () => {
@@ -228,12 +387,13 @@ describe('canvas application integration', () => {
 
     fireEvent.mouseDown(resizeHandle, { button: 0, clientX: 240 })
     fireEvent.mouseMove(window, { clientX: 700 })
-    expect(shell).toHaveStyle({ '--layers-sidebar-width': '560px' })
+    // Keep the rail, inspector, and at least 220px of canvas within the window.
+    expect(shell).toHaveStyle({ '--layers-sidebar-width': '252px' })
 
     fireEvent.mouseUp(window, { clientX: 700 })
     expect(
       JSON.parse(localStorage.getItem('libtv.ui-preferences.v1') ?? '{}'),
-    ).toMatchObject({ layersWidth: 560 })
+    ).toMatchObject({ layersWidth: 252 })
   })
 
   it('opens generation history from the bottom status bar', () => {

@@ -330,6 +330,50 @@ describe('CanvasWorkspace', () => {
     expect(setViewport).toHaveBeenLastCalledWith(nextViewport)
   })
 
+  it('clears previous selection on marquee selection start without modifiers', () => {
+    const store = createCanvasStore(referenceProjectSnapshot)
+    const [node1, node2] = referenceProjectSnapshot.nodes
+    store.setState({ selectedNodeIds: [node1!.id] })
+
+    const view = render(<CanvasWorkspace store={store} />)
+    const pane = view.getByTestId('react-flow-mock')
+
+    fireEvent.pointerDown(pane, { button: 0, shiftKey: false, ctrlKey: false })
+    expect(store.getState().selectedNodeIds).toEqual([])
+
+    act(() => {
+      flowProps().onSelectionStart?.({ shiftKey: false } as never)
+      flowProps().onNodesChange?.([
+        { id: node2!.id, type: 'select', selected: true },
+      ])
+      flowProps().onSelectionEnd?.()
+    })
+
+    expect(store.getState().selectedNodeIds).toEqual([node2!.id])
+  })
+
+  it('preserves existing selection when marquee selection starts with Shift', () => {
+    const store = createCanvasStore(referenceProjectSnapshot)
+    const [node1, node2] = referenceProjectSnapshot.nodes
+    store.setState({ selectedNodeIds: [node1!.id] })
+
+    const view = render(<CanvasWorkspace store={store} />)
+    const pane = view.getByTestId('react-flow-mock')
+
+    fireEvent.pointerDown(pane, { button: 0, shiftKey: true })
+    expect(store.getState().selectedNodeIds).toEqual([node1!.id])
+
+    act(() => {
+      flowProps().onSelectionStart?.({ shiftKey: true } as never)
+      flowProps().onNodesChange?.([
+        { id: node2!.id, type: 'select', selected: true },
+      ])
+      flowProps().onSelectionEnd?.()
+    })
+
+    expect(store.getState().selectedNodeIds).toEqual([node1!.id, node2!.id])
+  })
+
   it('renders remote cursors and selection outlines without marking nodes selected', () => {
     const store = createCanvasStore(referenceProjectSnapshot)
     const remoteNodeId = store.getState().snapshot.nodes[0]!.id
@@ -767,6 +811,60 @@ describe('CanvasWorkspace', () => {
         .getByTestId('canvas-workspace')
         .hasAttribute('data-reference-pick-target'),
     ).toBe(false)
+  })
+
+  it.each(['shiftKey', 'ctrlKey', 'metaKey'] as const)(
+    'keeps the %s selection result when React Flow changes selection before its click callback',
+    (modifier) => {
+      const store = createCanvasStore(referenceProjectSnapshot)
+      render(<CanvasWorkspace store={store} />)
+      const [first, second] = flowNodes()
+      act(() => store.getState().selectNode(first!.id))
+
+      act(() => {
+        flowProps().onNodesChange?.([{ id: second!.id, type: 'select', selected: true }])
+        flowProps().onNodeClick?.(new MouseEvent('click', { [modifier]: true }) as never, second!)
+      })
+      expect(store.getState().selectedNodeIds).toEqual([first!.id, second!.id])
+
+      act(() => {
+        flowProps().onNodesChange?.([{ id: second!.id, type: 'select', selected: false }])
+        flowProps().onNodeClick?.(new MouseEvent('click', { [modifier]: true }) as never, second!)
+      })
+      expect(store.getState().selectedNodeIds).toEqual([first!.id])
+    },
+  )
+
+  it('opens the selected image generator after an ordinary React Flow selection and click', () => {
+    const store = createCanvasStore(referenceProjectSnapshot)
+    render(<CanvasWorkspace store={store} />)
+    const [first, second] = flowNodes().filter((node) => node.data.mediaType === 'image')
+    act(() => store.getState().selectNode(first!.id))
+
+    act(() => {
+      flowProps().onNodesChange?.([
+        { id: first!.id, type: 'select', selected: false },
+        { id: second!.id, type: 'select', selected: true },
+      ])
+      flowProps().onNodeClick?.(new MouseEvent('click') as never, second!)
+    })
+
+    expect(store.getState().selectedNodeIds).toEqual([second!.id])
+    expect(flowNodes().find((node) => node.id === second!.id)?.data.generatorOpen).toBe(true)
+  })
+
+  it('does not select a locked node when React Flow declines its selection change', () => {
+    const snapshot = structuredClone(referenceProjectSnapshot)
+    snapshot.nodes[0]!.locked = true
+    const store = createCanvasStore(snapshot)
+    render(<CanvasWorkspace store={store} />)
+    const [locked, selected] = flowNodes()
+    act(() => store.getState().selectNode(selected!.id))
+
+    act(() => flowProps().onNodeClick?.(new MouseEvent('click') as never, locked!))
+
+    expect(store.getState().selectedNodeIds).toEqual([selected!.id])
+    expect(flowNodes().find((node) => node.id === locked!.id)?.data.generatorOpen).toBe(false)
   })
 
   it('synchronizes multi-selection and completed drags to the canvas store', () => {

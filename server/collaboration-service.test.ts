@@ -85,6 +85,99 @@ function testPersistence(overrides: Partial<{
 }
 
 describe('CollaborationService', () => {
+  it('fails startup on an ordinary checkpoint persistence error without invalidating the room', async () => {
+    const dataDir = await directory()
+    const seed = await CollaborationService.open({ dataDir })
+    const owner = await seed.enableRoom({ canvasId: 'canvas-alpha', projectId: 'project-alpha',
+      snapshot: snapshot(), deviceId: 'device-owner', displayName: 'Owner' })
+    await seed.close()
+    await expect(CollaborationService.open({ dataDir, onSnapshotSaved: async () => {
+      throw new Error('disk unavailable')
+    } })).rejects.toThrow('disk unavailable')
+    const metadata = JSON.parse(await readFile(join(dataDir, 'collaboration', owner.room.roomId,
+      'metadata.json'), 'utf8'))
+    expect(metadata.enabled).toBe(true)
+  })
+
+  it('flushes accepted updates to the authoritative checkpoint before acknowledging', async () => {
+    const checkpoints: Array<{ snapshot: ReturnType<CollaborationService['exportSnapshot']> }> = []
+    let failMirror = false
+    const service = await CollaborationService.open({
+      dataDir: await directory(),
+      onSnapshotSaved: async (checkpoint) => {
+        if (failMirror) throw new Error('mirror unavailable')
+        checkpoints.push(checkpoint)
+      },
+    })
+    const owner = await service.enableRoom({ canvasId: 'canvas-alpha', projectId: 'project-alpha',
+      snapshot: mediaSnapshot(), deviceId: 'device-owner', displayName: 'Owner' })
+    expect(service.applyGenerationJobUpdate(collaborativeJob(owner.room.roomId))).toBe(true)
+    await service.checkpointRoom(owner.room.roomId)
+    expect(checkpoints.at(-1)?.snapshot).toEqual(service.exportSnapshot(owner.room.roomId))
+    failMirror = true
+    expect(service.applyGenerationJobUpdate(collaborativeJob(owner.room.roomId, {
+      status: 'running', progress: 25,
+    }))).toBe(true)
+    await expect(service.checkpointRoom(owner.room.roomId)).rejects.toMatchObject({
+      code: 'collaboration_persistence_failed',
+    })
+    failMirror = false
+    await service.recoverRoomPersistence(owner.room.roomId)
+    await service.close()
+  })
+
+  it('passes room identity and epoch with each persisted checkpoint', async () => {
+    const checkpoints: unknown[] = []
+    const service = await CollaborationService.open({
+      dataDir: await directory(), onSnapshotSaved: async (checkpoint) => { checkpoints.push(checkpoint) },
+    })
+    const owner = await service.enableRoom({ canvasId: 'canvas-alpha', projectId: 'project-alpha',
+      snapshot: snapshot(), deviceId: 'device-owner', displayName: 'Owner' })
+    expect(checkpoints[0]).toMatchObject({ roomId: owner.room.roomId,
+      epoch: expect.any(String), sourceRevision: expect.any(String),
+      snapshot: { canvasId: 'canvas-alpha', projectId: 'project-alpha' } })
+    await service.close()
+  })
+
+  it('keeps a room open for checkpoint retry when the mirror fails during close', async () => {
+    let failMirror = false
+    const service = await CollaborationService.open({
+      dataDir: await directory(),
+      onSnapshotSaved: async () => { if (failMirror) throw new Error('mirror unavailable') },
+    })
+    const owner = await service.enableRoom({ canvasId: 'canvas-alpha', projectId: 'project-alpha',
+      snapshot: snapshot(), deviceId: 'device-owner', displayName: 'Owner' })
+    failMirror = true
+    await expect(service.closeRoom({ roomId: owner.room.roomId, sessionToken: owner.sessionToken }))
+      .rejects.toMatchObject({ code: 'collaboration_persistence_failed' })
+    expect(service.exportSnapshot(owner.room.roomId).canvasId).toBe('canvas-alpha')
+    failMirror = false
+    await service.recoverRoomPersistence(owner.room.roomId)
+    await service.closeRoom({ roomId: owner.room.roomId, sessionToken: owner.sessionToken })
+    await service.close()
+  })
+
+  it('rejects new writes as soon as room closing starts', async () => {
+    let releaseMirror = () => {}
+    let blockMirror = false
+    const mirrorReleased = new Promise<void>((resolve) => { releaseMirror = resolve })
+    const service = await CollaborationService.open({
+      dataDir: await directory(),
+      onSnapshotSaved: async () => { if (blockMirror) await mirrorReleased },
+    })
+    const owner = await service.enableRoom({ canvasId: 'canvas-alpha', projectId: 'project-alpha',
+      snapshot: mediaSnapshot(), deviceId: 'device-owner', displayName: 'Owner' })
+    blockMirror = true
+    const closing = service.closeRoom({ roomId: owner.room.roomId, sessionToken: owner.sessionToken })
+    expect(() => service.authorizeSession({ roomId: owner.room.roomId,
+      sessionToken: owner.sessionToken, write: true })).toThrow(CollaborationAuthorizationError)
+    expect(() => service.applyGenerationJobUpdate(collaborativeJob(owner.room.roomId)))
+      .toThrow(CollaborationAuthorizationError)
+    releaseMirror()
+    await closing
+    await service.close()
+  })
+
   it('accepts an editor node deletion update with deletion backup roots', async () => {
     const service = await CollaborationService.open({ dataDir: await directory() })
     const seeded = snapshot()

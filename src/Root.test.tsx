@@ -48,7 +48,7 @@ class MemoryWorkspaceBackend implements WorkspaceStorageBackend {
   }
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   class ResizeObserverStub {
     observe() {}
     unobserve() {}
@@ -58,6 +58,8 @@ beforeAll(() => {
     configurable: true,
     value: ResizeObserverStub,
   })
+  // Keep module transformation outside interaction deadlines. Browser tests cover deferred loading.
+  await import('./App')
 })
 
 beforeEach(() => window.history.replaceState(null, '', '/'))

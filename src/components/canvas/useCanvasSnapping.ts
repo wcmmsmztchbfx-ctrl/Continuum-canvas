@@ -5,6 +5,7 @@ import type { ReactFlowInstance } from '@xyflow/react'
 import type { CanvasNode, Point } from '../../model/project'
 import type { CanvasStoreState } from '../../store/canvas-store'
 import {
+  rotatedBounds,
   snapResizeRect,
   type ResizeDirection,
   type SnapDistance,
@@ -45,14 +46,27 @@ export function useCanvasSnapping({
       if (!model || model.hidden || model.locked) continue
       const internal = flowInstance?.getInternalNode(node.id)
       const position = internal?.internals.positionAbsolute ?? node.position
-      result.push({
+      const baseRect: SnapRect = {
         id: node.id,
         x: position.x,
         y: position.y,
         width: model.size.width,
         height: model.size.height,
         kind: model.type === 'frame' ? 'frame' : 'node',
-      })
+      }
+      const nodeRotation = 'rotation' in model.data && typeof model.data.rotation === 'number' ? model.data.rotation : 0
+      result.push(nodeRotation ? rotatedBounds(baseRect, nodeRotation) : baseRect)
+
+      if (model.type === 'frame' && model.size.width > 64 && model.size.height > 64) {
+        result.push({
+          id: `${node.id}-inner`,
+          x: position.x + 16,
+          y: position.y + 16,
+          width: model.size.width - 32,
+          height: model.size.height - 32,
+          kind: 'frame',
+        })
+      }
     }
     return result
   }, [flowInstance, store])

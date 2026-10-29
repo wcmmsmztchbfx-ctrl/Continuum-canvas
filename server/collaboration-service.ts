@@ -102,6 +102,7 @@ interface ActiveRoom {
   updateBytes: number
   writeQueue: Promise<void>
   dirty: boolean
+  closing: boolean
   persistenceError?: CollaborationPersistenceError
   onUpdate: (update: Uint8Array, origin: unknown) => void
 }
@@ -145,7 +146,21 @@ export interface CollaborationServiceOptions {
   maxCandidateUpdateBytes?: number
   maxDocumentBytes?: number
   persistence?: CollaborationPersistence
-  onSnapshotSaved?: (snapshot: CanvasSnapshotV2) => Promise<void> | void
+  onSnapshotSaved?: (checkpoint: CollaborationCheckpoint) => Promise<void> | void
+}
+
+export interface CollaborationCheckpoint {
+  snapshot: CanvasSnapshotV2
+  roomId: string
+  epoch: string
+  sourceRevision: string
+  initial?: boolean
+  restored?: boolean
+}
+
+export class CollaborationCheckpointRejectedError extends Error {
+  readonly code = 'collaboration_checkpoint_rejected'
+  constructor() { super('Collaboration checkpoint no longer owns this canvas') }
 }
 
 export class CollaborationPersistenceError extends Error {
@@ -446,7 +461,7 @@ export class CollaborationService {
   private readonly maxCandidateUpdateBytes: number
   private readonly maxDocumentBytes: number
   private readonly persistence: CollaborationPersistence
-  private readonly onSnapshotSaved?: (snapshot: CanvasSnapshotV2) => Promise<void> | void
+  private readonly onSnapshotSaved?: (checkpoint: CollaborationCheckpoint) => Promise<void> | void
   private readonly persistenceErrorListeners = new Set<(
     roomId: string,
     error: CollaborationPersistenceError,
@@ -485,6 +500,19 @@ export class CollaborationService {
       for (const entry of entries) {
         if (!entry.isDirectory() || !ROOM_ID.test(entry.name)) continue
         await service.loadRoom(entry.name)
+      }
+      for (const room of service.rooms.values()) {
+        if (room.metadata.enabled) {
+          const canvasSnapshot = exportCollaborativeCanvasSnapshot(room.document)
+          try {
+            await service.onSnapshotSaved?.(service.checkpoint(room, canvasSnapshot, true, true))
+          } catch (error) {
+            if (!(error instanceof CollaborationCheckpointRejectedError)) throw error
+            await service.invalidateRestoredRoom(room)
+            continue
+          }
+          if (room.updateCount > 0) await service.compactExclusive(room)
+        }
       }
       return service
     } catch (error) {
@@ -543,9 +571,10 @@ export class CollaborationService {
   ): ActiveRoom {
     const room: ActiveRoom = {
       metadata, document, directory, updateCount: 0, updateBytes: 0,
-      writeQueue: Promise.resolve(), dirty: false,
+      writeQueue: Promise.resolve(), dirty: false, closing: false,
       onUpdate: () => {},
     }
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined
     room.onUpdate = (update: Uint8Array, origin: unknown) => {
       if (origin === 'restore' || this.lifecycle !== 'open') return
       void this.enqueuePersistence(room, async () => {
@@ -556,7 +585,18 @@ export class CollaborationService {
         if (
           room.updateCount >= this.compactAfterUpdates ||
           room.updateBytes >= this.compactAfterBytes
-        ) await this.compactExclusive(room)
+        ) {
+          if (debounceTimer) clearTimeout(debounceTimer)
+          await this.compactExclusive(room)
+        } else {
+          if (debounceTimer) clearTimeout(debounceTimer)
+          debounceTimer = setTimeout(() => {
+            void this.enqueuePersistence(room, async () => {
+              if (room.dirty) await this.compactExclusive(room)
+            }).catch(() => {})
+          }, 1000)
+          debounceTimer.unref?.()
+        }
       }).catch(() => {})
     }
     document.doc.on('update', room.onUpdate)
@@ -585,25 +625,47 @@ export class CollaborationService {
     return result
   }
 
-  private async compactExclusive(room: ActiveRoom): Promise<void> {
+  private async compactExclusive(room: ActiveRoom, initial = false): Promise<void> {
     const binarySnapshot = Y.encodeStateAsUpdate(room.document.doc)
     const canvasSnapshot = exportCollaborativeCanvasSnapshot(room.document)
-    await this.writeCompactedSnapshot(room, binarySnapshot, canvasSnapshot)
+    await this.writeCompactedSnapshot(room, binarySnapshot, canvasSnapshot, initial)
+  }
+
+  private async invalidateRestoredRoom(room: ActiveRoom): Promise<void> {
+    const closedAt = this.timestamp()
+    const metadata = { ...room.metadata, enabled: false, closedAt,
+      sessions: room.metadata.sessions.map((session) => ({ ...session, revokedAt: session.revokedAt ?? closedAt })) }
+    await this.persistence.writeJson(join(room.directory, 'metadata.json'), metadata)
+    room.metadata = metadata
+    room.document.doc.off('update', room.onUpdate)
+    this.rooms.delete(metadata.roomId)
+    const scope = collaborationScope(metadata.projectId, metadata.canvasId)
+    if (this.activeRoomIdsByScope.get(scope) === metadata.roomId) this.activeRoomIdsByScope.delete(scope)
+    room.validationDocument?.destroy()
+    room.document.destroy()
+  }
+
+  private checkpoint(room: ActiveRoom, snapshot: CanvasSnapshotV2, initial = false, restored = false): CollaborationCheckpoint {
+    return {
+      snapshot,
+      roomId: room.metadata.roomId,
+      epoch: `${room.metadata.roomId}:${room.metadata.createdAt}`,
+      sourceRevision: createHash('sha256').update(JSON.stringify(snapshot)).digest('hex'),
+      initial,
+      restored,
+    }
   }
 
   private async writeCompactedSnapshot(
     room: ActiveRoom,
     binarySnapshot: Uint8Array,
     canvasSnapshot: CanvasSnapshotV2,
+    initial = false,
   ): Promise<void> {
     await this.persistence.writeBytes(join(room.directory, 'snapshot.bin'), binarySnapshot)
     await this.persistence.writeBytes(join(room.directory, 'updates.bin'), new Uint8Array())
     await this.persistence.writeJson(join(room.directory, 'canvas.snapshot.json'), canvasSnapshot)
-    try {
-      await this.onSnapshotSaved?.(canvasSnapshot)
-    } catch {
-      // Snapshot mirror failures do not fail collaboration persistence
-    }
+    await this.onSnapshotSaved?.(this.checkpoint(room, canvasSnapshot, initial))
     room.updateCount = 0
     room.updateBytes = 0
     room.dirty = false
@@ -719,7 +781,7 @@ export class CollaborationService {
     this.activeRoomIdsByScope.set(scope, roomId)
     try {
       await this.persistence.writeJson(join(directory, 'metadata.json'), metadata)
-      await this.enqueuePersistence(room, () => this.compactExclusive(room))
+      await this.enqueuePersistence(room, () => this.compactExclusive(room, true))
     } catch (error) {
       this.rooms.delete(roomId)
       if (this.activeRoomIdsByScope.get(scope) === roomId) this.activeRoomIdsByScope.delete(scope)
@@ -776,6 +838,7 @@ export class CollaborationService {
     if (this.lifecycle !== 'open') {
       throw new CollaborationAuthorizationError('Collaboration service is closing')
     }
+    if (room.closing) throw new CollaborationAuthorizationError('Collaboration room is closing')
     if (room.persistenceError) throw room.persistenceError
   }
 
@@ -949,14 +1012,26 @@ export class CollaborationService {
     throw new CollaborationAuthorizationError('Collaboration session is invalid or revoked')
   }
 
-  async closeRoom(input: { roomId: string; sessionToken?: string; force?: boolean }): Promise<void> {
+  async closeRoom(input: { roomId: string; sessionToken?: string; force?: boolean; discardCheckpoint?: boolean }): Promise<void> {
     const room = input.force ? this.room(input.roomId) : this.owner(input.roomId, input.sessionToken ?? '')
-    await this.enqueuePersistence(room, () => this.compactExclusive(room))
-    await this.mutateMetadata(room, (metadata) => {
-      metadata.enabled = false
-      metadata.closedAt = this.timestamp()
-      for (const session of metadata.sessions) session.revokedAt ??= metadata.closedAt
-    })
+    if (room.closing) throw new CollaborationAuthorizationError('Collaboration room is closing')
+    room.closing = true
+    try {
+      if (input.discardCheckpoint) {
+        await room.writeQueue
+        room.persistenceError = undefined
+      } else {
+        await this.enqueuePersistence(room, () => this.compactExclusive(room))
+      }
+      await this.mutateMetadata(room, (metadata) => {
+        metadata.enabled = false
+        metadata.closedAt = this.timestamp()
+        for (const session of metadata.sessions) session.revokedAt ??= metadata.closedAt
+      })
+    } catch (error) {
+      room.closing = false
+      throw error
+    }
     room.document.doc.off('update', room.onUpdate)
     this.rooms.delete(input.roomId)
     const scope = collaborationScope(room.metadata.projectId, room.metadata.canvasId)
@@ -965,6 +1040,11 @@ export class CollaborationService {
     }
     room.validationDocument?.destroy()
     room.document.destroy()
+  }
+
+  async closeCanvasRoom(projectId: string, canvasId: string): Promise<void> {
+    const roomId = this.activeRoomIdsByScope.get(collaborationScope(projectId, canvasId))
+    if (roomId) await this.closeRoom({ roomId, force: true, discardCheckpoint: true })
   }
 
   async reset(): Promise<void> {
@@ -988,6 +1068,7 @@ export class CollaborationService {
       throw new CollaborationInputError('生成任务目标节点不匹配 (Generation job target identity does not match)')
     }
     const room = this.room(job.roomId)
+    this.assertWritable(room)
     if (request.projectId !== room.metadata.projectId || request.canvasId !== room.metadata.canvasId) {
       throw new CollaborationInputError('协同作用域与房间不匹配 (Generation scope does not match the collaboration room)')
     }
@@ -1084,6 +1165,13 @@ export class CollaborationService {
     const room = this.room(roomId)
     await room.writeQueue
     if (room.persistenceError) throw room.persistenceError
+  }
+
+  async checkpointRoom(roomId: string): Promise<void> {
+    const room = this.room(roomId)
+    await this.enqueuePersistence(room, async () => {
+      if (room.dirty) await this.compactExclusive(room)
+    })
   }
 
   async recoverRoomPersistence(roomId: string): Promise<void> {

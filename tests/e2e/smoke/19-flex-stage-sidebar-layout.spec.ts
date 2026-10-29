@@ -1,69 +1,173 @@
+import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../../fixtures/e2e-env"
 
-test.describe("19 - Flex Stage Real Squeeze, Viewport Anchor & Canvas Rename", () => {
-  test.use({ viewport: { width: 1440, height: 900 } })
+const anchorSelector = '.react-flow__node[data-id="i-TFj65r3PHQ"]'
 
-  test("stage truly shrinks on sidebar toggle and preserves node screen anchor", async ({ page }) => {
-    await page.goto("/canvas?spaceId=local&projectId=reference")
-    await expect(page.getByTestId("app-shell")).toHaveAttribute("data-hydrated", "true")
+async function nextPaint(page: Page) {
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+}
 
-    const stage = page.locator(".canvas-stage")
-    await expect(stage).toBeVisible()
+async function box(locator: Locator) {
+  const value = await locator.boundingBox()
+  expect(value).not.toBeNull()
+  return value!
+}
 
-    // 1. Initial stage is full width when sidebar is closed
-    const initialStageBox = await stage.boundingBox()
-    expect(initialStageBox).not.toBeNull()
-    expect(initialStageBox!.width).toBeGreaterThanOrEqual(1400)
+async function openCanvas(page: Page) {
+  await page.goto("/canvas?spaceId=local&projectId=reference")
+  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-hydrated", "true")
+  await expect(page.locator(anchorSelector)).toBeAttached()
+  await nextPaint(page)
+}
 
-    // 2. Open sidebar via the floating expand button
-    const expandBtn = page.getByRole("button", { name: "展开侧边栏" })
-    await expect(expandBtn).toBeVisible()
-    await expandBtn.click()
+async function assertAnchor(page: Page, origin: { x: number; y: number }) {
+  await nextPaint(page)
+  const current = await box(page.locator(anchorSelector))
+  expect(Math.abs(current.x - origin.x), "node screen X drift").toBeLessThanOrEqual(1)
+  expect(Math.abs(current.y - origin.y), "node screen Y drift").toBeLessThanOrEqual(1)
+}
 
-    // App shell reflects data-layers-open
-    const appShell = page.getByTestId("app-shell")
-    await expect(appShell).toHaveAttribute("data-layers-open")
+async function openSidebars(page: Page) {
+  await page.getByRole("button", { name: "展开侧边栏", exact: true }).click()
+  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-layers-open")
+  await expect(page.getByTestId("inspector-panel")).toBeVisible()
+  await page.locator(".app-layer-sidebar").evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished))
+  })
+  await nextPaint(page)
+}
 
-    // 3. Verify stage is truly squeezed by flexbox (NOT 100vw / 1440px)
-    await page.waitForTimeout(300) // allow CSS transition
-    const squeezedStageBox = await stage.boundingBox()
-    expect(squeezedStageBox).not.toBeNull()
-    // Stage must be narrowed by sidebar width (layers ~260px)
-    expect(squeezedStageBox!.width).toBeLessThan(1440 - 200)
-    expect(squeezedStageBox!.x).toBeGreaterThanOrEqual(200)
+async function closeSidebars(page: Page) {
+  await page.getByRole("button", { name: "收起图层", exact: true }).click()
+  await expect(page.getByTestId("app-shell")).not.toHaveAttribute("data-layers-open")
+  await page.locator(".app-layer-sidebar").evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished))
+  })
+  await nextPaint(page)
+}
 
-    // 4. Test stage-centered node addition
-    const addBtn = page.getByRole("button", { name: "添加节点" })
-    if (await addBtn.isVisible()) {
-      await addBtn.click()
-      const addTextOption = page.getByRole("button", { name: /文字|新建文字/ })
-      if (await addTextOption.isVisible()) {
-        await addTextOption.click()
-        await page.waitForTimeout(200)
-        // Find added text node
-        const textNode = page.locator(".canvas-text-node").last()
-        await expect(textNode).toBeVisible()
-        const nodeBox = await textNode.boundingBox()
-        expect(nodeBox).not.toBeNull()
+test.describe("19 - Flex stage layout and screen anchors", () => {
+  for (const width of [1440, 900]) {
+    test(`${width}px desktop toggles and continuously resizes both sidebars without moving existing nodes`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await openCanvas(page)
+      const stage = page.locator(".canvas-stage")
+      expect((await box(stage)).width).toBe(width)
+      const origin = await box(page.locator(anchorSelector))
+      await openSidebars(page)
+      const left = await box(page.locator(".app-layer-sidebar"))
+      const right = await box(page.getByTestId("inspector-panel"))
+      const openedStage = await box(stage)
+      expect(openedStage.x).toBeCloseTo(left.width, 1)
+      expect(openedStage.width).toBeCloseTo(width - left.width - right.width, 1)
+      expect(openedStage.width).toBeGreaterThanOrEqual(220)
+      await assertAnchor(page, origin)
 
-        // Node center should be near the visible stage center
-        const stageCenterX = squeezedStageBox!.x + squeezedStageBox!.width / 2
-        const nodeCenterX = nodeBox!.x + nodeBox!.width / 2
-        expect(Math.abs(nodeCenterX - stageCenterX)).toBeLessThan(100)
+      for (const [label, selector, resizingAttribute, moves] of [
+        ["调整图层侧栏宽度", ".app-layer-sidebar__content", "data-layers-resizing", [15, 30, 50, 25, -10]],
+        ["调整属性面板宽度", ".inspector-panel", "data-inspector-resizing", [-10, -25, -40, -15, 10]],
+      ] as const) {
+        const initialWidth = (await box(page.locator(selector))).width
+        const handle = await box(page.getByRole("separator", { name: label }))
+        const startX = handle.x + handle.width / 2
+        const startY = handle.y + 250
+        await page.mouse.move(startX, startY)
+        await page.mouse.down()
+        await expect(page.getByTestId("app-shell")).toHaveAttribute(resizingAttribute)
+        for (const delta of moves) {
+          await page.mouse.move(startX + delta, startY)
+          await assertAnchor(page, origin)
+          expect((await box(stage)).width).toBeGreaterThanOrEqual(220)
+        }
+        await page.mouse.up()
+        await assertAnchor(page, origin)
+        expect(initialWidth - (await box(page.locator(selector))).width).toBeCloseTo(10, 0)
       }
-    }
 
-    // 5. Inspector canvas rename test (preserves selection & state)
-    const nameInput = page.locator(".inspector-field__input").first()
-    if (await nameInput.isVisible()) {
-      await nameInput.fill("重命名测试生产画布")
-      await nameInput.blur()
-      await page.waitForTimeout(300)
+      await closeSidebars(page)
+      expect((await box(stage)).width).toBe(width)
+      await expect(page.getByTestId("inspector-panel")).not.toBeVisible()
+      await assertAnchor(page, origin)
+    })
+  }
 
-      // Reload page and confirm persisted
-      await page.reload()
-      await expect(page.getByTestId("app-shell")).toHaveAttribute("data-hydrated", "true")
-      await expect(page.getByText("重命名测试生产画布").first()).toBeVisible()
-    }
+  test("mobile overlays and crossing the desktop breakpoint preserve the same screen anchor", async ({ page }) => {
+    await page.setViewportSize({ width: 640, height: 820 })
+    await openCanvas(page)
+    const stage = page.locator(".canvas-stage")
+    const origin = await box(page.locator(anchorSelector))
+    await openSidebars(page)
+    expect((await box(stage)).x).toBe(0)
+    expect((await box(stage)).width).toBe(640)
+    await assertAnchor(page, origin)
+    await expect(page.getByRole("separator", { name: "调整图层侧栏宽度" })).not.toBeVisible()
+    await expect(page.getByRole("separator", { name: "调整属性面板宽度" })).not.toBeVisible()
+    await closeSidebars(page)
+    await assertAnchor(page, origin)
+    await openSidebars(page)
+    await page.setViewportSize({ width: 900, height: 820 })
+    await assertAnchor(page, origin)
+    expect((await box(stage)).x).toBeGreaterThan(0)
+    await page.setViewportSize({ width: 640, height: 820 })
+    await assertAnchor(page, origin)
+    expect((await box(stage)).width).toBe(640)
+  })
+
+  test("oversized saved sidebar preferences are constrained and resizing persists the rendered width", async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 900 })
+    await page.addInitScript(() => {
+      const key = 'libtv.ui-preferences.v1'
+      if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ layersOpen: true, layersWidth: 3000, inspectorWidth: 560 }))
+    })
+    await openCanvas(page)
+    expect((await box(page.locator('.canvas-stage'))).width).toBeGreaterThanOrEqual(220)
+    const origin = await box(page.locator(anchorSelector))
+    const before = await box(page.getByTestId("layers-sidebar"))
+    const handle = await box(page.getByRole("separator", { name: "调整图层侧栏宽度" }))
+    await page.mouse.move(handle.x + handle.width / 2, 250)
+    await page.mouse.down()
+    await expect(page.getByTestId("app-shell")).toHaveAttribute("data-layers-resizing")
+    await page.mouse.move(handle.x + handle.width / 2 - 50, 250)
+    await assertAnchor(page, origin)
+    await page.mouse.up()
+    await assertAnchor(page, origin)
+    const after = await box(page.getByTestId("layers-sidebar"))
+    expect(before.width - after.width).toBeCloseTo(50, 0)
+    await page.reload()
+    await expect(page.getByTestId("app-shell")).toHaveAttribute("data-hydrated", "true")
+    expect((await box(page.getByTestId("layers-sidebar"))).width).toBeCloseTo(after.width, 1)
+  })
+
+  test("adding a text node uses the visible stage center with both sidebars open", async ({ page }) => {
+    await openCanvas(page)
+    await openSidebars(page)
+    const stage = await box(page.locator(".canvas-stage"))
+    await page.getByRole("button", { name: "上传媒体 U", exact: true }).click()
+    await page.getByRole("menuitem", { name: "文本", exact: true }).click()
+    const created = page.locator(".react-flow__node-text.selected")
+    await expect(created).toHaveCount(1)
+    await nextPaint(page)
+    const node = await box(created)
+    expect(Math.abs(node.x + node.width / 2 - stage.x - stage.width / 2)).toBeLessThanOrEqual(1)
+    expect(Math.abs(node.y + node.height / 2 - stage.y - stage.height / 2)).toBeLessThanOrEqual(1)
+  })
+
+  test("renaming from the inspector persists across refresh with the sidebars open", async ({ page, request }) => {
+    await openCanvas(page)
+    await openSidebars(page)
+    const nameInput = page.getByTestId("inspector-panel").locator(".inspector-field__input").first()
+    await expect(nameInput).toBeVisible()
+    await nameInput.fill("侧栏布局重命名测试")
+    await nameInput.press("Enter")
+    await expect.poll(async () => {
+      const response = await request.get('/api/canvases/e2e-reference-canvas')
+      const data = await response.json()
+      return data.canvas?.name
+    }).toBe("侧栏布局重命名测试")
+    await page.reload()
+    await expect(page.getByTestId("app-shell")).toHaveAttribute("data-hydrated", "true")
+    await expect(nameInput).toHaveValue("侧栏布局重命名测试")
   })
 })
+
+

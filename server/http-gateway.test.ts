@@ -98,6 +98,14 @@ async function start(
       ...options,
     })
     if (!FETCH_BLOCKED_PORTS.has(Number(new URL(handle.origin).port))) {
+      try {
+        // Node's Fetch blocked-port list can differ from this test's static list.
+        await fetch(`${handle.origin}/api/health`)
+      } catch (error) {
+        await handle.close()
+        if (/bad port/i.test(String((error as Error & { cause?: unknown }).cause ?? error))) continue
+        throw error
+      }
       if (bootstrapAdmin && (!options.host || gatewayModule.isLoopbackHost?.(options.host))) {
         const session = await fetch(`${handle.origin}/api/local-admin/session`, { method: 'POST' })
         const cookie = session.headers.get('set-cookie')?.split(';', 1)[0]
@@ -290,6 +298,25 @@ describe('HTTP gateway', () => {
 
     expect(response.status).toBe(200)
     expect(await json(response)).toEqual({ canvasId, assetCount: 0 })
+  })
+
+  it('serves assets with CORS headers and responds to OPTIONS preflight', async () => {
+    const gateway = await start()
+    const asset = await gateway.runtime.assets.save({
+      filename: 'cors-sample.png',
+      contentType: 'image/png',
+      bytes: PNG,
+    })
+
+    const getRes = await fetch(`${gateway.origin}/api/assets/${asset.id}`)
+    expect(getRes.status).toBe(200)
+    expect(getRes.headers.get('access-control-allow-origin')).toBe('*')
+    expect(getRes.headers.get('cross-origin-resource-policy')).toBe('cross-origin')
+
+    const optionsRes = await fetch(`${gateway.origin}/api/assets/${asset.id}`, { method: 'OPTIONS' })
+    expect(optionsRes.status).toBe(204)
+    expect(optionsRes.headers.get('access-control-allow-origin')).toBe('*')
+    expect(optionsRes.headers.get('access-control-allow-methods')).toContain('GET')
   })
 
   it('requires projectId on new generation job submissions', async () => {
@@ -1288,7 +1315,8 @@ describe('HTTP gateway', () => {
     const saveRes = await fetch(`${gateway.origin}/api/canvases/default-project`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(canvasPayload),
+      body: JSON.stringify({ protocolVersion: 1, operationId: 'gateway-save-1',
+        kind: 'save-canvas', expectedRevision: 0, canvas: canvasPayload }),
     })
     expect(saveRes.status).toBe(200)
 
@@ -1322,11 +1350,96 @@ describe('HTTP gateway', () => {
     const commitRes = await fetch(`${gateway.origin}/api/workspace/commit`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ manifest }),
+      body: JSON.stringify({ protocolVersion: 1, operationId: 'gateway-edit-1',
+        kind: 'edit-workspace', expectedWorkspaceRevision: 1,
+        expectedCanvasRevisions: { 'canvas-2': 0 }, commit: { manifest } }),
     })
     expect(commitRes.status).toBe(200)
     const commitData = await json(commitRes)
     expect(commitData.manifest.canvases).toHaveLength(1)
+  })
+
+  it('requires versioned HTTP writes and returns revisions for an empty canvas', async () => {
+    const gateway = await start()
+    const canvas = {
+      version: 3, canvasId: 'empty-canvas', projectId: 'empty-canvas', name: '空画布',
+      viewport: { x: 0, y: 0, zoom: 1 }, nodes: [], edges: [],
+    }
+    const headers = { 'content-type': 'application/json' }
+    expect((await fetch(`${gateway.origin}/api/canvases/empty-canvas`, {
+      method: 'PUT', headers, body: JSON.stringify(canvas),
+    })).status).toBe(428)
+    expect((await fetch(`${gateway.origin}/api/workspace/commit`, {
+      method: 'POST', headers, body: JSON.stringify({ manifest: {} }),
+    })).status).toBe(428)
+
+    const saved = await fetch(`${gateway.origin}/api/canvases/empty-canvas`, {
+      method: 'PUT', headers,
+      body: JSON.stringify({ protocolVersion: 1, operationId: 'http-empty-1',
+        kind: 'save-canvas', expectedRevision: 0, canvas }),
+    })
+    expect(saved.status).toBe(200)
+    expect(await json(saved)).toMatchObject({ workspaceRevision: 1, canvasRevisions: { 'empty-canvas': 1 } })
+    const fetched = await fetch(`${gateway.origin}/api/canvases/empty-canvas`)
+    expect(await json(fetched)).toMatchObject({ revision: 1, canvas: { nodes: [] } })
+    const sameRequest = { protocolVersion: 1, operationId: 'http-empty-1',
+      kind: 'save-canvas', expectedRevision: 0, canvas }
+    const retry = await fetch(`${gateway.origin}/api/canvases/empty-canvas`, {
+      method: 'PUT', headers, body: JSON.stringify(sameRequest),
+    })
+    expect(retry.status).toBe(200)
+    expect(await json(retry)).toMatchObject({ workspaceRevision: 1, revision: 1 })
+    expect((await fetch(`${gateway.origin}/api/canvases/empty-canvas`, {
+      method: 'PUT', headers, body: JSON.stringify({ ...sameRequest, canvas: { ...canvas, name: '不同内容' } }),
+    })).status).toBe(409)
+    expect((await fetch(`${gateway.origin}/api/canvases/empty-canvas`, {
+      method: 'PUT', headers, body: JSON.stringify({ ...sameRequest, operationId: 'stale-http-write' }),
+    })).status).toBe(409)
+    expect(await json(await fetch(`${gateway.origin}/api/workspace/manifest`)))
+      .toMatchObject({ workspaceRevision: 1, canvasRevisions: { 'empty-canvas': 1 } })
+
+    const populated = { ...canvas, nodes: [{ id: 'node-1', type: 'text', name: '文本',
+      position: { x: 0, y: 0 }, size: { width: 100, height: 80 }, data: { text: '内容' } }] }
+    expect((await fetch(`${gateway.origin}/api/canvases/empty-canvas`, {
+      method: 'PUT', headers, body: JSON.stringify({ ...sameRequest, operationId: 'http-populate-2',
+        expectedRevision: 1, canvas: populated }),
+    })).status).toBe(200)
+    expect((await fetch(`${gateway.origin}/api/canvases/empty-canvas`, {
+      method: 'PUT', headers, body: JSON.stringify({ ...sameRequest, operationId: 'http-clear-3',
+        expectedRevision: 2, canvas }),
+    })).status).toBe(200)
+    expect(await json(await fetch(`${gateway.origin}/api/canvases/empty-canvas`)))
+      .toMatchObject({ revision: 3, canvas: { nodes: [] } })
+    const currentManifest = (await json(await fetch(`${gateway.origin}/api/workspace/manifest`))).manifest
+    expect((await fetch(`${gateway.origin}/api/workspace/commit`, {
+      method: 'POST', headers, body: JSON.stringify({ protocolVersion: 1, operationId: 'http-delete-4',
+        kind: 'edit-workspace', expectedWorkspaceRevision: 3,
+        expectedCanvasRevisions: { 'empty-canvas': 3 },
+        commit: { manifest: currentManifest, deleteCanvasIds: ['empty-canvas'] } }),
+    })).status).toBe(200)
+    expect((await fetch(`${gateway.origin}/api/canvases/empty-canvas`)).status).toBe(404)
+  })
+
+  it('invalidates an active collaboration room after permanent canvas deletion', async () => {
+    const gateway = await start()
+    const canvas = { version: 3, canvasId: 'shared-delete', projectId: 'shared-delete',
+      name: '共享画布', viewport: { x: 0, y: 0, zoom: 1 }, nodes: [], edges: [] }
+    const headers = { 'content-type': 'application/json' }
+    expect((await fetch(`${gateway.origin}/api/canvases/shared-delete`, {
+      method: 'PUT', headers, body: JSON.stringify({ protocolVersion: 1, operationId: 'shared-create',
+        kind: 'save-canvas', expectedRevision: 0, canvas }),
+    })).status).toBe(200)
+    const owner = await gateway.runtime.collaboration.enableRoom({ canvasId: 'shared-delete',
+      projectId: 'shared-delete', snapshot: canvas, deviceId: 'owner-device', displayName: 'Owner' })
+    const versioned = await json(await fetch(`${gateway.origin}/api/workspace/manifest`))
+    expect((await fetch(`${gateway.origin}/api/workspace/commit`, {
+      method: 'POST', headers, body: JSON.stringify({ protocolVersion: 1, operationId: 'shared-delete-op',
+        kind: 'edit-workspace', expectedWorkspaceRevision: versioned.workspaceRevision,
+        expectedCanvasRevisions: { 'shared-delete': versioned.canvasRevisions['shared-delete'] },
+        commit: { manifest: versioned.manifest, deleteCanvasIds: ['shared-delete'] } }),
+    })).status).toBe(200)
+    expect(() => gateway.runtime.collaboration.exportSnapshot(owner.room.roomId)).toThrow()
+    expect((await fetch(`${gateway.origin}/api/canvases/shared-delete`)).status).toBe(404)
   })
 
   it('supports asset listing, protects referenced assets from deletion, and cleans unreferenced assets', async () => {
@@ -1367,6 +1480,11 @@ describe('HTTP gateway', () => {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
+        protocolVersion: 1,
+        operationId: 'asset-reference-save-1',
+        kind: 'save-canvas',
+        expectedRevision: 0,
+        canvas: {
         version: 3,
         canvasId: 'default-project',
         projectId: 'default-project',
@@ -1383,9 +1501,21 @@ describe('HTTP gateway', () => {
           },
         ],
         edges: [],
+        },
       }),
     })
     expect(putRes.status).toBe(200)
+
+    // A queued save can reach the server after the client last published its reference index.
+    await fetch(`${gateway.origin}/api/canvas-asset-references/default-project`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectId: 'default-project', assetIds: [asset1.id] }),
+    })
+    const released = await fetch(
+      `${gateway.origin}/api/canvas-asset-references/default-project?projectId=default-project`,
+      { method: 'DELETE' },
+    )
+    expect(await json(released)).toMatchObject({ deletedAssetIds: [] })
 
     // 4. Try DELETE /api/assets/:asset1 -> should fail with 409 Conflict
     const delUsedRes = await fetch(`${gateway.origin}/api/assets/${asset1.id}`, {
@@ -1412,4 +1542,46 @@ describe('HTTP gateway', () => {
     const cleanData = await json(cleanRes)
     expect(cleanData.ok).toBe(true)
   })
+
+  it('allows agent chat and canvas chat persistence without requiring local admin session cookies', async () => {
+    const gateway = await start()
+
+    // 1. POST /api/agent/chat without any cookie should not fail with 403 local_admin_unauthorized
+    const chatRes = await fetch(`${gateway.origin}/api/agent/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hello' }] }),
+    })
+    // Since no provider is configured in blank test gateway, it should return 400 not_configured, NOT 403!
+    expect(chatRes.status).toBe(400)
+    const chatErr = await json(chatRes)
+    expect(chatErr.error.code).toBe('not_configured')
+
+    // 2. PUT /api/canvases/test-canvas/agent-chat without admin cookie should save successfully
+    const putRes = await fetch(`${gateway.origin}/api/canvases/test-canvas/agent-chat`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'test message' }] }),
+    })
+    expect(putRes.status).toBe(200)
+
+    // 3. GET /api/canvases/test-canvas/agent-chat
+    const getRes = await fetch(`${gateway.origin}/api/canvases/test-canvas/agent-chat`)
+    expect(getRes.status).toBe(200)
+    const getData = await json(getRes)
+    expect(getData.messages).toHaveLength(1)
+    expect(getData.messages[0].content).toBe('test message')
+
+    // 4. DELETE /api/canvases/test-canvas/agent-chat without admin cookie should succeed
+    const delRes = await fetch(`${gateway.origin}/api/canvases/test-canvas/agent-chat`, {
+      method: 'DELETE',
+    })
+    expect(delRes.status).toBe(200)
+
+    // Verify chat cleared
+    const getClearedRes = await fetch(`${gateway.origin}/api/canvases/test-canvas/agent-chat`)
+    const clearedData = await json(getClearedRes)
+    expect(clearedData.messages).toEqual([])
+  })
 })
+

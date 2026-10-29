@@ -1,4 +1,4 @@
-import { useMemo, useState, type ComponentType, type DragEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ComponentType, type DragEvent, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, Circle, Eye, EyeOff, Frame, Image, Lock, MousePointerSquareDashed, PenTool, Search, Type, Unlock, Video } from 'lucide-react'
 import type { CanvasNode } from '../../model/project'
 import { getFastThumbnailUrl } from '../../services/imageThumbnailCache'
@@ -8,7 +8,7 @@ export interface LayersPanelProps {
   selectedIds: string[]
   open: boolean
   onOpenChange(open: boolean): void
-  onSelect(id: string, options?: { additive?: boolean; range?: boolean }): void
+  onSelect(id: string, options?: { additive?: boolean; range?: boolean; rangeIds?: string[] }): void
   onFocusNode?(id: string): void
   onRename(id: string, name: string): void
   onToggleHidden(id: string): void
@@ -61,6 +61,15 @@ export function LayersPanel(props: LayersPanelProps) {
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [dropTarget, setDropTarget] = useState<{ id: string; placement: 'before' | 'after' | 'inside' }>()
+  const lastSelectedIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (props.selectedIds.length === 1) {
+      lastSelectedIdRef.current = props.selectedIds[0] ?? null
+    } else if (props.selectedIds.length === 0) {
+      lastSelectedIdRef.current = null
+    }
+  }, [props.selectedIds])
 
   const children = useMemo(() => {
     const result = new Map<string | undefined, CanvasNode[]>()
@@ -118,6 +127,23 @@ export function LayersPanel(props: LayersPanelProps) {
     if (ids.length) props.onReorder(ids, node.id, modelPlacement)
     setDropTarget(undefined)
   }
+  const handleNodeClick = (nodeId: string, event: React.MouseEvent) => {
+    const additive = event.ctrlKey || event.metaKey
+    const range = event.shiftKey
+    if (range && lastSelectedIdRef.current) {
+      const fromIdx = visible.findIndex((item) => item.node.id === lastSelectedIdRef.current)
+      const toIdx = visible.findIndex((item) => item.node.id === nodeId)
+      if (fromIdx !== -1 && toIdx !== -1) {
+        const [start, end] = fromIdx < toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx]
+        const rangeIds = visible.slice(start, end + 1).map((item) => item.node.id)
+        props.onSelect(nodeId, { additive: false, range: true, rangeIds })
+        return
+      }
+    }
+    lastSelectedIdRef.current = nodeId
+    props.onSelect(nodeId, { additive, range: false })
+  }
+
   return (
     <aside aria-label="图层" className="layers-panel">
       <header className="layers-panel__section-header">
@@ -139,11 +165,7 @@ export function LayersPanel(props: LayersPanelProps) {
               data-selected={props.selectedIds.includes(node.id) || undefined}
               draggable
               key={node.id}
-              onClick={(e) => {
-                const additive = e.ctrlKey || e.metaKey
-                const range = e.shiftKey
-                props.onSelect(node.id, { additive, range })
-              }}
+              onClick={(e) => handleNodeClick(node.id, e)}
               onDoubleClick={() => props.onFocusNode?.(node.id)}
               onDragEnd={() => setDropTarget(undefined)}
               onDragOver={(event) => {
@@ -265,9 +287,7 @@ export function LayersPanel(props: LayersPanelProps) {
                   className="layers-panel__name"
                   onClick={(e) => {
                     e.stopPropagation()
-                    const additive = e.ctrlKey || e.metaKey
-                    const range = e.shiftKey
-                    props.onSelect(node.id, { additive, range })
+                    handleNodeClick(node.id, e)
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation()
