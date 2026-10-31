@@ -635,7 +635,7 @@ describe('collaboration WebSocket gateway', () => {
     expect(await closed).toBe(1008)
   })
 
-  it('closes room sockets with 1011 when durable persistence fails', async () => {
+  it('closes room sockets with a dedicated non-retry code when durable persistence fails', async () => {
     let failAppend = false
     const gateway = await start({
       collaborationOptions: {
@@ -659,7 +659,11 @@ describe('collaboration WebSocket gateway', () => {
     update.getMap('meta').set('will-fail-persistence', true)
     socket.send(syncUpdate(Y.encodeStateAsUpdate(update)))
 
-    expect(await closed).toBe(1011)
+    expect(await closed).toBe(4501)
+    const reopened = new WebSocket(wsUrl(gateway, owner.payload.room.roomId), {
+      headers: { cookie: owner.cookie, origin: gateway.origin },
+    })
+    expect(await waitForClose(reopened)).toBe(4501)
   })
 
   it('authenticates two room WebSockets from isolated cookies at the same time', async () => {

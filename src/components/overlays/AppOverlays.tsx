@@ -179,6 +179,21 @@ export function AppOverlays({
         }}
         onRemoveMember={(memberId) => collaborationAction((controller) => controller.removeMember(memberId))}
         onRetryResume={() => collaborationAction((controller) => controller.retryAuthenticatedResume())}
+        onRetryPersistence={() => collaborationAction((controller) => controller.retryPersistence())}
+        onExportLocalDraft={() => {
+          const snapshot = collaborationControllerRef.current?.exportLocalDraft()
+          if (!snapshot) return
+          const url = URL.createObjectURL(new Blob([JSON.stringify(snapshot, null, 2)],
+            { type: 'application/json' }))
+          const anchor = document.createElement('a')
+          anchor.href = url
+          anchor.download = 'continuum-canvas-local-recovery.json'
+          document.body.append(anchor)
+          try { anchor.click() } finally {
+            anchor.remove()
+            window.setTimeout(() => URL.revokeObjectURL(url), 0)
+          }
+        }}
         onRevokeInvite={(inviteId) => collaborationAction((controller) => controller.revokeInvite(inviteId))}
         onSetMemberRole={(memberId, role) => collaborationAction((controller) => controller.setMemberRole(memberId, role))}
         onRecoverConflictRoom={(secret, displayName) =>

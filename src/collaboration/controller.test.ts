@@ -99,6 +99,7 @@ class FakeSession implements CollaborationSessionHandle {
   readonly getLease = vi.fn((_nodeId: string) => undefined as NodeLease | undefined)
   readonly destroy = vi.fn(async () => undefined)
   readonly flush = vi.fn(async () => undefined)
+  readonly retryConnection = vi.fn()
   private readonly statusListeners = new Set<(status: CanvasCollaborationStatus) => void>()
   private readonly snapshotListeners = new Set<(snapshot: CanvasSnapshotV2) => void>()
   private readonly entityChangeListeners = new Set<(changes: CanvasEntityChangeSet) => void>()
@@ -203,6 +204,7 @@ function setup(input: {
     removeMember: vi.fn(async () => undefined),
     leaveRoom: vi.fn(async () => undefined),
     closeRoom: vi.fn(async () => undefined),
+    retryRoomPersistence: vi.fn(async () => undefined),
   }
   const history = { replaceState: vi.fn() }
   const createSession = vi.fn(async () => session)
@@ -302,6 +304,44 @@ describe('CanvasCollaborationController', () => {
     subject.session.emitStatus({ state: 'synced' })
     await subject.controller.leave()
     expect(subject.controller.getState().status).toBe('inactive')
+  })
+
+  it('retries a failed checkpoint before reconnecting the retained local session', async () => {
+    const subject = setup()
+    await subject.controller.enable('Owner')
+    subject.session.emitStatus({ state: 'offline', reason: 'persistence', error: '保存在本机' })
+    expect(subject.controller.getState()).toMatchObject({ status: 'offline', failure: 'persistence' })
+    await subject.controller.retryPersistence()
+    expect(subject.client.retryRoomPersistence).toHaveBeenCalledWith('room-a')
+    expect(subject.session.retryConnection).toHaveBeenCalledOnce()
+  })
+
+  it('lets an editor reconnect manually after the owner restores persistence', async () => {
+    const subject = setup({ serverSession: { ...owner, role: 'editor' } })
+    await subject.controller.enable('Editor')
+    subject.session.emitStatus({ state: 'offline', reason: 'persistence', error: '保存在本机' })
+    await subject.controller.retryPersistence()
+    expect(subject.client.retryRoomPersistence).not.toHaveBeenCalled()
+    expect(subject.session.retryConnection).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the local-only warning when the owner retry still cannot persist', async () => {
+    const subject = setup()
+    await subject.controller.enable('Owner')
+    subject.session.emitStatus({ state: 'offline', reason: 'persistence', error: '保存在本机' })
+    vi.mocked(subject.client.retryRoomPersistence).mockRejectedValueOnce(new Error('服务器仍不可用'))
+    await expect(subject.controller.retryPersistence()).rejects.toThrow('服务器仍不可用')
+    expect(subject.session.retryConnection).not.toHaveBeenCalled()
+    expect(subject.controller.getState()).toMatchObject({ status: 'offline', failure: 'persistence',
+      error: '服务器仍不可用' })
+  })
+
+  it('exports the retained collaborative document while server persistence is unavailable', async () => {
+    const subject = setup()
+    await subject.controller.enable('Owner')
+    subject.session.emitStatus({ state: 'offline', reason: 'persistence', error: '保存在本机' })
+    subject.session.emitSnapshot({ ...v2(), name: 'Local draft' })
+    expect(subject.controller.exportLocalDraft().name).toBe('Local draft')
   })
 
   it('retries only the authoritative reload if closing already succeeded', async () => {

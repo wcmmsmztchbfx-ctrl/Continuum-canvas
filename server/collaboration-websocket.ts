@@ -6,7 +6,10 @@ import * as decoding from 'lib0/decoding'
 import * as syncProtocol from 'y-protocols/sync'
 import * as awarenessProtocol from 'y-protocols/awareness'
 import type * as Y from 'yjs'
-import { COLLABORATION_MAX_CLIENT_MESSAGE_BYTES } from '../src/contracts/collaboration.ts'
+import {
+  COLLABORATION_MAX_CLIENT_MESSAGE_BYTES,
+  COLLABORATION_PERSISTENCE_FAILURE_CLOSE_CODE,
+} from '../src/contracts/collaboration.ts'
 import { getCollaboratorColor } from '../src/collaboration/colors.ts'
 import { collaborationTokenFromCookieHeader } from './collaboration-cookie.ts'
 import {
@@ -192,7 +195,9 @@ export function attachCollaborationWebSocket(options: {
   const stopPersistenceErrors = options.service.onPersistenceError((roomId) => {
     const room = rooms.get(roomId)
     if (!room) return
-    for (const socket of room.sockets) socket.close(1011, 'Collaboration persistence failed')
+    for (const socket of room.sockets) {
+      socket.close(COLLABORATION_PERSISTENCE_FAILURE_CLOSE_CODE, 'Collaboration persistence failed')
+    }
   })
 
   const roomConnections = (roomId: string): RoomConnections => {
@@ -352,8 +357,11 @@ export function attachCollaborationWebSocket(options: {
               send(connection, encoding.toUint8Array(response))
             }).catch((error: unknown) => {
               const forbidden = error instanceof CollaborationAuthorizationError
-              connection.close(forbidden ? 1008 : 1011,
-                forbidden ? 'Forbidden' : 'Collaboration persistence failed')
+              const persistenceFailure = error instanceof CollaborationPersistenceError
+              connection.close(
+                forbidden ? 1008 : persistenceFailure ? COLLABORATION_PERSISTENCE_FAILURE_CLOSE_CODE : 1011,
+                forbidden ? 'Forbidden' : persistenceFailure ? 'Collaboration persistence failed' : 'Checkpoint failed',
+              )
             })
             return
           }
@@ -386,7 +394,7 @@ export function attachCollaborationWebSocket(options: {
           const rejectedUpdate = error instanceof CollaborationUpdateError
           connection.close(
             persistenceFailure
-              ? 1011
+              ? COLLABORATION_PERSISTENCE_FAILURE_CLOSE_CODE
               : rejectedUpdate || error instanceof CollaborationAuthorizationError
                 ? 1008
                 : 1002,
@@ -411,6 +419,10 @@ export function attachCollaborationWebSocket(options: {
         }
         releaseRoom(roomId)
       })
+      if (options.service.hasPersistenceError(roomId)) {
+        connection.close(COLLABORATION_PERSISTENCE_FAILURE_CLOSE_CODE, 'Collaboration persistence failed')
+        return
+      }
       send(connection, session.role === 'viewer' ? syncStep2(room.document) : syncStep1(room.document))
       const awarenessIds = [...room.awareness.getStates().keys()]
       if (awarenessIds.length > 0) {

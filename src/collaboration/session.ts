@@ -8,6 +8,7 @@ import * as awarenessProtocol from 'y-protocols/awareness'
 import {
   COLLABORATION_MAX_CLIENT_MESSAGE_BYTES,
   COLLABORATION_MAX_SERVER_MESSAGE_BYTES,
+  COLLABORATION_PERSISTENCE_FAILURE_CLOSE_CODE,
   type CollaborationInteraction,
   type CollaborationRole,
   type CollaborationSession,
@@ -81,6 +82,7 @@ export type CanvasCollaborationConnectionState =
 export interface CanvasCollaborationStatus {
   state: CanvasCollaborationConnectionState
   error?: string
+  reason?: 'persistence'
 }
 
 export interface CollaborationPersistenceHandle {
@@ -483,6 +485,9 @@ export class CanvasCollaborationSession {
   private stopped = false
   private destroyed = false
   private terminal = false
+  private recoverablePersistenceFailure = false
+  private recoveryPending = false
+  private recoveryCheckpointInFlight = false
   private reconcilingLeases = false
   private destroyPromise?: Promise<void>
   private checkpointSequence = 0
@@ -519,7 +524,9 @@ export class CanvasCollaborationSession {
     this.cancelReconnect()
     this.handleLeaseDisconnect()
     this.detachSocket(true)
-    this.setStatus({ state: 'offline' })
+    this.setStatus(this.recoveryPending
+      ? { state: 'offline', reason: 'persistence', error: '浏览器已离线，本机修改仍待补存。' }
+      : { state: 'offline' })
   }
 
   private readonly onBrowserOnline = (): void => {
@@ -855,6 +862,33 @@ export class CanvasCollaborationSession {
     if (!this.destroyed) this.setStatus({ state: 'offline' })
   }
 
+  retryConnection(): void {
+    if (this.destroyed || this.stopped) return
+    if (!this.recoverablePersistenceFailure) {
+      if (this.recoveryPending && this.currentStatus.state === 'synced') this.confirmRecoveryCheckpoint()
+      return
+    }
+    this.recoverablePersistenceFailure = false
+    this.recoveryPending = true
+    this.terminal = false
+    this.reconnectAttempt = 0
+    this.connect()
+  }
+
+  private confirmRecoveryCheckpoint(): void {
+    if (!this.recoveryPending || this.recoveryCheckpointInFlight) return
+    this.recoveryCheckpointInFlight = true
+    void this.flush().then(() => {
+      this.recoveryPending = false
+      if (this.currentStatus.state === 'synced') this.setStatus({ state: 'synced' })
+    }).catch(() => {
+      if (this.currentStatus.state === 'synced' && this.recoveryPending) {
+        this.setStatus({ state: 'synced', reason: 'persistence',
+          error: '本机修改尚未完成补存，请重试保存。' })
+      }
+    }).finally(() => { this.recoveryCheckpointInFlight = false })
+  }
+
   destroy(): Promise<void> {
     this.destroyPromise ??= this.destroyInternal()
     return this.destroyPromise
@@ -904,12 +938,16 @@ export class CanvasCollaborationSession {
   private connect(): void {
     if (this.stopped || this.destroyed || this.terminal) return
     this.cancelReconnect()
-    this.setStatus({ state: 'connecting' })
+    this.setStatus(this.recoveryPending
+      ? { state: 'connecting', reason: 'persistence', error: '正在恢复连接并补存本机修改。' }
+      : { state: 'connecting' })
     let socket: CollaborationWebSocket
     try {
       socket = this.webSocketFactory(this.url)
     } catch {
-      this.setStatus({ state: 'offline', error: 'Collaboration connection failed' })
+      this.setStatus(this.recoveryPending
+        ? { state: 'offline', reason: 'persistence', error: '恢复连接失败，本机修改仍已保留。' }
+        : { state: 'offline', error: 'Collaboration connection failed' })
       this.scheduleReconnect()
       return
     }
@@ -921,7 +959,9 @@ export class CanvasCollaborationSession {
       generation,
       open: () => {
         if (!current()) return
-        this.setStatus({ state: 'connecting' })
+        this.setStatus(this.recoveryPending
+          ? { state: 'connecting', reason: 'persistence', error: '正在恢复连接并补存本机修改。' }
+          : { state: 'connecting' })
         this.send(syncStep1(this.#doc))
         this.prepareLeaseReconnect()
         this.commitLocalPresence()
@@ -940,19 +980,36 @@ export class CanvasCollaborationSession {
       error: () => {
         if (current() && !this.terminal) {
           this.rejectCheckpoint(new Error('协作连接失败，本地修改已保留'))
-          this.setStatus({ state: 'offline', error: 'Collaboration connection failed' })
+          this.setStatus(this.recoveryPending
+            ? { state: 'offline', reason: 'persistence', error: '恢复连接失败，本机修改仍已保留。' }
+            : { state: 'offline', error: 'Collaboration connection failed' })
         }
       },
       close: (event) => {
         if (!current()) return
-        this.rejectCheckpoint(new Error('协作连接已断开，本地修改已保留'))
+        const persistenceFailure = event.code === COLLABORATION_PERSISTENCE_FAILURE_CLOSE_CODE
+        this.rejectCheckpoint(new Error(persistenceFailure
+          ? '服务端保存失败，当前修改仅保留在本机'
+          : '协作连接已断开，本地修改已保留'))
         this.handleLeaseDisconnect()
+        if (persistenceFailure) {
+          this.terminal = true
+          this.recoverablePersistenceFailure = true
+          this.cancelReconnect()
+          this.setStatus({ state: 'offline', reason: 'persistence',
+            error: '服务端保存失败，当前修改仅保留在本机。请检查后端并重试。' })
+          this.detachSocket(false)
+          return
+        }
         if (this.terminal || TERMINAL_CLOSE_CODES.has(event.code ?? 0)) {
           this.terminal = true
           this.setStatus({ state: 'error', error: cleanCloseReason(event.reason) })
+          this.detachSocket(false)
           return
         }
-        this.setStatus({ state: 'offline' })
+        this.setStatus(this.recoveryPending
+          ? { state: 'offline', reason: 'persistence', error: '连接已断开，本机修改仍待补存。' }
+          : { state: 'offline' })
         this.scheduleReconnect()
       },
     }
@@ -1037,6 +1094,7 @@ export class CanvasCollaborationSession {
       if (pending?.id === id) {
         this.pendingCheckpoint = undefined
         this.timers.clearTimeout(pending.timer)
+        this.reconnectAttempt = 0
         pending.resolve()
       }
       return
@@ -1052,13 +1110,15 @@ export class CanvasCollaborationSession {
         this.send(encoding.toUint8Array(response))
       }
       if (syncType === syncProtocol.messageYjsSyncStep2) {
-        this.reconnectAttempt = 0
         this.hasSynchronizedDocument = true
         if (!this.publishedSnapshot) {
           this.publishedSnapshot = readableSnapshot(this.#document)
         }
-        this.setStatus({ state: 'synced' })
+        this.setStatus(this.recoveryPending
+          ? { state: 'synced', reason: 'persistence', error: '正在确认本机修改已保存。' }
+          : { state: 'synced' })
         this.confirmLocalLease()
+        this.confirmRecoveryCheckpoint()
       }
       return
     }
@@ -1084,7 +1144,8 @@ export class CanvasCollaborationSession {
 
   private setStatus(status: CanvasCollaborationStatus): void {
     if (this.destroyed) return
-    if (this.currentStatus.state === status.state && this.currentStatus.error === status.error) return
+    if (this.currentStatus.state === status.state && this.currentStatus.error === status.error &&
+      this.currentStatus.reason === status.reason) return
     this.currentStatus = status
     for (const listener of this.statusListeners) {
       try {

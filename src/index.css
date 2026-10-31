@@ -74,7 +74,7 @@ select:focus-visible {
 
 .app-shell {
   position: relative;
-  --layers-sidebar-rail-width: 48px;
+  --layers-sidebar-rail-width: 56px;
   --layers-sidebar-width: 260px;
   --inspector-sidebar-width: 280px;
   --canvas-stage-min-width: 220px;
@@ -129,13 +129,13 @@ select:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  width: 48px;
-  min-width: 48px;
+  gap: 10px;
+  width: var(--layers-sidebar-rail-width);
+  min-width: var(--layers-sidebar-rail-width);
   height: 100%;
   background: #1e1e1e;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 8px 0;
+  padding: 8px 0 14px;
   box-sizing: border-box;
   flex-shrink: 0;
   user-select: none;
@@ -165,10 +165,11 @@ select:focus-visible {
 }
 
 .app-layer-sidebar__rail-divider {
-  width: 24px;
+  width: 20px;
   height: 1px;
   background: rgba(255, 255, 255, 0.08);
-  margin: 4px 0 2px;
+  margin: 0 0 2px;
+  flex-shrink: 0;
 }
 
 .app-layer-sidebar__rail-btn {
@@ -179,7 +180,7 @@ select:focus-visible {
   width: 40px;
   height: 48px;
   flex-shrink: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   border: 0;
   color: #8c8c8c;
@@ -195,15 +196,20 @@ select:focus-visible {
 }
 
 .app-layer-sidebar__rail-btn--active {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+  color: #f0f0f0;
+  background: rgba(255, 255, 255, 0.065);
+}
+
+.app-layer-sidebar__rail button:focus-visible {
+  outline: 1px solid #8bb9df;
+  outline-offset: 2px;
 }
 
 .app-layer-sidebar__rail-label {
   font-size: 10px;
   font-weight: 500;
-  margin-top: 4px;
-  line-height: 1;
+  margin-top: 6px;
+  line-height: 1.2;
   letter-spacing: 0.1px;
 }
 

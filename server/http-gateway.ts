@@ -52,10 +52,12 @@ import { ProviderRequestRejectedError } from './providers/provider-adapter.ts'
 import {
   authorizeCollaborationGeneration,
   CollaborationAuthorizationError,
+  CollaborationCheckpointRejectedError,
   CollaborationConflictError,
   CollaborationInputError,
   CollaborationLimitError,
   CollaborationNotFoundError,
+  CollaborationPersistenceError,
 } from './collaboration-service.ts'
 import type { CollaborationServiceOptions } from './collaboration-service.ts'
 import { parseCanvasSnapshot } from '../src/model/project.ts'
@@ -555,6 +557,11 @@ function publicError(error: unknown): ApiError {
   if (error instanceof CollaborationAuthorizationError) {
     return new ApiError(403, error.code, 'Collaboration access is not allowed')
   }
+  if (error instanceof CollaborationPersistenceError) {
+    return error.cause instanceof CollaborationCheckpointRejectedError
+      ? new ApiError(409, 'collaboration_canvas_changed', 'Canvas content changed before collaboration was saved')
+      : new ApiError(500, error.code, 'Collaboration data could not be saved')
+  }
   if (error instanceof LocalAdminAuthorizationError) {
     return new ApiError(403, error.code, 'Local administrator access is not allowed')
   }
@@ -792,6 +799,14 @@ async function routeApi({
     await runtime.collaboration.revokeSession(sessionToken)
     clearCollaborationCookie(response, roomId, secureCollaborationCookies)
     sendJson(response, 200, { revoked: true })
+    return true
+  }
+  const recoverMatch = /^\/api\/collaboration\/rooms\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})\/recover$/.exec(path)
+  if (recoverMatch && method === 'POST') {
+    await rejectUnexpectedBody(request)
+    const sessionToken = collaborationSessionToken(request, recoverMatch[1])
+    await runtime.collaboration.retryRoomPersistence({ roomId: recoverMatch[1], sessionToken })
+    sendJson(response, 200, { recovered: true })
     return true
   }
   const roomMatch = /^\/api\/collaboration\/rooms\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/.exec(path)
@@ -1725,6 +1740,12 @@ export async function startGateway(options: {
           assertAllowedOrigin(request, dynamicAllowedOrigins, localHostOnly, dynamicPublicOrigin)
         }
         const loopbackBrowserOrigin = hasLoopbackBrowserOrigin(request)
+        // A tunnel adds an HTTPS entry point; it does not upgrade the owner's
+        // existing local/LAN HTTP page. That page cannot store Secure cookies.
+        const browserOrigin = request.headers.origin?.toLowerCase()
+        const localHttpRequest = loopbackBrowserOrigin && browserOrigin?.startsWith('http://')
+        const secureSessionCookies = browserOrigin?.startsWith('https://') ||
+          (!localHttpRequest && dynamicPublicOrigin?.toLowerCase().startsWith('https://'))
         const frontendPort = options.distDir
           ? (options.port ?? 4173)
           : (Number(process.env.CANVAS_VITE_PORT) || 4173)
@@ -1736,7 +1757,7 @@ export async function startGateway(options: {
           url,
           rawBodyLimit: options.rawBodyLimit ?? RAW_LIMIT,
           signal,
-          secureCollaborationCookies: (dynamicPublicOrigin ?? publicOrigin)?.toLowerCase().startsWith('https://') ?? false,
+          secureCollaborationCookies: Boolean(secureSessionCookies),
           localAdminAllowed: (localHostOnly && isLoopbackHost(host)) || loopbackBrowserOrigin || hasLocalBrowserReadReferer(request),
           localAdminRecoveryAllowed: loopbackBrowserOrigin,
           frontendPort,

@@ -130,6 +130,81 @@ afterEach(async () => {
 })
 
 describe('collaboration REST gateway', () => {
+  it('enables a saved canvas after camera-only movement without changing its content revision', async () => {
+    const gateway = await start()
+    const saved = snapshot()
+    await gateway.runtime.workspace.applyWorkspaceMutation({
+      protocolVersion: 1, operationId: 'saved-before-camera-move', kind: 'save-canvas',
+      expectedRevision: 0, canvas: saved,
+    })
+    const moved = { ...saved, viewport: { x: 345, y: -120, zoom: 0.1 } }
+    const response = await fetch(`${gateway.origin}/api/collaboration/rooms`, {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: gateway.origin },
+      body: JSON.stringify({
+        canvasId: moved.canvasId, projectId: moved.projectId, snapshot: moved,
+        deviceId: 'device-owner', displayName: 'Owner',
+      }),
+    })
+    expect(response.status).toBe(201)
+    const payload = await body(response)
+    expect(await gateway.runtime.workspace.getCanvasRecord(saved.canvasId)).toMatchObject({
+      revision: 1, roomId: payload.room.roomId, snapshot: { viewport: saved.viewport },
+    })
+    expect(gateway.runtime.collaboration.exportSnapshot(payload.room.roomId).viewport).toEqual(moved.viewport)
+  })
+
+  it('reports an initial content mismatch as a recoverable conflict without overwriting the saved canvas', async () => {
+    const gateway = await start()
+    await gateway.runtime.workspace.applyWorkspaceMutation({
+      protocolVersion: 1, operationId: 'saved-new-content', kind: 'save-canvas',
+      expectedRevision: 0, canvas: { ...snapshot(), name: 'Newer saved content' },
+    })
+    const { response, payload } = await enable(gateway)
+    expect(response.status).toBe(409)
+    expect(payload.error.code).toBe('collaboration_canvas_changed')
+    expect((await gateway.runtime.workspace.getCanvasRecord('canvas-alpha'))?.snapshot?.name).toBe('Newer saved content')
+    expect(JSON.stringify(payload)).not.toMatch(/stack|directory|secret/)
+  })
+
+  it('returns a safe persistence error when creating the room cannot write to disk', async () => {
+    const gateway = await start()
+    const write = vi.spyOn(gateway.runtime.workspace, 'applyCollaborationCheckpoint')
+      .mockRejectedValueOnce(new Error('private-disk-path'))
+    const { response, payload } = await enable(gateway)
+    expect(response.status).toBe(500)
+    expect(payload.error.code).toBe('collaboration_persistence_failed')
+    expect(JSON.stringify(payload)).not.toContain('private-disk-path')
+    write.mockRestore()
+  })
+
+  it('lets the owner retry a failed room checkpoint without exposing it to viewers', async () => {
+    const gateway = await start()
+    const owner = await enable(gateway)
+    const roomId = owner.payload.room.roomId as string
+    const ownerCookie = cookie(owner.response)
+    const viewerCookie = await inviteCookie(gateway, owner.response, roomId, 'viewer')
+    const mirror = vi.spyOn(gateway.runtime.workspace, 'applyCollaborationCheckpoint')
+      .mockRejectedValueOnce(new Error('temporary disk error'))
+    gateway.runtime.collaboration.documentForRoom(roomId).getMap('meta').set('name', 'Recovered name')
+    await gateway.runtime.collaboration.settlePersistence(roomId)
+    await expect(gateway.runtime.collaboration.checkpointRoom(roomId)).rejects.toMatchObject({
+      code: 'collaboration_persistence_failed',
+    })
+    const retry = (sessionCookie?: string) => fetch(
+      `${gateway.origin}/api/collaboration/rooms/${roomId}/recover`,
+      { method: 'POST', headers: { origin: gateway.origin,
+        ...(sessionCookie ? { cookie: sessionCookie } : {}) } },
+    )
+    expect((await retry()).status).toBe(403)
+    expect((await retry(viewerCookie)).status).toBe(403)
+    const recovered = await retry(ownerCookie)
+    expect(recovered.status).toBe(200)
+    expect(await body(recovered)).toMatchObject({ recovered: true })
+    expect((await gateway.runtime.workspace.getCanvasRecord('canvas-alpha'))?.snapshot?.name)
+      .toBe('Recovered name')
+    mirror.mockRestore()
+  })
+
   it('requires the collaboration owner and a matching room header for provider writes', async () => {
     const gateway = await start()
     const owner = await enable(gateway)
@@ -348,6 +423,50 @@ describe('collaboration REST gateway', () => {
     })
     expect(response.status).toBe(201)
     expect(response.headers.get('set-cookie')).toContain('Secure')
+  })
+
+  it('keeps local HTTP sessions usable after starting an HTTPS tunnel while securing remote invite sessions', async () => {
+    const gateway = await start({
+      publicOrigin: 'http://192.168.1.4:4173',
+      allowedOrigins: ['http://192.168.1.4:4173'],
+      allowInsecureLan: true,
+    })
+    const localOrigin = 'http://192.168.1.4:4173'
+    const remoteOrigin = 'https://canvas.example'
+    await gateway.runtime.tunnel.setCustomUrl(remoteOrigin)
+    await gateway.runtime.tunnel.startCustomMode()
+    const admin = await fetch(`${gateway.origin}/api/local-admin/session`, {
+      method: 'POST', headers: { origin: localOrigin },
+    })
+    expect(admin.status).toBe(200)
+    expect(admin.headers.get('set-cookie')).not.toContain('Secure')
+    const owner = await fetch(`${gateway.origin}/api/collaboration/rooms`, {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: localOrigin },
+      body: JSON.stringify({
+        canvasId: 'canvas-alpha', projectId: 'project-alpha', snapshot: snapshot(),
+        deviceId: 'device-owner', displayName: 'Owner',
+      }),
+    })
+    expect(owner.status).toBe(201)
+    expect(owner.headers.get('set-cookie')).not.toContain('Secure')
+    const { room } = await body(owner)
+    const invitation = await fetch(`${gateway.origin}/api/collaboration/rooms/${room.roomId}/invites`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: localOrigin, cookie: cookie(owner) },
+      body: JSON.stringify({ role: 'editor' }),
+    })
+    expect(invitation.status).toBe(201)
+    const { secret } = await body(invitation)
+    const joined = await fetch(`${gateway.origin}/api/collaboration/sessions`, {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: remoteOrigin },
+      body: JSON.stringify({ roomId: room.roomId, secret, deviceId: 'device-guest', displayName: 'Guest' }),
+    })
+    expect(joined.status).toBe(200)
+    expect(joined.headers.get('set-cookie')).toContain('Secure')
+    const status = await fetch(`${gateway.origin}/api/collaboration/rooms/${room.roomId}`, {
+      headers: { cookie: cookie(joined) },
+    })
+    expect(status.status).toBe(200)
   })
 
   it('keeps REST sessions for two rooms in isolated cookies', async () => {

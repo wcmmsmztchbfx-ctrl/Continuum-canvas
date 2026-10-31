@@ -38,6 +38,8 @@ export interface CollaborationPopoverProps extends ControlledOverlayProps {
   onNavigateToActiveCollaboration?: (collab: ActiveCollaboration, closeExisting?: boolean) => void
   onRemoveMember?: (memberId: string) => void | Promise<void>
   onRetryResume?: AsyncAction
+  onRetryPersistence?: AsyncAction
+  onExportLocalDraft?: AsyncAction
   onRevokeInvite?: (inviteId: string) => void | Promise<void>
   onSetMemberRole?: (memberId: string, role: 'editor' | 'viewer') => void | Promise<void>
   onRecoverConflictRoom?: (secret: string, displayName: string) => void | Promise<void>
@@ -70,6 +72,8 @@ export function CollaborationPopover({
   onNavigateToActiveCollaboration,
   onRemoveMember,
   onRetryResume,
+  onRetryPersistence,
+  onExportLocalDraft,
   onRevokeInvite,
   onSetMemberRole,
   onRecoverConflictRoom,
@@ -96,6 +100,7 @@ export function CollaborationPopover({
   })
   const [conflictSecret, setConflictSecret] = useState('')
   const [busy, setBusy] = useState(false)
+  const [tunnelRequestError, setTunnelRequestError] = useState<string | null>(null)
   const [modeTab, setModeTab] = useState<'lan' | 'remote'>('lan')
   const [activeLinkTab, setActiveLinkTab] = useState<'lan' | 'remote'>('lan')
   const [lanOrigin, setLanOrigin] = useState<string | null>(null)
@@ -138,12 +143,12 @@ export function CollaborationPopover({
           if (res.status === 'running') {
             setActiveLinkTab('remote')
           }
-          if (res.status === 'starting' || res.status === 'downloading') {
+          if (busy || res.status === 'starting' || res.status === 'downloading') {
             pollTimer = setTimeout(fetchTunnel, 800)
           }
         }
       } catch {
-        if (mounted && (tunnelStatus.status === 'starting' || tunnelStatus.status === 'downloading')) {
+        if (mounted && (busy || tunnelStatus.status === 'starting' || tunnelStatus.status === 'downloading')) {
           pollTimer = setTimeout(fetchTunnel, 1200)
         }
       }
@@ -154,7 +159,7 @@ export function CollaborationPopover({
       mounted = false
       if (pollTimer) clearTimeout(pollTimer)
     }
-  }, [open, onGetTunnelStatus, tunnelStatus.status])
+  }, [open, onGetTunnelStatus, tunnelStatus.status, busy])
 
   useEffect(() => {
     if (!open || !surfaceRef.current) return
@@ -198,6 +203,8 @@ export function CollaborationPopover({
   }
 
   const handleStartTunnel = async () => {
+    if (busy || !onStartTunnel) return
+    setTunnelRequestError(null)
     setBusy(true)
     try {
       const res = await onStartTunnel?.(
@@ -205,16 +212,21 @@ export function CollaborationPopover({
         customModeActive ? customUrlInput : undefined,
       )
       if (res) setTunnelStatus(res)
+    } catch {
+      setTunnelRequestError('无法连接到后端，请稍后重试。')
     } finally {
       setBusy(false)
     }
   }
 
   const handleStopTunnel = async () => {
+    setTunnelRequestError(null)
     setBusy(true)
     try {
       const res = await onStopTunnel?.()
       if (res) setTunnelStatus(res)
+    } catch {
+      setTunnelRequestError('无法连接到后端，请稍后重试。')
     } finally {
       setBusy(false)
     }
@@ -223,9 +235,12 @@ export function CollaborationPopover({
   const handleSaveCustomUrl = async () => {
     if (!customUrlInput.trim()) return
     setBusy(true)
+    setTunnelRequestError(null)
     try {
       const res = await onSetCustomTunnelUrl?.(customUrlInput.trim())
       if (res) setTunnelStatus(res)
+    } catch {
+      setTunnelRequestError('地址未保存，请检查地址和后端连接后重试。')
     } finally {
       setBusy(false)
     }
@@ -246,6 +261,134 @@ export function CollaborationPopover({
       : activeLinkTab === 'lan' && lanOrigin
         ? lanOrigin
         : undefined
+
+  const tunnelCard = (
+    <div className="collab-tunnel-card">
+      <div className="collab-tunnel-header">
+        <span className="collab-tunnel-title">
+          <Radio size={13} />
+          <span>远程通道状态</span>
+        </span>
+        <span
+          className={`collab-tunnel-badge is-${tunnelStatus.status}`}
+        >
+          {tunnelStatus.status === 'running'
+            ? '运行中'
+            : tunnelStatus.status === 'downloading'
+              ? '准备组件'
+              : tunnelStatus.status === 'starting'
+                ? '正在连接...'
+                : tunnelStatus.status === 'error'
+                  ? '连接异常'
+                  : '未启动'}
+        </span>
+      </div>
+
+      {tunnelStatus.status === 'downloading' ? (
+        <div className="collab-tunnel-progress-wrap">
+          <div className="collab-tunnel-progress-bar" role="progressbar" aria-label="组件下载进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={tunnelStatus.downloadProgress || undefined}>
+            <div
+              className={`collab-tunnel-progress-fill${tunnelStatus.downloadProgress ? '' : ' is-indeterminate'}`}
+              style={{ width: `${tunnelStatus.downloadProgress ?? 0}%` }}
+            />
+          </div>
+          <span className="collab-tunnel-progress-hint">
+            {tunnelStatus.downloadProgress ? `正在下载 ${tunnelStatus.downloadProgress}% · 仅首次需要` : '正在连接官方下载源，首次使用需要下载组件…'}
+          </span>
+        </div>
+      ) : null}
+
+      {tunnelStatus.status === 'running' && tunnelStatus.publicUrl ? (
+        <div className="collab-tunnel-url-box">
+          <code>{tunnelStatus.publicUrl}</code>
+          <button
+            type="button"
+            className="overlay-icon-button"
+            onClick={() =>
+              handleCopy('tunnelUrl', tunnelStatus.publicUrl!)
+            }
+            title="复制远程公网地址"
+          >
+            {copiedKey === 'tunnelUrl' ? (
+              <Check size={14} color="#10b981" />
+            ) : (
+              <Copy size={14} />
+            )}
+          </button>
+        </div>
+      ) : null}
+
+      {tunnelRequestError || (tunnelStatus.status === 'error' && tunnelStatus.error) ? (
+        <p className="collab-tunnel-error" role="alert">
+          {tunnelRequestError || tunnelStatus.error}
+        </p>
+      ) : null}
+      {tunnelStatus.status === 'error' ? (
+        <a className="collab-tunnel-help" href="https://developers.cloudflare.com/tunnel/downloads/" target="_blank" rel="noreferrer">手动安装组件</a>
+      ) : null}
+
+      <div className="collab-tunnel-controls">
+        {tunnelStatus.status === 'running' ? (
+          <button
+            type="button"
+            className="collab-tunnel-action-btn is-stop"
+            disabled={busy}
+            onClick={handleStopTunnel}
+          >
+            停止远程通道
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="collab-tunnel-action-btn is-start"
+            disabled={busy || tunnelStatus.status === 'downloading' || tunnelStatus.status === 'starting'}
+            onClick={handleStartTunnel}
+          >
+            {busy || tunnelStatus.status === 'downloading' || tunnelStatus.status === 'starting' ? (
+              <Loader2 size={13} className="is-spinning" />
+            ) : (
+              <Globe size={13} />
+            )}
+            <span>
+              {tunnelStatus.status === 'downloading'
+                ? `正在下载组件 (${tunnelStatus.downloadProgress ?? 0}%)...`
+                : tunnelStatus.status === 'starting'
+                  ? '正在建立加密隧道...'
+                  : tunnelRequestError || tunnelStatus.status === 'error'
+                    ? '重试下载 / 连接'
+                    : '开启远程通道 (Cloudflare)'}
+            </span>
+          </button>
+        )}
+        <button
+          type="button"
+          className="collab-custom-domain-toggle"
+          onClick={() => setCustomModeActive(!customModeActive)}
+        >
+          {customModeActive ? '收起自定义' : '自定义域名'}
+        </button>
+      </div>
+
+      {customModeActive ? (
+        <div className="collab-custom-url-form">
+          <input
+            type="text"
+            placeholder="例如 https://canvas.yourdomain.com"
+            value={customUrlInput}
+            onChange={(e) => setCustomUrlInput(e.target.value)}
+          />
+          <button
+            type="button"
+            className="overlay-text-button"
+            onClick={handleSaveCustomUrl}
+            disabled={!customUrlInput.trim() || busy}
+          >
+            保存
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
 
   return (
     <div className="overlay-backdrop" onClick={onClose} style={{ zIndex: 90 }}>
@@ -287,7 +430,9 @@ export function CollaborationPopover({
               className="integration-status"
               data-tone={state.status === 'synced' ? 'online' : undefined}
             >
-              {state.status === 'inactive'
+              {state.failure === 'persistence'
+                ? state.status === 'offline' ? '保存失败' : '补存中'
+                : state.status === 'inactive'
                 ? '未开启'
                 : state.status === 'synced'
                   ? '已同步'
@@ -414,126 +559,7 @@ export function CollaborationPopover({
                       </div>
                     </div>
 
-                    <div className="collab-tunnel-card">
-                      <div className="collab-tunnel-header">
-                        <span className="collab-tunnel-title">
-                          <Radio size={13} />
-                          <span>远程通道状态</span>
-                        </span>
-                        <span
-                          className={`collab-tunnel-badge is-${tunnelStatus.status}`}
-                        >
-                          {tunnelStatus.status === 'running'
-                            ? '运行中'
-                            : tunnelStatus.status === 'downloading'
-                              ? `组件部署中 ${tunnelStatus.downloadProgress ?? 0}%`
-                              : tunnelStatus.status === 'starting'
-                                ? '正在连接...'
-                                : tunnelStatus.status === 'error'
-                                  ? '连接异常'
-                                  : '未启动'}
-                        </span>
-                      </div>
-
-                      {tunnelStatus.status === 'downloading' ? (
-                        <div className="collab-tunnel-progress-wrap">
-                          <div className="collab-tunnel-progress-bar">
-                            <div
-                              className="collab-tunnel-progress-fill"
-                              style={{ width: `${tunnelStatus.downloadProgress ?? 0}%` }}
-                            />
-                          </div>
-                          <span className="collab-tunnel-progress-hint">
-                            正在自动下载内置穿透组件 ({tunnelStatus.downloadProgress ?? 0}%)...
-                          </span>
-                        </div>
-                      ) : null}
-
-                      {tunnelStatus.status === 'running' && tunnelStatus.publicUrl ? (
-                        <div className="collab-tunnel-url-box">
-                          <code>{tunnelStatus.publicUrl}</code>
-                          <button
-                            type="button"
-                            className="overlay-icon-button"
-                            onClick={() =>
-                              handleCopy('tunnelUrl', tunnelStatus.publicUrl!)
-                            }
-                            title="复制远程公网地址"
-                          >
-                            {copiedKey === 'tunnelUrl' ? (
-                              <Check size={14} color="#10b981" />
-                            ) : (
-                              <Copy size={14} />
-                            )}
-                          </button>
-                        </div>
-                      ) : null}
-
-                      {tunnelStatus.status === 'error' && tunnelStatus.error ? (
-                        <p className="collab-tunnel-error">
-                          {tunnelStatus.error}
-                        </p>
-                      ) : null}
-
-                      <div className="collab-tunnel-controls">
-                        {tunnelStatus.status === 'running' ? (
-                          <button
-                            type="button"
-                            className="collab-tunnel-action-btn is-stop"
-                            disabled={busy}
-                            onClick={handleStopTunnel}
-                          >
-                            停止远程通道
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            className="collab-tunnel-action-btn is-start"
-                            disabled={busy || tunnelStatus.status === 'downloading' || tunnelStatus.status === 'starting'}
-                            onClick={handleStartTunnel}
-                          >
-                            {busy || tunnelStatus.status === 'downloading' || tunnelStatus.status === 'starting' ? (
-                              <Loader2 size={13} className="is-spinning" />
-                            ) : (
-                              <Globe size={13} />
-                            )}
-                            <span>
-                              {tunnelStatus.status === 'downloading'
-                                ? `正在下载组件 (${tunnelStatus.downloadProgress ?? 0}%)...`
-                                : tunnelStatus.status === 'starting'
-                                  ? '正在建立加密隧道...'
-                                  : '开启远程通道 (Cloudflare)'}
-                            </span>
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="collab-custom-domain-toggle"
-                          onClick={() => setCustomModeActive(!customModeActive)}
-                        >
-                          {customModeActive ? '收起自定义' : '自定义域名'}
-                        </button>
-                      </div>
-
-                      {customModeActive ? (
-                        <div className="collab-custom-url-form">
-                          <input
-                            type="text"
-                            placeholder="例如 https://canvas.yourdomain.com"
-                            value={customUrlInput}
-                            onChange={(e) => setCustomUrlInput(e.target.value)}
-                          />
-                          <button
-                            type="button"
-                            className="overlay-text-button"
-                            onClick={handleSaveCustomUrl}
-                            disabled={!customUrlInput.trim() || busy}
-                          >
-                            保存
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
+                    {tunnelCard}
                   </div>
                 )}
 
@@ -677,6 +703,29 @@ export function CollaborationPopover({
               </span>
             </div>
 
+            {state.failure === 'persistence' ? (
+              <div className="collaboration-save-warning">
+                <p role="alert">{state.error ?? '服务端保存失败，当前修改仅保留在本机。'}</p>
+                {owner ? (
+                  <button disabled={busy} onClick={() => run(onRetryPersistence)} type="button">
+                    重试保存
+                  </button>
+                ) : state.session?.role === 'editor' ? (
+                  <>
+                    <small>请确认房间所有者已恢复保存，再重新连接。</small>
+                    <button disabled={busy} onClick={() => run(onRetryPersistence)} type="button">
+                      重新连接
+                    </button>
+                  </>
+                ) : <small>请协作房间所有者重试保存。</small>}
+                {state.session?.role !== 'viewer' ? (
+                  <button disabled={busy} onClick={() => run(onExportLocalDraft)} type="button">
+                    导出本地副本
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
             {state.recoverySecret ? (
               <div className="collaboration-secret">
                 <div>
@@ -726,24 +775,7 @@ export function CollaborationPopover({
                   </button>
                 </div>
 
-                {activeLinkTab === 'remote' && tunnelStatus.status !== 'running' ? (
-                  <div className="collab-tunnel-prompt">
-                    <small>远程通道未开启，点击一键启动生成公网链接</small>
-                    <button
-                      type="button"
-                      className="collab-tunnel-action-btn is-start"
-                      disabled={busy}
-                      onClick={handleStartTunnel}
-                    >
-                      {busy ? (
-                        <Loader2 size={12} className="is-spinning" />
-                      ) : (
-                        <Globe size={12} />
-                      )}
-                      <span>开启 Cloudflare 远程通道</span>
-                    </button>
-                  </div>
-                ) : null}
+                {activeLinkTab === 'remote' ? tunnelCard : null}
 
                 {activeLinkTab === 'lan' ? (
                   <div

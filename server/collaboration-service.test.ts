@@ -18,6 +18,7 @@ import {
   CollaborationService,
 } from './collaboration-service.ts'
 import { atomicWriteJson } from './atomic-json.ts'
+import { WorkspaceService } from './workspace-service.ts'
 
 function snapshot(): CanvasSnapshotV2 {
   return {
@@ -124,6 +125,111 @@ describe('CollaborationService', () => {
     failMirror = false
     await service.recoverRoomPersistence(owner.room.roomId)
     await service.close()
+  })
+
+  it('keeps the prior room snapshot and update log when the workspace mirror fails', async () => {
+    const dataDir = await directory()
+    let failMirror = false
+    const service = await CollaborationService.open({ dataDir,
+      onSnapshotSaved: async () => { if (failMirror) throw new Error('mirror unavailable') },
+    })
+    const owner = await service.enableRoom({ canvasId: 'canvas-alpha', projectId: 'project-alpha',
+      snapshot: snapshot(), deviceId: 'device-owner', displayName: 'Owner' })
+    const roomDir = join(dataDir, 'collaboration', owner.room.roomId)
+    const before = await readFile(join(roomDir, 'snapshot.bin'))
+    service.documentForRoom(owner.room.roomId).getMap('meta').set('name', 'New shared name')
+    await service.settlePersistence(owner.room.roomId)
+    expect((await readFile(join(roomDir, 'updates.bin'))).byteLength).toBeGreaterThan(0)
+
+    failMirror = true
+    await expect(service.checkpointRoom(owner.room.roomId)).rejects.toBeInstanceOf(CollaborationPersistenceError)
+    expect(await readFile(join(roomDir, 'snapshot.bin'))).toEqual(before)
+    expect((await readFile(join(roomDir, 'updates.bin'))).byteLength).toBeGreaterThan(0)
+
+    failMirror = false
+    await service.recoverRoomPersistence(owner.room.roomId)
+    await service.close()
+    const restored = await CollaborationService.open({ dataDir })
+    expect(restored.exportSnapshot(owner.room.roomId).name).toBe('New shared name')
+    await restored.close()
+  })
+
+  it('retains the update log when publishing a room snapshot fails after the workspace mirror', async () => {
+    const dataDir = await directory()
+    const mirroredNames: string[] = []
+    let failSnapshot = false
+    const service = await CollaborationService.open({ dataDir,
+      persistence: testPersistence({ async writeBytes(path, bytes) {
+        if (failSnapshot && path.endsWith('snapshot.bin')) throw new Error('snapshot unavailable')
+        await writeFile(path, bytes)
+      } }),
+      onSnapshotSaved: async (checkpoint) => { mirroredNames.push(checkpoint.snapshot.name) },
+    })
+    const owner = await service.enableRoom({ canvasId: 'canvas-alpha', projectId: 'project-alpha',
+      snapshot: snapshot(), deviceId: 'device-owner', displayName: 'Owner' })
+    const roomDir = join(dataDir, 'collaboration', owner.room.roomId)
+    service.documentForRoom(owner.room.roomId).getMap('meta').set('name', 'Mirrored before compact')
+    await service.settlePersistence(owner.room.roomId)
+
+    failSnapshot = true
+    await expect(service.checkpointRoom(owner.room.roomId)).rejects.toBeInstanceOf(CollaborationPersistenceError)
+    expect(mirroredNames.at(-1)).toBe('Mirrored before compact')
+    expect((await readFile(join(roomDir, 'updates.bin'))).byteLength).toBeGreaterThan(0)
+
+    failSnapshot = false
+    await service.recoverRoomPersistence(owner.room.roomId)
+    await service.close()
+    const restored = await CollaborationService.open({ dataDir })
+    expect(restored.exportSnapshot(owner.room.roomId).name).toBe('Mirrored before compact')
+    await restored.close()
+  })
+
+  it('does not bind a new room to the workspace before its initial room snapshot exists', async () => {
+    const mirrored = vi.fn()
+    const service = await CollaborationService.open({ dataDir: await directory(),
+      persistence: testPersistence({ async writeBytes(path, bytes) {
+        if (path.endsWith('snapshot.bin')) throw new Error('initial snapshot unavailable')
+        await writeFile(path, bytes)
+      } }),
+      onSnapshotSaved: mirrored,
+    })
+    await expect(service.enableRoom({ canvasId: 'canvas-alpha', projectId: 'project-alpha',
+      snapshot: snapshot(), deviceId: 'device-owner', displayName: 'Owner' }))
+      .rejects.toBeInstanceOf(CollaborationPersistenceError)
+    expect(mirrored).not.toHaveBeenCalled()
+    await service.close()
+  })
+
+  it('replays a retained update log after a crash between room snapshot and log truncation', async () => {
+    const dataDir = await directory()
+    const workspace = new WorkspaceService({ dataDir })
+    let failLogClear = false
+    const onSnapshotSaved = async (checkpoint: Parameters<WorkspaceService['applyCollaborationCheckpoint']>[0]) => {
+      if (!await workspace.applyCollaborationCheckpoint(checkpoint)) throw new Error('workspace conflict')
+    }
+    const service = await CollaborationService.open({ dataDir, onSnapshotSaved,
+      persistence: testPersistence({ async writeBytes(path, bytes) {
+        if (failLogClear && path.endsWith('updates.bin') && bytes.byteLength === 0) {
+          throw new Error('log clear unavailable')
+        }
+        await writeFile(path, bytes)
+      } }),
+    })
+    const owner = await service.enableRoom({ canvasId: 'canvas-alpha', projectId: 'project-alpha',
+      snapshot: snapshot(), deviceId: 'device-owner', displayName: 'Owner' })
+    service.documentForRoom(owner.room.roomId).getMap('meta').set('name', 'Recovered after restart')
+    await service.settlePersistence(owner.room.roomId)
+    failLogClear = true
+    await expect(service.checkpointRoom(owner.room.roomId)).rejects.toBeInstanceOf(CollaborationPersistenceError)
+    expect((await workspace.getCanvasRecord('canvas-alpha'))?.revision).toBe(2)
+    await expect(service.close()).rejects.toBeInstanceOf(CollaborationPersistenceError)
+
+    const restored = await CollaborationService.open({ dataDir, onSnapshotSaved })
+    expect(restored.exportSnapshot(owner.room.roomId).name).toBe('Recovered after restart')
+    expect((await workspace.getCanvasRecord('canvas-alpha'))?.revision).toBe(2)
+    expect((await readFile(join(dataDir, 'collaboration', owner.room.roomId,
+      'updates.bin'))).byteLength).toBe(0)
+    await restored.close()
   })
 
   it('passes room identity and epoch with each persisted checkpoint', async () => {

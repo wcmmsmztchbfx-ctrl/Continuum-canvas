@@ -58,6 +58,36 @@ function memoryStorage(initial: Record<string, string> = {}): Storage {
 }
 
 describe('CollaborationClient', () => {
+  it('sends an authenticated owner retry request for a failed room checkpoint', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ recovered: true }))
+    const client = new CollaborationClient({ fetchImpl, storage: memoryStorage() })
+    await client.retryRoomPersistence(room.roomId)
+    expect(fetchImpl).toHaveBeenCalledWith('/api/collaboration/rooms/room-alpha/recover',
+      expect.objectContaining({ method: 'POST', credentials: 'same-origin' }))
+  })
+
+  it.each([
+    [400, 'invalid_input', '协作请求数据无效，请刷新页面后重试'],
+    [413, 'payload_too_large', '画布数据超过协作大小限制'],
+    [403, 'origin_not_allowed', '当前访问地址未被允许，请从本机或已配置的分享地址打开'],
+    [500, 'internal_error', '协作服务处理失败，请重试或检查后端日志'],
+    [409, 'collaboration_canvas_changed', '画布内容刚刚发生变化，请等待保存完成后重试'],
+  ])('explains gateway failure %s/%s without exposing server details', async (status, code, message) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      error: { code, message: 'private-server-detail' },
+    }, { status }))
+    const client = new CollaborationClient({ fetchImpl, storage: memoryStorage() })
+    await expect(client.enableRoom({ snapshot, displayName: 'Owner' })).rejects.toMatchObject({ status, code, message })
+  })
+
+  it('identifies an unavailable proxy response without exposing its HTML', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('private-proxy-detail', { status: 502 }))
+    const client = new CollaborationClient({ fetchImpl, storage: memoryStorage() })
+    await expect(client.enableRoom({ snapshot, displayName: 'Owner' })).rejects.toMatchObject({
+      status: 502, code: 'request_failed', message: '协作服务暂时无法连接（HTTP 502），请稍后重试',
+    })
+  })
+
   it('preserves only the validated existing room id from a conflict response', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
       error: {

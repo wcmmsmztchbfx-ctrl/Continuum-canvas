@@ -159,6 +159,40 @@ describe('versioned workspace mutations', () => {
     expect(JSON.parse((await service.getCanvasDocument('canvas-a'))!).name).toBe('普通新版')
   }))
 
+  it('accepts A → B → A when the final checkpoint returns to an earlier content hash', async () => fixture(async (service) => {
+    const original = defaultInitialCanvas('canvas-return')
+    const room = { roomId: 'room-return', epoch: 'epoch-return', initial: true }
+    expect(await service.applyCollaborationCheckpoint({ ...room, snapshot: original,
+      sourceRevision: 'hash-of-a' })).toBe(true)
+    expect(await service.applyCollaborationCheckpoint({ ...room, initial: false,
+      snapshot: { ...original, name: 'B' }, sourceRevision: 'hash-of-b' })).toBe(true)
+    expect(await service.applyCollaborationCheckpoint({ ...room, initial: false,
+      snapshot: original, sourceRevision: 'hash-of-a' })).toBe(true)
+    expect((await service.getCanvasRecord(original.canvasId))?.revision).toBe(3)
+    expect(JSON.parse((await service.getCanvasDocument(original.canvasId))!).name).toBe(original.name)
+  }))
+
+  it('ignores camera changes when binding a room but still rejects stale canvas content', async () => fixture(async (service) => {
+    const canvas = defaultInitialCanvas('canvas-camera')
+    await service.applyWorkspaceMutation({ protocolVersion: 1, operationId: 'save-camera-basis',
+      kind: 'save-canvas', expectedRevision: 0, canvas })
+    const moved = { ...canvas, viewport: { x: 450, y: -200, zoom: 0.1 } }
+    const checkpoint = { snapshot: moved, roomId: 'room-camera', epoch: 'epoch-camera', sourceRevision: 'initial', initial: true }
+    expect(await service.applyCollaborationCheckpoint({ ...checkpoint, snapshot: { ...moved, name: 'Stale canvas' } })).toBe(false)
+    expect(await service.applyCollaborationCheckpoint(checkpoint)).toBe(true)
+    expect(await service.getCanvasRecord(canvas.canvasId)).toMatchObject({
+      revision: 1, roomId: 'room-camera', snapshot: { viewport: canvas.viewport },
+    })
+    expect(await service.applyCollaborationCheckpoint({ ...checkpoint, initial: false,
+      sourceRevision: 'camera-only', snapshot: { ...moved, viewport: { x: 999, y: 999, zoom: 2 } } })).toBe(true)
+    expect((await service.getCanvasRecord(canvas.canvasId))?.revision).toBe(1)
+    await service.applyWorkspaceMutation({ protocolVersion: 1, operationId: 'new-local-content',
+      kind: 'save-canvas', expectedRevision: 1, canvas: { ...canvas, name: 'New content' } })
+    expect(await service.applyCollaborationCheckpoint({ ...checkpoint, restored: true })).toBe(false)
+    expect(await service.applyCollaborationCheckpoint({ ...checkpoint, initial: false })).toBe(false)
+    expect((await service.getCanvasRecord(canvas.canvasId))?.snapshot?.name).toBe('New content')
+  }))
+
   it('binds an initial room for a saved text canvas after collaboration serialization', async () => fixture(async (service) => {
     const { canvasId, ...base } = defaultInitialCanvas('independent-a', 'independent-a', '未命名画布')
     const canvas = { ...base, nodes: [{

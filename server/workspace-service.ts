@@ -2,7 +2,6 @@ import { canvasContentIdentity } from '../src/model/canvasContentIdentity.ts'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { isDeepStrictEqual } from 'node:util'
 import { parseCanvasSnapshot } from '../src/model/project.ts'
 import type { CollaborationCheckpoint } from './collaboration-service.ts'
 import {
@@ -175,17 +174,25 @@ export class WorkspaceService {
     const current = await this.getCanvasRecord(snapshot.canvasId)
     if (current?.deleted || (current && current.projectId !== snapshot.projectId)) return false
     const serialized = await this.getCanvasDocument(snapshot.canvasId)
-    const sameContent = serialized !== undefined &&
-      isDeepStrictEqual(parseCanvasSnapshot(serialized), parseCanvasSnapshot(JSON.stringify(snapshot)))
+    const savedSnapshot = serialized === undefined ? undefined : parseCanvasSnapshot(serialized)
+    // Autosave intentionally ignores camera-only changes. Room handoff must use
+    // the same content identity, or a pan/zoom becomes a false write conflict.
+    const sameContent = savedSnapshot !== undefined &&
+      canvasContentIdentity(savedSnapshot) === canvasContentIdentity(parseCanvasSnapshot(JSON.stringify(snapshot)))
     const sameRoom = current?.roomId === roomId && current?.epoch === epoch
     if (checkpoint.restored && current?.roomId && !sameRoom) return false
     if (sameRoom && sameContent) return true
     if (current && !sameRoom && (!checkpoint.initial || !sameContent)) return false
     if (!current && serialized && !sameContent) return false
-    const operationId = `collab-${createHash('sha256').update(`${roomId}\0${epoch}\0${checkpoint.sourceRevision}`).digest('hex')}`
+    // A canvas can legitimately return to an earlier content hash (undo, redo,
+    // or an explicit edit). The workspace revision distinguishes that new save
+    // while keeping retries against the same revision idempotent.
+    const expectedRevision = current?.revision ?? 0
+    const operationId = `collab-${createHash('sha256').update(`${roomId}\0${epoch}\0${expectedRevision}\0${checkpoint.sourceRevision}`).digest('hex')}`
     try {
       await this.applyWorkspaceMutation({ protocolVersion: 1, operationId, kind: 'save-canvas',
-        expectedRevision: current?.revision ?? 0, canvas: snapshot },
+        expectedRevision,
+        canvas: { ...snapshot, viewport: savedSnapshot?.viewport ?? snapshot.viewport } },
       { roomId, epoch, preserveRevision: sameContent })
       return true
     } catch (error) {

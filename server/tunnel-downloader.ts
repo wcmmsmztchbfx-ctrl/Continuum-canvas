@@ -1,9 +1,11 @@
+import { execFile } from 'node:child_process'
 import { createWriteStream, existsSync } from 'node:fs'
-import { chmod, mkdir, rename, rm } from 'node:fs/promises'
-import { get as httpGet, type RequestOptions } from 'node:http'
-import { get as httpsGet } from 'node:https'
+import { chmod, mkdir, mkdtemp, open, rename, rm } from 'node:fs/promises'
 import { arch, platform } from 'node:os'
 import { join } from 'node:path'
+import { pipeline } from 'node:stream/promises'
+import { promisify } from 'node:util'
+import { EnvHttpProxyAgent, fetch } from 'undici'
 
 export interface DownloadProgress {
   percent: number
@@ -21,249 +23,128 @@ export function getPlatformAssetInfo(
   targetPlatform: string = platform(),
   targetArch: string = arch(),
 ): PlatformAssetInfo {
-  if (targetPlatform === 'win32') {
-    if (targetArch === 'arm64') {
-      return {
-        filename: 'cloudflared.exe',
-        assetName: 'cloudflared-windows-amd64.exe',
-        isArchive: false,
-      }
-    }
-    if (targetArch === 'ia32') {
-      return {
-        filename: 'cloudflared.exe',
-        assetName: 'cloudflared-windows-386.exe',
-        isArchive: false,
-      }
-    }
-    return {
-      filename: 'cloudflared.exe',
-      assetName: 'cloudflared-windows-amd64.exe',
-      isArchive: false,
-    }
+  const architectures: Record<string, string> = { x64: 'amd64', ia32: '386', arm: 'arm', arm64: 'arm64' }
+  let suffix = architectures[targetArch]
+  if (!suffix || !['win32', 'darwin', 'linux'].includes(targetPlatform) ||
+    (targetPlatform === 'darwin' && !['x64', 'arm64'].includes(targetArch)) ||
+    (targetPlatform === 'win32' && targetArch === 'arm')) {
+    throw new Error('此平台暂不支持自动安装远程组件，请手动配置 cloudflared。')
   }
-
-  if (targetPlatform === 'darwin') {
-    return {
-      filename: 'cloudflared',
-      assetName: targetArch === 'arm64' ? 'cloudflared-darwin-arm64.tgz' : 'cloudflared-darwin-amd64.tgz',
-      isArchive: true,
-    }
-  }
-
-  // Linux default
+  // Cloudflare provides Windows x86/x64 binaries; Windows ARM64 uses x64 emulation.
+  if (targetPlatform === 'win32' && targetArch === 'arm64') suffix = 'amd64'
+  const isWindows = targetPlatform === 'win32'
+  const isArchive = targetPlatform === 'darwin'
   return {
-    filename: 'cloudflared',
-    assetName: targetArch === 'arm64' ? 'cloudflared-linux-arm64' : 'cloudflared-linux-amd64',
-    isArchive: false,
+    filename: isWindows ? 'cloudflared.exe' : 'cloudflared',
+    assetName: `cloudflared-${isWindows ? 'windows' : targetPlatform}-${suffix}${isWindows ? '.exe' : isArchive ? '.tgz' : ''}`,
+    isArchive,
   }
 }
 
 export function getCandidateDownloadUrls(assetName: string): string[] {
-  return [
-    `https://github.com/cloudflare/cloudflared/releases/latest/download/${assetName}`,
-    `https://ghproxy.net/https://github.com/cloudflare/cloudflared/releases/latest/download/${assetName}`,
-    `https://mirror.ghproxy.com/https://github.com/cloudflare/cloudflared/releases/latest/download/${assetName}`,
-    `https://github.moeyy.xyz/https://github.com/cloudflare/cloudflared/releases/latest/download/${assetName}`,
-  ]
+  return [`https://github.com/cloudflare/cloudflared/releases/latest/download/${assetName}`]
 }
 
-function fetchStreamWithRedirects(
-  targetUrl: string,
-  maxRedirects = 8,
-): Promise<{ stream: NodeJS.ReadableStream; totalBytes: number }> {
-  return new Promise((resolve, reject) => {
-    let redirectsRemaining = maxRedirects
-
-    const attempt = (currentUrl: string) => {
-      let parsed: URL
-      try {
-        parsed = new URL(currentUrl)
-      } catch {
-        reject(new Error(`Invalid URL: ${currentUrl}`))
-        return
-      }
-
-      const getter = parsed.protocol === 'https:' ? httpsGet : httpGet
-      const options: RequestOptions = {
-        hostname: parsed.hostname,
-        port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-        path: `${parsed.pathname}${parsed.search}`,
-        headers: {
-          'User-Agent': 'Continuum-Canvas/1.0 (cloudflared-downloader)',
-          Accept: '*/*',
-        },
-        timeout: 15_000,
-      }
-
-      const req = getter(options, (res) => {
-        const statusCode = res.statusCode ?? 200
-
-        // Handle redirects (301, 302, 303, 307, 308)
-        if (statusCode >= 300 && statusCode < 400 && res.headers.location) {
-          if (redirectsRemaining <= 0) {
-            res.resume()
-            reject(new Error('Too many redirects while downloading cloudflared'))
-            return
-          }
-          redirectsRemaining--
-          res.resume()
-          const redirectUrl = new URL(res.headers.location, currentUrl).toString()
-          attempt(redirectUrl)
-          return
-        }
-
-        if (statusCode < 200 || statusCode >= 300) {
-          res.resume()
-          reject(new Error(`HTTP status ${statusCode} when downloading from ${currentUrl}`))
-          return
-        }
-
-        const contentLength = Number.parseInt(res.headers['content-length'] ?? '0', 10)
-        resolve({
-          stream: res,
-          totalBytes: Number.isFinite(contentLength) && contentLength > 0 ? contentLength : 0,
-        })
-      })
-
-      req.on('error', (err) => {
-        reject(err)
-      })
-
-      req.on('timeout', () => {
-        req.destroy()
-        reject(new Error(`Timeout connecting to ${currentUrl}`))
-      })
+export async function validateBinary(path: string, targetPlatform: string): Promise<void> {
+  const file = await open(path, 'r')
+  try {
+    const signature = Buffer.alloc(4)
+    await file.read(signature, 0, 4, 0)
+    const magic = signature.toString('hex')
+    const valid = targetPlatform === 'win32' ? magic.startsWith('4d5a')
+      : targetPlatform === 'linux' ? magic === '7f454c46'
+        : ['feedface', 'cefaedfe', 'feedfacf', 'cffaedfe', 'cafebabe', 'bebafeca'].includes(magic)
+    if (!valid || (await file.stat()).size < 1024 * 1024) {
+      throw new Error('下载文件不完整或不是有效的远程组件，请重试。')
     }
-
-    attempt(targetUrl)
-  })
+  } finally {
+    await file.close()
+  }
 }
 
 export class TunnelDownloader {
   private isDownloading = false
   private currentProgress = 0
 
-  getProgress(): number {
-    return this.currentProgress
-  }
-
-  getIsDownloading(): boolean {
-    return this.isDownloading
-  }
+  getProgress(): number { return this.currentProgress }
+  getIsDownloading(): boolean { return this.isDownloading }
 
   async downloadBinary(options: {
     targetDir: string
     onProgress?: (progress: DownloadProgress) => void
     platformOverride?: string
     archOverride?: string
+    signal?: AbortSignal
   }): Promise<string> {
-    if (this.isDownloading) {
-      throw new Error('A binary download is already in progress')
-    }
-
-    const { filename, assetName } = getPlatformAssetInfo(
-      options.platformOverride,
-      options.archOverride,
-    )
-    const destinationPath = join(options.targetDir, filename)
-    const tempPath = join(options.targetDir, `${filename}.download.tmp`)
-
-    if (existsSync(destinationPath)) {
-      return destinationPath
-    }
-
-    await mkdir(options.targetDir, { recursive: true })
-
-    const candidateUrls = getCandidateDownloadUrls(assetName)
-    let lastError: Error | null = null
-
+    if (this.isDownloading) throw new Error('远程组件正在下载，请稍候。')
+    const targetPlatform = options.platformOverride ?? platform()
+    const { filename, assetName, isArchive } = getPlatformAssetInfo(targetPlatform, options.archOverride)
+    const destination = join(options.targetDir, filename)
     this.isDownloading = true
     this.currentProgress = 0
-
+    let staging: string | undefined
+    let dispatcher: EnvHttpProxyAgent | undefined
     try {
-      for (const url of candidateUrls) {
+      if (existsSync(destination)) {
         try {
-          const success = await this.tryDownloadFromUrl(url, tempPath, destinationPath, options.onProgress)
-          if (success) {
-            this.currentProgress = 100
-            options.onProgress?.({
-              percent: 100,
-              downloadedBytes: 0,
-              totalBytes: 0,
-            })
-            return destinationPath
-          }
-        } catch (err: unknown) {
-          lastError = err instanceof Error ? err : new Error(String(err))
-          await rm(tempPath, { force: true }).catch(() => {})
-          // Continue to next candidate URL
+          await validateBinary(destination, targetPlatform)
+          this.currentProgress = 100
+          return destination
+        } catch {
+          await rm(destination, { force: true })
         }
       }
-
-      throw new Error(
-        `Failed to download cloudflared binary from all mirrors. Last error: ${lastError?.message ?? 'Unknown error'}`,
-      )
+      await mkdir(options.targetDir, { recursive: true })
+      staging = await mkdtemp(join(options.targetDir, '.cloudflared-'))
+      const tempPath = join(staging, isArchive ? 'download.tgz' : filename)
+      const deadline = AbortSignal.timeout(5 * 60_000)
+      const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline
+      signal.throwIfAborted()
+      // Scope proxy support to this download; do not change other backend requests.
+      dispatcher = new EnvHttpProxyAgent({ connect: { timeout: 15_000 }, headersTimeout: 30_000, bodyTimeout: 30_000 })
+      options.onProgress?.({ percent: 0, downloadedBytes: 0, totalBytes: 0 })
+      const response = await fetch(getCandidateDownloadUrls(assetName)[0], {
+        dispatcher,
+        signal,
+        headers: { 'User-Agent': 'Continuum-Canvas/cloudflared-downloader' },
+      })
+      if (!response.ok || !response.body) {
+        await response.body?.cancel()
+        throw new Error(`官方下载服务暂时不可用（HTTP ${response.status}），请稍后重试。`)
+      }
+      const body = response.body
+      const totalBytes = Number(response.headers.get('content-length')) || 0
+      let downloadedBytes = 0
+      const report = (percent: number) => {
+        this.currentProgress = percent
+        options.onProgress?.({ percent, downloadedBytes, totalBytes })
+      }
+      await pipeline(async function* () {
+        for await (const chunk of body) {
+          downloadedBytes += chunk.byteLength
+          report(totalBytes > 0 ? Math.min(99, Math.floor(downloadedBytes / totalBytes * 100)) : 0)
+          yield chunk
+        }
+      }, createWriteStream(tempPath, { mode: 0o755 }), { signal })
+      if (totalBytes && downloadedBytes !== totalBytes) throw new Error('下载文件不完整，请重试。')
+      if (isArchive) {
+        // Extract only the expected member, into a private staging directory.
+        await promisify(execFile)('tar', ['-xzf', tempPath, '-C', staging, filename], { signal, windowsHide: true })
+      }
+      const executable = join(staging, filename)
+      await validateBinary(executable, targetPlatform)
+      if (targetPlatform !== 'win32') await chmod(executable, 0o755)
+      signal.throwIfAborted()
+      await rename(executable, destination)
+      report(100)
+      return destination
     } finally {
-      this.isDownloading = false
-      await rm(tempPath, { force: true }).catch(() => {})
+      try {
+        await dispatcher?.destroy()
+      } finally {
+        try { if (staging) await rm(staging, { recursive: true, force: true }) }
+        finally { this.isDownloading = false }
+      }
     }
-  }
-
-  private async tryDownloadFromUrl(
-    url: string,
-    tempPath: string,
-    finalPath: string,
-    onProgress?: (progress: DownloadProgress) => void,
-  ): Promise<boolean> {
-    const { stream, totalBytes } = await fetchStreamWithRedirects(url)
-    const fileStream = createWriteStream(tempPath, { mode: 0o755 })
-
-    let downloadedBytes = 0
-
-    return new Promise((resolve, reject) => {
-      stream.on('data', (chunk: Buffer) => {
-        downloadedBytes += chunk.length
-        if (totalBytes > 0) {
-          const percent = Math.min(99, Math.round((downloadedBytes / totalBytes) * 100))
-          this.currentProgress = percent
-          onProgress?.({
-            percent,
-            downloadedBytes,
-            totalBytes,
-          })
-        }
-      })
-
-      stream.on('error', (err) => {
-        fileStream.destroy()
-        reject(err)
-      })
-
-      fileStream.on('error', (err) => {
-        reject(err)
-      })
-
-      fileStream.on('finish', async () => {
-        try {
-          // Minimal sanity check: cloudflared binary is at least 1MB
-          if (downloadedBytes < 1024 * 1024) {
-            reject(new Error(`Downloaded file too small (${downloadedBytes} bytes), likely error response`))
-            return
-          }
-
-          if (process.platform !== 'win32') {
-            await chmod(tempPath, 0o755)
-          }
-
-          await rename(tempPath, finalPath)
-          resolve(true)
-        } catch (err) {
-          reject(err)
-        }
-      })
-
-      stream.pipe(fileStream)
-    })
   }
 }

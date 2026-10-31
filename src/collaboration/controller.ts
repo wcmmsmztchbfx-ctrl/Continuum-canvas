@@ -53,6 +53,7 @@ export interface CollaborationControllerState {
   authenticatedPendingResume?: string
   inviteLinks: Record<string, string>
   error?: string
+  failure?: 'persistence'
 }
 
 export interface CollaborationLocation {
@@ -87,6 +88,7 @@ export interface CollaborationSessionHandle {
   subscribeLeaseLost(listener: (lease: NodeLease) => void): () => void
   getSnapshot(): CanvasSnapshotV2 | undefined
   flush(): Promise<void>
+  retryConnection(): void
   applySnapshot(snapshot: CanvasSnapshotV2, options?: { includeViewport?: boolean }): void
   applySnapshotChange(previous: CanvasSnapshotV2, next: CanvasSnapshotV2): void
   applyEntityChanges(changes: CanvasEntityChangeSet): void
@@ -109,6 +111,7 @@ export interface CollaborationClientHandle {
   removeMember: CollaborationClient['removeMember']
   leaveRoom: CollaborationClient['leaveRoom']
   closeRoom: CollaborationClient['closeRoom']
+  retryRoomPersistence: CollaborationClient['retryRoomPersistence']
   getTunnelStatus?: CollaborationClient['getTunnelStatus']
   startTunnel?: CollaborationClient['startTunnel']
   stopTunnel?: CollaborationClient['stopTunnel']
@@ -522,6 +525,32 @@ export class CanvasCollaborationController {
     })
   }
 
+  async retryPersistence(): Promise<void> {
+    const room = this.state.room
+    const session = this.canvasSession
+    if (!room || !session || this.state.failure !== 'persistence') return
+    if (session.serverSession.role === 'viewer') return
+    try {
+      if (session.serverSession.role === 'owner') {
+        await this.client.retryRoomPersistence(room.roomId)
+      }
+      if (this.canvasSession !== session || this.disposed) return
+      session.retryConnection()
+    } catch (error) {
+      if (this.canvasSession === session && !this.disposed) {
+        this.patch({ status: 'offline', failure: 'persistence',
+          error: error instanceof Error ? error.message : '重试保存失败，本机修改仍已保留' })
+      }
+      throw error
+    }
+  }
+
+  exportLocalDraft(): CanvasSnapshotV2 {
+    const snapshot = this.canvasSession?.getSnapshot()
+    if (!snapshot) throw new Error('当前没有可导出的协作画布副本')
+    return structuredClone(snapshot)
+  }
+
   dismissRecoverySecret(): void {
     if (this.state.recoverySecret) this.patch({ recoverySecret: undefined })
   }
@@ -714,6 +743,7 @@ export class CanvasCollaborationController {
       session: serverSession,
       status: session.status.state,
       error: session.status.error,
+      failure: session.status.reason,
     })
     if (serverSession.role === 'owner') {
       setActiveCollaboration({
@@ -749,7 +779,7 @@ export class CanvasCollaborationController {
     }
     this.unsubscribeSessionStatus = session.subscribeStatus((status) => {
       if (this.exiting || this.completedExitRoomId) return
-      this.patch({ status: status.state, error: status.error })
+      this.patch({ status: status.state, error: status.error, failure: status.reason })
       const nextPresence = status.state === 'synced'
         ? session.getRemotePresence()
         : []

@@ -68,6 +68,8 @@ npm start
 
 生产服务默认通过 `http://127.0.0.1:4173` 同时提供网页、API 与协作连接。局域网和公网部署配置见 [.env.example](./.env.example)。
 
+远程分享首次使用时，会从 Cloudflare 官方 GitHub 发布页下载对应平台的 `cloudflared`，完成后缓存到 `data/bin/`，后续直接复用。下载支持标准 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 环境变量；不配置时直连。也可以按照 [官方安装说明](https://developers.cloudflare.com/tunnel/downloads/) 安装到系统 PATH，或在 `.env.local` 中通过 `CLOUDFLARED_PATH` 指定程序路径，然后重启后端。macOS 自动安装需要系统自带的 `tar`。局域网协作不需要下载此组件。
+
 ## 数据与配置
 
 - 画布、素材、任务记录和服务端配置默认保存在本机 `data/`；迁移前请备份该目录。

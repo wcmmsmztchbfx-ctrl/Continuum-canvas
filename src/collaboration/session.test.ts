@@ -1250,6 +1250,83 @@ describe('CanvasCollaborationSession', () => {
     serverDoc.destroy()
   })
 
+  it('retains local edits but does not reconnect automatically after a server persistence failure', async () => {
+    const sockets: FakeWebSocket[] = []
+    const server = createCollaborativeCanvasDocument(snapshot)
+    const clock = new ManualClock()
+    const session = await CanvasCollaborationSession.create({
+      roomId: editor.roomId, serverSession: editor,
+      persistenceFactory: persistence().factory,
+      webSocketFactory: socketFactory(sockets), timers: clock.timers,
+    })
+    try {
+      attachServer(sockets[0]!, server.doc)
+      await vi.waitFor(() => expect(session.status.state).toBe('synced'))
+      sockets[0]!.disconnect(4501)
+      expect(session.status).toMatchObject({ state: 'offline', reason: 'persistence',
+        error: expect.stringContaining('本机') })
+      session.transact((doc) => doc.getMap('meta').set('name', 'Retained locally'))
+      expect(session.getSnapshot()?.name).toBe('Retained locally')
+      clock.advance(60_000)
+      expect(sockets).toHaveLength(1)
+      session.retryConnection()
+      expect(sockets).toHaveLength(2)
+      attachServer(sockets[1]!, server.doc)
+      await vi.waitFor(() => expect(session.status.state).toBe('synced'))
+      expect(exportCollaborativeCanvasSnapshot(server).name).toBe('Retained locally')
+      expect(session.status.reason).toBe('persistence')
+      await vi.waitFor(() => expect(sockets[1]!.sent.some((bytes) => collaborationMessageType(bytes) === 2)).toBe(true))
+      const request = decoding.createDecoder(sockets[1]!.sent.find((bytes) => collaborationMessageType(bytes) === 2)!)
+      expect(decoding.readVarUint(request)).toBe(2)
+      const ack = encoding.createEncoder()
+      encoding.writeVarUint(ack, 2)
+      encoding.writeVarUint(ack, decoding.readVarUint(request))
+      sockets[1]!.receive(encoding.toUint8Array(ack))
+      await vi.waitFor(() => expect(session.status.reason).toBeUndefined())
+    } finally { await session.destroy(); server.destroy() }
+  })
+
+  it('does not reset reconnect backoff after a brief successful document sync', async () => {
+    const sockets: FakeWebSocket[] = []
+    const server = createCollaborativeCanvasDocument(snapshot)
+    const clock = new ManualClock()
+    const session = await CanvasCollaborationSession.create({
+      roomId: editor.roomId, serverSession: editor,
+      persistenceFactory: persistence().factory,
+      webSocketFactory: socketFactory(sockets), timers: clock.timers,
+    })
+    try {
+      attachServer(sockets[0]!, server.doc)
+      await vi.waitFor(() => expect(session.status.state).toBe('synced'))
+      sockets[0]!.disconnect()
+      clock.advance(250)
+      attachServer(sockets[1]!, server.doc)
+      await vi.waitFor(() => expect(session.status.state).toBe('synced'))
+      sockets[1]!.disconnect()
+      clock.advance(250)
+      expect(sockets).toHaveLength(2)
+      clock.advance(250)
+      expect(sockets).toHaveLength(3)
+    } finally { await session.destroy(); server.destroy() }
+  })
+
+  it('keeps the local-only warning if the browser goes offline during recovery', async () => {
+    const events = new EventTarget()
+    vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
+    vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
+    const sockets: FakeWebSocket[] = []
+    const session = await CanvasCollaborationSession.create({
+      roomId: editor.roomId, serverSession: editor,
+      persistenceFactory: persistence().factory, webSocketFactory: socketFactory(sockets),
+    })
+    try {
+      sockets[0]!.disconnect(4501)
+      session.retryConnection()
+      events.dispatchEvent(new Event('offline'))
+      expect(session.status).toMatchObject({ state: 'offline', reason: 'persistence' })
+    } finally { await session.destroy(); vi.unstubAllGlobals() }
+  })
+
   it('merges offline Y.Text edits with concurrent online text edits after reconnect', async () => {
     const { room, clock, first, second, secondSockets } = await highFidelityPair()
     const seeded: CanvasSnapshotV2 = {

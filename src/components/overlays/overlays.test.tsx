@@ -742,6 +742,6 @@ describe('overlay visual contract', () => {
       /\.overlay-side-panel--agent-compact\s*\{[^}]*width:\s*340px/s,
     )
     expect(css).toMatch(/\.api-integration-popover\s*\{[^}]*width:\s*360px/s)
-    expect(css).toMatch(/\.collaboration-popover\s*\{[^}]*width:\s*380px/s)
+    expect(css).toMatch(/\.collaboration-popover\s*\{[^}]*width:\s*420px/s)
   })
 })

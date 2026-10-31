@@ -865,7 +865,7 @@
   right: auto;
   left: auto;
   bottom: auto;
-  width: 380px;
+  width: 420px;
   max-width: calc(100vw - 32px);
   max-height: min(85vh, 600px);
   overflow-y: auto;
@@ -1790,6 +1790,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .collab-mode-intro {
@@ -1830,12 +1831,16 @@
   background: #18181b;
   border: 1px solid #27272a;
   border-radius: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .collab-tunnel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .collab-tunnel-title {
@@ -1903,6 +1908,20 @@
   transition: width 200ms ease-out;
 }
 
+.collab-tunnel-progress-fill.is-indeterminate {
+  width: 30% !important;
+  animation: collab-download-progress 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes collab-download-progress {
+  to { transform: translateX(230%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collab-tunnel-progress-fill.is-indeterminate,
+  .collab-tunnel-badge.is-downloading { animation: none; }
+}
+
 .collab-tunnel-progress-hint {
   font-size: 11px;
   color: #94a3b8;
@@ -1929,15 +1948,24 @@
 
 .collab-tunnel-error {
   margin: 0;
-  font-size: 10px;
+  font-size: 12px;
   color: #f87171;
-  line-height: 1.4;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.collab-tunnel-help {
+  width: fit-content;
+  font-size: 11px;
+  color: #9ccce7;
+  text-underline-offset: 3px;
 }
 
 .collab-tunnel-controls {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .collab-tunnel-action-btn {
@@ -1953,6 +1981,13 @@
   border: 0;
   transition: all 0.15s ease;
   flex: 1;
+  min-width: 0;
+  min-height: 34px;
+}
+
+.collab-tunnel-action-btn:disabled {
+  cursor: default;
+  opacity: 0.65;
 }
 
 .collab-tunnel-action-btn.is-start {
@@ -1982,6 +2017,7 @@
   cursor: pointer;
   text-decoration: underline;
   padding: 4px;
+  flex-shrink: 0;
 }
 
 .collab-custom-domain-toggle:hover {
@@ -1996,6 +2032,7 @@
 
 .collab-custom-url-form input {
   flex: 1;
+  min-width: 0;
   font-size: 11px;
 }
 
@@ -2081,6 +2118,10 @@
 .collaboration-start input { width: 100%; padding: 0 10px; }
 .collaboration-start > button { justify-content: center; }
 .collaboration-error { margin: 0; color: #e28f87; font-size: 10px; }
+.collaboration-save-warning { display: grid; gap: 7px; margin: 0 14px 10px; padding: 10px 11px; color: #e8b77e; background: rgba(197, 119, 47, .1); border: 1px solid rgba(197, 119, 47, .3); border-radius: 7px; font-size: 11px; }
+.collaboration-save-warning p { margin: 0; line-height: 1.5; }
+.collaboration-save-warning small { color: #c9a984; }
+.collaboration-save-warning button { justify-self: start; min-height: 26px; padding: 0 10px; color: #f4d2a6; background: rgba(197, 119, 47, .14); border: 1px solid rgba(197, 119, 47, .35); border-radius: 5px; font-size: 11px; }
 
 .collaboration-secret { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 7px; padding: 10px 14px; border-top: 1px solid #393939; border-bottom: 1px solid #393939; }
 .collaboration-secret > div { display: grid; gap: 2px; }

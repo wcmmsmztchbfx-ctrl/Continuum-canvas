@@ -15,11 +15,18 @@ const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/
 const ROOM_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 
 const COLLABORATION_ERROR_MESSAGES = {
+  invalid_input: '协作请求数据无效，请刷新页面后重试',
+  payload_too_large: '画布数据超过协作大小限制',
+  origin_not_allowed: '当前访问地址未被允许，请从本机或已配置的分享地址打开',
+  invalid_host: '当前访问域名未被允许，请检查分享地址',
+  local_admin_unauthorized: '本机管理会话已失效，请刷新页面后重试',
+  internal_error: '协作服务处理失败，请重试或检查后端日志',
   invalid_collaboration_input: '协作请求参数无效',
   collaboration_forbidden: '协作访问已被拒绝（无权限）',
   collaboration_not_found: '未找到该协作房间',
   collaboration_limit_reached: '协作房间连接数或资源已达上限',
   collaboration_conflict: '该画布已经开启协作，正在尝试恢复原协作房间',
+  collaboration_canvas_changed: '画布内容刚刚发生变化，请等待保存完成后重试',
   collaboration_persistence_failed: '协作房间数据保存失败',
   collaboration_invalid_update: '协作增量更新被拒绝或无效',
 } as const
@@ -74,15 +81,16 @@ function isRecord(value: unknown): value is UnknownRecord {
 }
 
 function collaborationGatewayErrorCode(value: unknown): CollaborationGatewayErrorCode | 'request_failed' {
-  return typeof value === 'string' && value in COLLABORATION_ERROR_MESSAGES
+  return typeof value === 'string' && Object.hasOwn(COLLABORATION_ERROR_MESSAGES, value)
     ? value as CollaborationGatewayErrorCode
     : 'request_failed'
 }
 
-function collaborationGatewayErrorMessage(code: CollaborationGatewayErrorCode | 'request_failed'): string {
-  return code === 'request_failed'
-    ? '协同请求失败'
-    : COLLABORATION_ERROR_MESSAGES[code]
+function collaborationGatewayErrorMessage(code: CollaborationGatewayErrorCode | 'request_failed', status: number): string {
+  if (code !== 'request_failed') return COLLABORATION_ERROR_MESSAGES[code]
+  return status >= 502 && status <= 504
+    ? `协作服务暂时无法连接（HTTP ${status}），请稍后重试`
+    : `协作请求失败（HTTP ${status}），请重试`
 }
 
 function failInvalidResponse(message: string): never {
@@ -266,7 +274,7 @@ export class CollaborationClient {
         throw new CollaborationClientError(
           response.status,
           code,
-          collaborationGatewayErrorMessage(code),
+          collaborationGatewayErrorMessage(code, response.status),
           existingRoomId,
         )
       }
@@ -310,6 +318,15 @@ export class CollaborationClient {
     const payload = await this.request(`/api/collaboration/rooms/${encodeURIComponent(roomId)}`, {}, options)
     if (!isRoom(payload.room)) failInvalidResponse('Collaboration gateway returned an invalid room')
     return payload.room
+  }
+
+  async retryRoomPersistence(roomId: string, options?: CollaborationRequestOptions): Promise<void> {
+    assertIdentifier(roomId, ROOM_IDENTIFIER, 'roomId')
+    const payload = await this.request(
+      `/api/collaboration/rooms/${encodeURIComponent(roomId)}/recover`,
+      { method: 'POST' }, options,
+    )
+    if (payload.recovered !== true) failInvalidResponse('Collaboration checkpoint was not recovered')
   }
 
   async resumeRoom(

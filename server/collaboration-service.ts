@@ -664,10 +664,13 @@ export class CollaborationService {
     canvasSnapshot: CanvasSnapshotV2,
     initial = false,
   ): Promise<void> {
+    // A new room must exist on disk before it can be bound to the workspace.
+    // Existing rooms keep their append-only log until the mirror succeeds.
+    if (!initial) await this.onSnapshotSaved?.(this.checkpoint(room, canvasSnapshot))
     await this.persistence.writeBytes(join(room.directory, 'snapshot.bin'), binarySnapshot)
-    await this.persistence.writeBytes(join(room.directory, 'updates.bin'), new Uint8Array())
     await this.persistence.writeJson(join(room.directory, 'canvas.snapshot.json'), canvasSnapshot)
-    await this.onSnapshotSaved?.(this.checkpoint(room, canvasSnapshot, initial))
+    await this.persistence.writeBytes(join(room.directory, 'updates.bin'), new Uint8Array())
+    if (initial) await this.onSnapshotSaved?.(this.checkpoint(room, canvasSnapshot, true))
     room.updateCount = 0
     room.updateBytes = 0
     room.dirty = false
@@ -1241,6 +1244,18 @@ export class CollaborationService {
       await this.persistence.writeJson(join(room.directory, 'metadata.json'), room.metadata)
       room.persistenceError = undefined
     }, true)
+  }
+
+  hasPersistenceError(roomId: string): boolean {
+    return this.room(roomId).persistenceError !== undefined
+  }
+
+  async retryRoomPersistence(input: { roomId: string; sessionToken: string }): Promise<void> {
+    const session = this.authorizeSession(input)
+    if (session.role !== 'owner') {
+      throw new CollaborationAuthorizationError('Only owners can retry collaboration persistence')
+    }
+    await this.recoverRoomPersistence(input.roomId)
   }
 
   onPersistenceError(listener: (

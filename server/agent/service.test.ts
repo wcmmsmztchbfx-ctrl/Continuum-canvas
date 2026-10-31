@@ -391,6 +391,7 @@ describe('durable canvas agent', () => {
     const { runtime, input, submit, complete } = await generationFixture()
     const run = await runtime.agent.create(input, { kind: 'local-admin' })
     await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(runtime.jobs.list()).toHaveLength(1))
     const job = runtime.jobs.list()[0]
     let turn = 0
     runtime.agent.setModelForTesting(async () => turn++ === 0 ? call('ask_user', { title: '是否额外重试一张？', options: ['确认重试一张', '不要重试'] }) : turn === 2 ? call('request_generation', { nodeId: job.request.targetNodeId }) : { calls: [], text: '结束' })

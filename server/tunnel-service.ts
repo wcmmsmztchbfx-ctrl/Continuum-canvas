@@ -3,17 +3,9 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { atomicWriteJson } from './atomic-json.ts'
-import { TunnelDownloader } from './tunnel-downloader.ts'
-
-export interface TunnelStatus {
-  enabled: boolean
-  mode: 'auto' | 'custom'
-  status: 'stopped' | 'downloading' | 'starting' | 'running' | 'error'
-  downloadProgress?: number
-  publicUrl?: string
-  customUrl?: string
-  error?: string
-}
+import { TunnelDownloader, validateBinary } from './tunnel-downloader.ts'
+import type { TunnelStatus } from '../src/contracts/collaboration.ts'
+export type { TunnelStatus } from '../src/contracts/collaboration.ts'
 
 interface PersistedTunnelState {
   customUrl?: string
@@ -25,6 +17,8 @@ export class TunnelService {
   private readonly binDir: string
   private readonly localBinPath: string
   private readonly downloader = new TunnelDownloader()
+  private attempt: AbortController | null = null
+  private startTimer: ReturnType<typeof setTimeout> | undefined
   private process: ChildProcess | null = null
   private status: TunnelStatus = {
     enabled: false,
@@ -125,14 +119,19 @@ export class TunnelService {
   }
 
   async startAutoTunnel(localPort: number): Promise<TunnelStatus> {
+    if (this.status.enabled && ['downloading', 'starting'].includes(this.status.status)) return this.getStatus()
     this.stopProcess()
+    const attempt = new AbortController()
+    this.attempt = attempt
     this.status.mode = 'auto'
     this.status.enabled = true
     this.status.error = undefined
     this.status.publicUrl = undefined
+    this.status.status = 'starting'
     this.notifyOriginChange(undefined)
 
     let binPath = await this.resolveBinary()
+    if (attempt.signal.aborted) return this.getStatus()
     if (!binPath) {
       this.status.status = 'downloading'
       this.status.downloadProgress = 0
@@ -140,20 +139,21 @@ export class TunnelService {
       try {
         binPath = await this.downloader.downloadBinary({
           targetDir: this.binDir,
+          signal: attempt.signal,
           onProgress: (p) => {
-            this.status.downloadProgress = p.percent
+            if (!attempt.signal.aborted) this.status.downloadProgress = p.percent
           },
         })
-      } catch (err: unknown) {
+      } catch {
+        if (attempt.signal.aborted) return this.getStatus()
         this.status.status = 'error'
-        this.status.error =
-          err instanceof Error
-            ? `下载穿透组件失败: ${err.message}`
-            : '下载穿透组件失败，请检查网络或切换为【自定义域名】模式'
+        this.status.downloadProgress = undefined
+        this.status.error = '组件下载未完成，请检查后端网络后重试；也可以手动安装 Cloudflare 组件。'
         return this.getStatus()
       }
     }
 
+    if (attempt.signal.aborted) return this.getStatus()
     this.status.status = 'starting'
     this.status.downloadProgress = undefined
     this.status.error = undefined
@@ -176,9 +176,11 @@ export class TunnelService {
       this.process = child
 
       const handleOutput = (data: Buffer | string) => {
+        if (this.process !== child) return
         const text = data.toString()
         const match = /https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/.exec(text)
         if (match && this.status.status !== 'running') {
+          clearTimeout(this.startTimer)
           this.status.status = 'running'
           this.status.publicUrl = match[0]
           this.status.error = undefined
@@ -191,6 +193,7 @@ export class TunnelService {
 
       child.on('error', (err) => {
         if (this.process === child) {
+          clearTimeout(this.startTimer)
           this.status.status = 'error'
           this.status.error = `穿透进程异常: ${err.message}`
           this.notifyOriginChange(undefined)
@@ -199,6 +202,7 @@ export class TunnelService {
 
       child.on('exit', () => {
         if (this.process === child) {
+          clearTimeout(this.startTimer)
           this.process = null
           if (this.status.enabled && this.status.status !== 'error') {
             this.status.status = 'stopped'
@@ -208,8 +212,9 @@ export class TunnelService {
         }
       })
 
-      setTimeout(() => {
-        if (this.status.status === 'starting') {
+      this.startTimer = setTimeout(() => {
+        if (this.process === child && this.status.status === 'starting') {
+          this.stopProcess()
           this.status.status = 'error'
           this.status.error = '连接 Cloudflare 边缘节点超时，请检查网络或切换为自定义域名模式'
           this.notifyOriginChange(undefined)
@@ -230,11 +235,15 @@ export class TunnelService {
     this.status.status = 'stopped'
     this.status.publicUrl = undefined
     this.status.error = undefined
+    this.status.downloadProgress = undefined
     this.notifyOriginChange(undefined)
     return this.getStatus()
   }
 
   private stopProcess(): void {
+    this.attempt?.abort()
+    this.attempt = null
+    clearTimeout(this.startTimer)
     if (this.process) {
       try {
         this.process.kill('SIGTERM')
@@ -248,7 +257,10 @@ export class TunnelService {
       return process.env.CLOUDFLARED_PATH
     }
     if (existsSync(this.localBinPath)) {
-      return this.localBinPath
+      try {
+        await validateBinary(this.localBinPath, process.platform)
+        return this.localBinPath
+      } catch { /* The downloader replaces an incomplete or legacy archive cache. */ }
     }
     try {
       const isWin = process.platform === 'win32'

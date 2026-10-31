@@ -1218,7 +1218,7 @@ export default function App({
             title="工作区与画布"
             type="button"
           >
-            <LibTvLogo size={18} variant="outline" />
+            <LibTvLogo size={16} variant="outline" />
           </button>
           <div className="app-layer-sidebar__rail-divider" />
           <button
@@ -1238,7 +1238,7 @@ export default function App({
             title={preferences.layersOpen ? '图层树 (Ctrl+\\)' : '展开图层 (Ctrl+\\)'}
             type="button"
           >
-            <Layers3 size={18} />
+            <Layers3 size={15} strokeWidth={1.6} />
             <span className="app-layer-sidebar__rail-label">图层</span>
           </button>
           <button
@@ -1258,7 +1258,7 @@ export default function App({
             title="AI 演化谱系"
             type="button"
           >
-            <GitBranch size={18} />
+            <GitBranch size={15} strokeWidth={1.6} />
             <span className="app-layer-sidebar__rail-label">演化</span>
           </button>
           <button
@@ -1278,7 +1278,7 @@ export default function App({
             title="资产库"
             type="button"
           >
-            <Package size={18} />
+            <Package size={15} strokeWidth={1.6} />
             <span className="app-layer-sidebar__rail-label">资产</span>
           </button>
           <button
@@ -1298,7 +1298,7 @@ export default function App({
             title="Agent 智能助手"
             type="button"
           >
-            <Bot size={18} />
+            <Bot size={15} strokeWidth={1.6} />
             <span className="app-layer-sidebar__rail-label">Agent</span>
           </button>
           <button
@@ -1309,7 +1309,7 @@ export default function App({
             title="系统设置"
             type="button"
           >
-            <Settings size={18} />
+            <Settings size={15} strokeWidth={1.6} />
             <span className="app-layer-sidebar__rail-label">设置</span>
           </button>
         </div>
