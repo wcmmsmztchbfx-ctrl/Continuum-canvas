@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { canvasPerformanceFlags } from '../../performance/canvasPerformanceFlags'
 import type { Viewport } from '../../model/project'
 
 export const CANVAS_MIN_ZOOM = 0.1
@@ -19,13 +20,35 @@ export function useCanvasViewportSync({
   const cursorFrameRef = useRef<number | null>(null)
   const pendingCursorPos = useRef<{ x: number; y: number } | null>(null)
   const lastScaleRef = useRef<string | null>(null)
+  const scaledElements = useRef(new Set<HTMLElement | SVGElement>())
+  useLayoutEffect(() => {
+    const root = workspaceRef.current
+    if (!root || !canvasPerformanceFlags.scopedZoomUi) return
+    const selector = '.canvas-node-generator, .collaboration-remote-selection > span, .collaboration-remote-cursor > svg, .collaboration-remote-cursor > span, .collaboration-remote-lock > span'
+    const add = (element: HTMLElement | SVGElement) => {
+      scaledElements.current.add(element)
+      element.style.setProperty('--canvas-ui-scale', String(1 / Math.max(viewportRef.current.zoom, CANVAS_MIN_ZOOM)))
+    }
+    root.querySelectorAll<HTMLElement | SVGElement>(selector).forEach(add)
+    const observer = new MutationObserver(records => {
+      for (const element of scaledElements.current) if (!root.contains(element)) scaledElements.current.delete(element)
+      for (const record of records) for (const node of record.addedNodes) {
+        if (!(node instanceof HTMLElement || node instanceof SVGElement)) continue
+        if (node.matches(selector)) add(node)
+        node.querySelectorAll<HTMLElement | SVGElement>(selector).forEach(add)
+      }
+    })
+    observer.observe(root, { childList: true, subtree: true })
+    return () => { observer.disconnect(); scaledElements.current.clear() }
+  }, [workspaceRef])
 
   const writeViewportUi = useCallback((nextViewport: Viewport) => {
     viewportRef.current = nextViewport
     const nextScale = String(1 / Math.max(nextViewport.zoom, CANVAS_MIN_ZOOM))
     if (lastScaleRef.current !== nextScale) {
       lastScaleRef.current = nextScale
-      workspaceRef.current?.style.setProperty('--canvas-ui-scale', nextScale)
+      if (canvasPerformanceFlags.scopedZoomUi) for (const element of scaledElements.current) element.style.setProperty('--canvas-ui-scale', nextScale)
+      else workspaceRef.current?.style.setProperty('--canvas-ui-scale', nextScale)
     }
   }, [workspaceRef])
 

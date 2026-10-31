@@ -21,7 +21,9 @@ async function installNetworkIsolation(context: BrowserContext): Promise<void> {
       await route.continue()
       return
     }
-    if (request.resourceType() === "image") {
+    const isFixtureMediaFetch = request.resourceType() === 'fetch' &&
+      (url.hostname === 'media.continuum.example' || url.hostname.endsWith('.aliyuncs.com'))
+    if (request.resourceType() === "image" || isFixtureMediaFetch) {
       await route.fulfill({ status: 200, contentType: "image/png", headers: { "access-control-allow-origin": "*" }, body: image })
       return
     }

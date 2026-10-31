@@ -1,3 +1,4 @@
+import { ManagedMediaImage } from '../canvas/ManagedMediaImage'
 import {
   Check,
   CheckSquare,
@@ -466,14 +467,14 @@ export function AssetManagerModal({
                     {/* Thumbnail Box */}
                     <div className="asset-card__thumb-box">
                       {asset.type === 'image' ? (
-                        <img
+                        <ManagedMediaImage
                           alt={asset.name}
                           className="asset-card__thumb"
                           loading="lazy"
                           src={asset.thumbnailUrl || asset.url}
                         />
                       ) : asset.type === 'video' ? (
-                        <img
+                        <ManagedMediaImage
                           alt={asset.name}
                           className="asset-card__thumb"
                           loading="lazy"
@@ -631,7 +632,7 @@ export function AssetManagerModal({
             </button>
 
             {previewAsset.type === 'image' ? (
-              <img
+              <ManagedMediaImage variant="original"
                 alt={previewAsset.name}
                 className="asset-preview-lightbox__media"
                 src={previewAsset.url}

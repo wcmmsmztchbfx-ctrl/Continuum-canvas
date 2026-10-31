@@ -13,6 +13,7 @@ import { IconButton } from './IconButton'
 
 export interface BottomStatusBarProps {
   hideConnections?: boolean
+  historyOpen?: boolean
   onAssetManager?: () => void
   onHistory?: () => void
   onFitCanvas?: () => void
@@ -32,6 +33,7 @@ export interface BottomStatusBarProps {
 
 export function BottomStatusBar({
   hideConnections = false,
+  historyOpen = false,
   onAssetManager,
   onHistory,
   onFitCanvas,
@@ -103,6 +105,7 @@ export function BottomStatusBar({
         icon={History}
         label="历史记录"
         onClick={onHistory}
+        pressed={historyOpen}
       />
       <IconButton
         icon={LayoutGrid}
@@ -119,7 +122,7 @@ export function BottomStatusBar({
         icon={Waypoints}
         label={hideConnections ? '显示节点连线' : '隐藏节点连线'}
         onClick={onToggleConnections}
-        pressed={hideConnections}
+        pressed={!hideConnections}
       />
       <IconButton
         icon={Magnet}

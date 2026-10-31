@@ -21,6 +21,7 @@ import type {
   WorkspaceProject,
 } from '../../workspace/model'
 import { useActiveCollaboration } from '../../collaboration/activeCollaborationStore'
+import { LibTvLogo } from '../shell/LibTvLogo'
 import './workspace-home.css'
 
 type WorkspaceFilter = 'all' | 'recent' | 'favorites' | 'trash'
@@ -32,6 +33,7 @@ export interface WorkspaceCanvasMove {
 }
 
 export interface WorkspaceHomeViewProps {
+  onSyncStatusHost?: (host: HTMLDivElement | null) => void
   editingItem?: { kind: 'project' | 'canvas'; id: string }
   manifest: WorkspaceManifestV1
   onApiIntegration?: () => void
@@ -302,8 +304,9 @@ export function WorkspaceHomeView(props: WorkspaceHomeViewProps) {
     <main className="workspace-home" data-testid="workspace-home">
       <aside className="workspace-home__rail" aria-label="工作区导航">
         <div className="workspace-home__brand">
-          <span aria-hidden="true"><PanelTop /></span>
+          <span aria-hidden="true"><LibTvLogo /></span>
           <strong>工作区</strong>
+          {props.onSyncStatusHost && <div className="workspace-home__save-status" ref={props.onSyncStatusHost} />}
         </div>
         <nav>
           {FILTERS.map(({ id, label, icon: Icon }) => (

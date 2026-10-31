@@ -1,4 +1,6 @@
 import type { EditWorkspaceMutation, WorkspaceMutation, WorkspaceMutationReceipt, WorkspaceVersionState } from '../workspace/persistenceProtocol'
+import type { CanvasSnapshotV2, Viewport } from '../model/project'
+import type { CanvasMergeConflict } from '../model/canvasMerge'
 import type { WorkspaceCommit } from '../workspace/model'
 import type { WorkspaceStorageBackend } from '../workspace/repository'
 
@@ -25,6 +27,9 @@ export interface WorkspaceSyncRecord {
   localVersions: WorkspaceVersionState
   cachedCanvasRevisions: Record<string, number>
   pending: PendingWorkspaceMutation[]
+  localViewports?: Record<string, Viewport>
+  canvasBases?: Record<string, { revision: number; canvas: CanvasSnapshotV2 }>
+  canvasConflicts?: Record<string, { base: CanvasSnapshotV2; local: CanvasSnapshotV2; remote: CanvasSnapshotV2; conflicts: CanvasMergeConflict[] }>
   recovery?: { sourceOperationIds: string[]; mutation: EditWorkspaceMutation }
 }
 

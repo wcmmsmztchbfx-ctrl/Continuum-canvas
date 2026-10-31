@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Pause,
   Play,
@@ -6,25 +6,26 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { NodeResizer, Position, useStore as useReactFlowStore, type NodeProps } from '@xyflow/react'
+import { NodeResizer, Position, type NodeProps } from '@xyflow/react'
 
 import { EmptyMediaPlaceholder } from './EmptyMediaPlaceholder'
 import { EditableNodeLabel } from './EditableNodeLabel'
 import { GenerationOverlay } from './GenerationOverlay'
 import { MediaDownloadButton } from './MediaDownloadButton'
 import type { CanvasFlowNode } from './mapping'
-import { NodeGeneratorPanel } from './NodeGeneratorPanel'
+import { LazyNodeGeneratorPanel as NodeGeneratorPanel } from './lazyPanels'
 import { NodeHandle } from './NodeHandle'
 import {
   cacheThumbnailFromElement,
   getVideoPosterUrl,
   subscribeThumbnailReady,
+  acquirePreview,
+  requestVideoPoster,
+  type PreviewLease,
 } from '../../services/imageThumbnailCache'
-import {
-  isMediaLoaded,
-  requestMediaLoad,
-  type LoadPriority,
-} from '../../services/mediaLoadQueue'
+import { mediaPreviewKey } from '../../services/mediaPreviewIdentity'
+import { useCanvasMediaDemand } from './canvasMediaDemand'
+import { useMediaResource } from './useMediaResource'
 import {
   computeAppearanceStyles,
   NOISE_SVG_DATA_URI,
@@ -61,6 +62,7 @@ function VideoNodeContent({
   const resizeGranted = useRef(false)
   const playbackKey = data.url ? `${id}:${data.url}` : ''
   const currentTimeRef = useRef(playbackKey ? (videoPlaybackPositions.get(playbackKey) ?? 0) : 0)
+  const restoringPlayback = useRef(true)
 
   const updateScrubberDom = (time: number, dur: number) => {
     const vDur = Number.isFinite(dur) && dur > 0 ? dur : 0
@@ -83,13 +85,14 @@ function VideoNodeContent({
       const newDur = video.duration
       setDuration((prev) => (Math.abs(prev - newDur) > 0.01 ? newDur : prev))
       const savedTime = currentTimeRef.current
-      if (savedTime > 0 && Math.abs(video.currentTime - savedTime) > 0.3) {
+      if (savedTime > 0 && (restoringPlayback.current || Math.abs(video.currentTime - savedTime) > 0.3)) {
         try {
           video.currentTime = Math.min(savedTime, newDur)
         } catch {
           // Ignore seek errors on unready elements
         }
       }
+      restoringPlayback.current = false
       updateScrubberDom(currentTimeRef.current, newDur)
     }
   }
@@ -114,37 +117,27 @@ function VideoNodeContent({
     updateScrubberDom(currentTimeRef.current, duration)
   }, [duration])
 
-  let zoomTier: 'low' | 'normal' | 'high' = 'normal'
-  try {
-    zoomTier = useReactFlowStore((s) =>
-      s.transform[2] > 1.5 ? 'high' : s.transform[2] <= 0.35 ? 'low' : 'normal',
-    )
-  } catch {
-    zoomTier = 'normal'
-  }
-
-  const zoom = zoomTier === 'high' ? 2 : zoomTier === 'low' ? 0.3 : 1
-  const priority: LoadPriority = zoomTier
-
-  const [generatedPoster, setGeneratedPoster] = useState<string | undefined>(
-    () => getVideoPosterUrl(data.url, data.poster, zoom),
-  )
-  const [posterAllowed, setPosterAllowed] = useState(
-    () => typeof window === 'undefined' || typeof Image === 'undefined',
-  )
-
+  const media = useCanvasMediaDemand(id, Boolean(selected || playing))
+  const zoom = media.variant === 'original' ? 2 : media.variant <= 360 ? .3 : 1
+  const [generatedPoster, setGeneratedPoster] = useState<string>()
   useEffect(() => {
-    const initial = getVideoPosterUrl(data.url, data.poster, zoom)
-    setGeneratedPoster(initial)
-    return subscribeThumbnailReady((url, thumb) => {
-      if (url === data.url || url === data.poster) {
-        setGeneratedPoster(thumb)
-      }
-    })
-  }, [data.url, data.poster, zoom > 1.5])
-
-  const effectivePoster =
-    getVideoPosterUrl(data.url, data.poster, zoom) || data.poster || generatedPoster
+    setGeneratedPoster(undefined)
+    if (!data.url || getVideoPosterUrl(data.url, data.poster) || media.demand === 'none') return
+    const key = mediaPreviewKey(data.url)
+    let preview: PreviewLease | undefined
+    const refresh = () => {
+      if (preview) return
+      preview = acquirePreview(key)
+      if (preview) setGeneratedPoster(preview.url)
+    }
+    refresh()
+    const unsubscribe = subscribeThumbnailReady(readyKey => { if (readyKey === key) refresh() })
+    const request = preview ? undefined : requestVideoPoster(data.url)
+    return () => { unsubscribe(); request?.cancel(); preview?.release() }
+  }, [data.url, data.poster, media.demand === 'none'])
+  const posterSource = getVideoPosterUrl(data.url, data.poster, zoom) || generatedPoster
+  const posterResource = useMediaResource({ url: posterSource ?? '' }, media.variant, media.demand)
+  const effectivePoster = posterResource.displayUrl
   const hasVideo = Boolean(data.url) && !failed
   const hasPoster = Boolean(effectivePoster)
   const isLayerMode = data.node?.type === 'video' && data.node.data.displayMode === 'layer'
@@ -153,27 +146,29 @@ function VideoNodeContent({
   const modelData = data.node?.type === 'video' ? data.node.data : undefined
   const appearance = computeAppearanceStyles((modelData || {}) as Parameters<typeof computeAppearanceStyles>[0])
 
-  const shouldMountVideo = hasVideo && (selected || hasActivated || playing || data.generation?.status === 'generating')
+  const shouldMountVideo = hasVideo && (selected || playing || (hasActivated && media.demand !== 'none'))
+  const playbackState = useRef({ volume: 1, muted: false, playbackRate: 1 })
+  const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
+    const previous = videoRef.current
+    if (previous && !element) {
+      // A new media element can detach before metadata restores its saved position
+      // (including StrictMode's ref replay). Its default zero must not replace it.
+      if (!restoringPlayback.current) currentTimeRef.current = previous.currentTime
+      playbackState.current = { volume: previous.volume, muted: previous.muted, playbackRate: previous.playbackRate }
+      if (playbackKey) {
+        videoPlaybackPositions.set(playbackKey, currentTimeRef.current)
+        while (videoPlaybackPositions.size > 200) videoPlaybackPositions.delete(videoPlaybackPositions.keys().next().value!)
+      }
+    }
+    videoRef.current = element
+    if (element) {
+      restoringPlayback.current = true
+      element.volume = playbackState.current.volume
+      element.muted = playbackState.current.muted
+      element.playbackRate = playbackState.current.playbackRate
+    }
+  }, [playbackKey])
 
-  useEffect(() => {
-    if (!effectivePoster) {
-      setPosterAllowed(true)
-      return
-    }
-    if (isMediaLoaded(effectivePoster)) {
-      setPosterAllowed(true)
-      return
-    }
-    const { promise, cancel } = requestMediaLoad(effectivePoster, priority)
-    let active = true
-    promise.then((success) => {
-      if (active && success) setPosterAllowed(true)
-    })
-    return () => {
-      active = false
-      cancel()
-    }
-  }, [effectivePoster, priority])
 
   const togglePlayback = () => {
     if (!hasVideo) return
@@ -343,14 +338,16 @@ function VideoNodeContent({
             }}
           />
         )}
-        {hasPoster && posterAllowed && (!hasActivated || !videoReady) ? (
+        {hasPoster ? (
           <img
+            key={posterResource.bindingKey}
             alt={`${data.name} 视频封面`}
             className="canvas-media-node__content canvas-media-node__poster"
             decoding="async"
             draggable={false}
-            loading="lazy"
             src={effectivePoster}
+            onLoad={posterResource.onLoad}
+            onError={posterResource.onError}
           />
         ) : null}
         {shouldMountVideo ? (
@@ -388,16 +385,15 @@ function VideoNodeContent({
               const video = videoRef.current
               if (!video) return
               if (!duration || duration <= 0) syncDuration()
-              if (!isSeeking.current) {
+              if (!isSeeking.current && !restoringPlayback.current) {
                 currentTimeRef.current = video.currentTime
                 if (playbackKey) videoPlaybackPositions.set(playbackKey, video.currentTime)
                 updateScrubberDom(video.currentTime, video.duration || duration)
               }
             }}
             src={data.url}
-            poster={effectivePoster}
-            ref={videoRef}
-            preload="auto"
+            ref={setVideoRef}
+            preload={playing ? 'auto' : 'metadata'}
             onError={() => setFailed(true)}
           />
         ) : !hasPoster ? (

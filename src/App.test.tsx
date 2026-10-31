@@ -7,6 +7,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
+import * as viewportRuntime from './components/canvas/canvasViewportRuntime'
 import { ProviderCatalogProvider } from './components/providers/ProviderCatalogContext'
 import { canvasStore } from './store/canvas-store'
 import type { CanvasSnapshotV2 } from './model/project'
@@ -35,6 +36,26 @@ afterEach(async () => {
 beforeEach(() => localStorage.clear())
 
 describe('canvas application integration', () => {
+  it.each(['leave', 'hide'] as const)('captures the final local camera on %s without waiting for move-end', async trigger => {
+    const create = viewportRuntime.createCanvasViewportRuntime
+    let latest: { x: number; y: number; zoom: number } | undefined
+    vi.spyOn(viewportRuntime, 'createCanvasViewportRuntime').mockImplementation(initial => {
+      const runtime = create(initial)
+      return { ...runtime, getLocal: () => latest ?? runtime.getLocal() }
+    })
+    const document: CanvasSnapshotV2 = { version: 3, canvasId: 'final-camera', projectId: 'final-camera',
+      name: 'camera', viewport: { x: 0, y: 0, zoom: 1 }, nodes: [], edges: [] }
+    const repository = { loadCanvas: vi.fn(async () => document), saveCanvas: vi.fn(async () => undefined) } as unknown as WorkspaceRepository
+    const view = render(<App canvasId="final-camera" projectId="final-camera" workspaceRepository={repository}
+      thumbnailService={{ schedule: vi.fn(), flush: vi.fn(async () => undefined) }} />)
+    await waitFor(() => expect(screen.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'true'))
+    latest = { x: 240, y: 160, zoom: .75 }
+    if (trigger === 'leave') view.unmount()
+    else fireEvent(window, new Event('pagehide'))
+    await waitFor(() => expect(repository.saveCanvas).toHaveBeenCalledWith(expect.objectContaining({ viewport: latest })))
+    expect(repository.saveCanvas).toHaveBeenCalledTimes(1)
+  })
+
   it('does not submit a captured collaboration snapshot when the editor unmounts', async () => {
     vi.spyOn(CanvasCollaborationController.prototype, 'isLocalAutosaveSuppressed').mockReturnValue(true)
     const document: CanvasSnapshotV2 = {
@@ -46,7 +67,9 @@ describe('canvas application integration', () => {
     } as unknown as WorkspaceRepository
     const view = render(<App canvasId="shared" projectId="shared" workspaceRepository={repository} />)
     await waitFor(() => expect(screen.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'true'))
+    const clone = vi.spyOn(globalThis, 'structuredClone')
     act(() => canvasStore.getState().setViewport({ x: 25, y: 0, zoom: 1 }))
+    expect(clone).not.toHaveBeenCalled()
     expect(repository.saveCanvas).not.toHaveBeenCalled()
     view.unmount()
     await act(async () => {})

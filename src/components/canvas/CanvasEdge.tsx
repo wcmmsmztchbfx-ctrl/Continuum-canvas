@@ -7,36 +7,6 @@ import {
 
 import type { CanvasFlowEdge } from './mapping'
 
-const FLOW_PATH_COUNT = 3
-const FLOW_DURATION_MS = 2800
-
-function FlowPaths({
-  className,
-  path,
-}: {
-  className: string
-  path: string
-}) {
-  const globalPhase = -(Date.now() % FLOW_DURATION_MS)
-  return (
-    <g className="canvas-edge__flow-group">
-      {Array.from({ length: FLOW_PATH_COUNT }, (_, index) => (
-        <path
-          aria-hidden="true"
-          className={`${className} canvas-edge__flow--animated`}
-          d={path}
-          fill="none"
-          key={index}
-          pathLength={100}
-          style={{
-            animationDelay: `${globalPhase - index * (FLOW_DURATION_MS / FLOW_PATH_COUNT)}ms`,
-          }}
-        />
-      ))}
-    </g>
-  )
-}
-
 function CanvasEdgeContent({
   sourceX,
   sourceY,
@@ -45,8 +15,8 @@ function CanvasEdgeContent({
   targetY,
   targetPosition,
   markerEnd,
-  // 40px 命中带：快速划过连线时鼠标事件更容易落在带内，避免高亮/粒子触发不了
-  interactionWidth = 40,
+  // Keep edges easy to pick even when the canvas is zoomed out.
+  interactionWidth = 16,
   selected,
   data,
 }: EdgeProps<CanvasFlowEdge>) {
@@ -72,7 +42,7 @@ function CanvasEdgeContent({
     'canvas-edge__path',
     selected
       ? 'canvas-edge__path--selected'
-      : flowActive
+      : linked
         ? 'canvas-edge__path--linked'
         : '',
   ]
@@ -92,6 +62,7 @@ function CanvasEdgeContent({
         fill="none"
         stroke="transparent"
         strokeWidth={interactionWidth}
+        vectorEffect="non-scaling-stroke"
       />
       <path
         className="canvas-edge__highlight"
@@ -104,7 +75,6 @@ function CanvasEdgeContent({
         fill="none"
         markerEnd={markerEnd}
       />
-      <FlowPaths className="canvas-edge__flow" path={path} />
     </g>
   )
 }
@@ -146,10 +116,6 @@ export function CanvasConnectionLine({
         d={path}
         fill="none"
         strokeWidth={2}
-      />
-      <FlowPaths
-        className="canvas-connection-preview__flow"
-        path={path}
       />
     </g>
   )

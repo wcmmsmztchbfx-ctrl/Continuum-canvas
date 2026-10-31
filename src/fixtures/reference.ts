@@ -2,7 +2,7 @@ import type { ProjectSnapshot } from '../model/project.ts'
 
 export const referenceProjectSnapshot = {
   "version": 1,
-  "projectId": "9f4cca3a4e36451b900e0d5741199db8",
+  "projectId": "fixture-project",
   "name": "画布 1",
   "viewport": {
     "x": 1.442118522171313,
@@ -23,7 +23,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/sd-gen-save-img/genius_playground/image/99788e835d91411eabd6137fdea949ee/811245973_2ab7aa1ad8f647acbb06c92d7a992728.png"
+        "url": "https://media.continuum.example/fixture-1.png"
       }
     },
     {
@@ -39,7 +39,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/6c92e9f4007e5502cfa056da117bb612aafcde2e.png"
+        "url": "https://media.continuum.example/fixture-2.png"
       }
     },
     {
@@ -55,7 +55,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/63e700211476b9bdf2cb413e098d2be09139d869.png"
+        "url": "https://media.continuum.example/fixture-3.png"
       }
     },
     {
@@ -71,7 +71,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/3ddebf4cacf6ad9351fbca08fba931172d112bde.png"
+        "url": "https://media.continuum.example/fixture-4.png"
       }
     },
     {
@@ -103,7 +103,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/de61bdf2345cb2c321c4ced040371a12bc6eaf5a.png"
+        "url": "https://media.continuum.example/fixture-5.png"
       }
     },
     {
@@ -119,7 +119,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/231df5a377834a630b439da866d62365e04e1469.png"
+        "url": "https://media.continuum.example/fixture-6.png"
       }
     },
     {
@@ -135,7 +135,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/1b480d311fbac582b9b5f8db5a0aa673e69e3a53.png"
+        "url": "https://media.continuum.example/fixture-7.png"
       }
     },
     {
@@ -151,7 +151,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/7aed83949ff39b694180fe53a0db15d75bb49528.png"
+        "url": "https://media.continuum.example/fixture-8.png"
       }
     },
     {
@@ -167,7 +167,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/fb6d43c54bf66dafbb2016e0080adc482979bca3.png"
+        "url": "https://media.continuum.example/fixture-9.png"
       }
     },
     {
@@ -183,7 +183,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/04ce2cbf9ea450e76fd29f83c6ce0020d82ad303.png"
+        "url": "https://media.continuum.example/fixture-10.png"
       }
     },
     {
@@ -199,7 +199,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/a3c77520bd3b0aefb92966156950abe72c4f42e1.png"
+        "url": "https://media.continuum.example/fixture-11.png"
       }
     },
     {
@@ -215,7 +215,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/sd-gen-save-img/genius_playground/image/99788e835d91411eabd6137fdea949ee/811245671_fad7b5cbc54c40f9b15cae8bb8acf468.png"
+        "url": "https://media.continuum.example/fixture-12.png"
       }
     },
     {
@@ -231,7 +231,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/824b7ad364c257d02fe49c9ef47696d8ff46e051.png"
+        "url": "https://media.continuum.example/fixture-13.png"
       }
     },
     {
@@ -247,7 +247,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/sd-gen-save-img/genius_playground/image/99788e835d91411eabd6137fdea949ee/811237748_0e5c35c0a72444d4892e40ac9a878213.png"
+        "url": "https://media.continuum.example/fixture-14.png"
       }
     },
     {
@@ -263,7 +263,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/9018f10fe21cba3f1c4c51a77dab629c90690b06.png"
+        "url": "https://media.continuum.example/fixture-15.png"
       }
     },
     {
@@ -279,7 +279,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/028b3ef1c038ffef26ec1538ed98000f8719954e.png"
+        "url": "https://media.continuum.example/fixture-16.png"
       }
     },
     {
@@ -295,7 +295,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/sd-gen-save-img/genius_playground/image/99788e835d91411eabd6137fdea949ee/811237631_05e5ef6416044ae4acf8a0fa04a79271.png"
+        "url": "https://media.continuum.example/fixture-17.png"
       }
     },
     {
@@ -311,7 +311,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/27e401ff1c22b494d6f775136fe4c56bf1a41fd5.png"
+        "url": "https://media.continuum.example/fixture-18.png"
       }
     },
     {
@@ -327,7 +327,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/8e8bb991dc2bb3a92ce0f9a01998a7c6fccaa34a.png"
+        "url": "https://media.continuum.example/fixture-19.png"
       }
     },
     {
@@ -343,7 +343,7 @@ export const referenceProjectSnapshot = {
         "height": 350.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/311443e6947d0583132717d2edd6bf8c4c6ea25a.png"
+        "url": "https://media.continuum.example/fixture-20.png"
       }
     },
     {
@@ -359,7 +359,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/sd-gen-save-img/genius_playground/video/99788e835d91411eabd6137fdea949ee/76ff4bf15d05ec039486fa6fc196cb311b0daf7fc24b3ebd44ef328e4b67c906.mp4"
+        "url": "https://media.continuum.example/fixture-21.mp4"
       }
     },
     {
@@ -391,7 +391,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/31b8cb5cfde3208c3a43b7afb04769a46bffaac7.mp4"
+        "url": "https://media.continuum.example/fixture-22.mp4"
       }
     },
     {
@@ -407,7 +407,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/707d9047bcf2b36b6f7203a580232bb01457631e.mp4"
+        "url": "https://media.continuum.example/fixture-23.mp4"
       }
     },
     {
@@ -423,7 +423,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/a8bea25e451b1551efe62e567864fbdb82cecf21.mp4"
+        "url": "https://media.continuum.example/fixture-24.mp4"
       }
     },
     {
@@ -439,7 +439,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/f3dedbc0dd4c21ae89c36a7e9de8028a38ca2808.mp4"
+        "url": "https://media.continuum.example/fixture-25.mp4"
       }
     },
     {
@@ -455,7 +455,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/sd-gen-save-img/genius_playground/video/99788e835d91411eabd6137fdea949ee/dc18122ea9380be80fd384e3bcf39c3d9061aa28d8036dc766ec8239f9d39868.mp4"
+        "url": "https://media.continuum.example/fixture-26.mp4"
       }
     },
     {
@@ -471,7 +471,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/ec3a7919b2b49f170a28e91039256a7f5ba6a864.mp4"
+        "url": "https://media.continuum.example/fixture-27.mp4"
       }
     },
     {
@@ -487,7 +487,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/70e92fa8fff58756bf113e78f7cf2de7eb9c77f5.mp4"
+        "url": "https://media.continuum.example/fixture-28.mp4"
       }
     },
     {
@@ -503,7 +503,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/40b59ecde353b43af445ada1f73d7d67c601bf24.mp4"
+        "url": "https://media.continuum.example/fixture-29.mp4"
       }
     },
     {
@@ -519,7 +519,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/08bb05d9e75aa0f73a070051399347480bf7582b.mp4"
+        "url": "https://media.continuum.example/fixture-30.mp4"
       }
     },
     {
@@ -535,7 +535,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/70ef052b0fbb5c24877a997a63ba23910f888d1a.mp4"
+        "url": "https://media.continuum.example/fixture-31.mp4"
       }
     },
     {
@@ -551,7 +551,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/sd-gen-save-img/genius_playground/video/99788e835d91411eabd6137fdea949ee/d5daa9ec922437deb70d9a6b2d332a1da1b48588b1a600bff4626e40de15089c.mp4"
+        "url": "https://media.continuum.example/fixture-32.mp4"
       }
     },
     {
@@ -567,7 +567,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/8b9ebf088204fbda9aac391f61a6547120fdf1ee.mp4"
+        "url": "https://media.continuum.example/fixture-33.mp4"
       }
     },
     {
@@ -583,7 +583,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/sd-gen-save-img/genius_playground/video/99788e835d91411eabd6137fdea949ee/9e799f676ce76836a886a1165b9fa5bc951b48412bade6764c8961befa30a659.mp4"
+        "url": "https://media.continuum.example/fixture-34.mp4"
       }
     },
     {
@@ -599,7 +599,7 @@ export const referenceProjectSnapshot = {
         "height": 622.0
       },
       "data": {
-        "url": "https://libtv-res.liblib.art/upload-images/99788e835d91411eabd6137fdea949ee/7f03de9311d13ea306b8e3ea28af7b47de7941c7.mp4"
+        "url": "https://media.continuum.example/fixture-35.mp4"
       }
     }
   ],

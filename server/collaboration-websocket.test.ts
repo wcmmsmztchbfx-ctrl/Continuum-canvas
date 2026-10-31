@@ -29,13 +29,24 @@ function snapshot(): CanvasSnapshotV2 {
 
 async function start(options: Parameters<typeof startGateway>[0] = {}) {
   const dataDir = await mkdtemp(join(tmpdir(), 'libtv-collaboration-ws-'))
-  const gateway = await startGateway({
-    dataDir, envFile: join(dataDir, '.env.local'),
-    env: { API_PROVIDER_AISTARTLAB_KEY: 'test-key' },
-    host: '127.0.0.1', port: 0, ...options,
-  })
-  handles.push(gateway)
-  return gateway
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const gateway = await startGateway({
+      dataDir, envFile: join(dataDir, '.env.local'),
+      env: { API_PROVIDER_AISTARTLAB_KEY: 'test-key' },
+      host: '127.0.0.1', port: 0, ...options,
+    })
+    try {
+      // These socket tests also use Fetch for room setup and checkpoint reads.
+      await fetch(`${gateway.origin}/api/health`)
+    } catch (error) {
+      await gateway.close()
+      if (!options.port && /bad port/i.test(String((error as Error & { cause?: unknown }).cause ?? error))) continue
+      throw error
+    }
+    handles.push(gateway)
+    return gateway
+  }
+  throw new Error('Could not allocate a Fetch-compatible test port')
 }
 
 function cookie(response: Response): string {

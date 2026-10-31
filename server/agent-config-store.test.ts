@@ -31,7 +31,7 @@ describe('AgentConfigStore', () => {
       baseUrl: 'https://api.openai.com/v1/',
       model: 'gpt-4o',
       preferred: true,
-      secret: 'sk-1234567890abcdef',
+      secret: 'sk-1234567890abcdef', // Synthetic masking fixture. gitleaks:allow
     })
 
     expect(updated.id).toBe('openai')

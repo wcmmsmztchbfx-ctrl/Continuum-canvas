@@ -20,7 +20,7 @@ export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
     const nodesActions = createNodesActions(set, get, history)
     const edgesActions = createEdgesActions(set, get, history)
     const generationActions = createGenerationActions(set, get, history)
-    const remoteSyncActions = createRemoteSyncActions(set, get)
+    const remoteSyncActions = createRemoteSyncActions(set, get, history)
 
     return {
       snapshot: initialSnapshot,

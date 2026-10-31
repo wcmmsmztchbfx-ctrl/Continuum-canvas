@@ -34,6 +34,15 @@ function createStore(nodes: CanvasNode[]) {
 afterEach(cleanup)
 
 describe('canvas snapping', () => {
+  it('reuses captured frame candidates without scanning live nodes on every pointer move', () => {
+    const store = createStore([frame('target')])
+    let scans = 0
+    const flow = { getNodes: () => { scans++; return [] } } as unknown as ReactFlowInstance<CanvasFlowNode, CanvasFlowEdge>
+    const { result } = renderHook(() => useCanvasSnapping({ store, flowInstance: flow }))
+    const candidates = [{ id: 'target', x: 100, y: 100, width: 300, height: 300, kind: 'frame' as const }]
+    for (let i = 0; i < 100; i++) expect(result.current.deepestFrameAt({ x: 150, y: 150 }, [], candidates)).toBe('target')
+    expect(scans).toBe(0)
+  })
   it('aligns against the visible bounds of rotated nodes', () => {
     const store = createStore([shape('rotated', {
       position: { x: 100, y: 200 },

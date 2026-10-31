@@ -17,6 +17,19 @@ async function fixture(run: (service: WorkspaceService, dataDir: string) => Prom
 }
 
 describe('versioned workspace mutations', () => {
+  it('accepts a stale camera-only snapshot only when every content field still matches', async () => fixture(async service => {
+    const canvas = defaultInitialCanvas('canvas-a')
+    await service.applyWorkspaceMutation({ protocolVersion: 1, operationId: 'view-a', kind: 'save-canvas', expectedRevision: 0, canvas })
+    await expect(service.applyWorkspaceMutation({
+      protocolVersion: 1, operationId: 'view-b', kind: 'save-canvas', expectedRevision: 0,
+      canvas: { ...canvas, viewport: { x: 100, y: 100, zoom: .2 } },
+    })).resolves.toMatchObject({ canvasRevisions: { 'canvas-a': 2 } })
+    await expect(service.applyWorkspaceMutation({
+      protocolVersion: 1, operationId: 'real-conflict', kind: 'save-canvas', expectedRevision: 0,
+      canvas: { ...canvas, name: 'changed' },
+    })).rejects.toMatchObject({ code: 'workspace_conflict' })
+  }))
+
   it('persists an empty canvas with its revision and does not overwrite another canvas', async () => fixture(async (service, dataDir) => {
     const first = defaultInitialCanvas('canvas-a')
     const second = defaultInitialCanvas('canvas-b')

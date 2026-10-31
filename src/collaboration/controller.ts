@@ -351,6 +351,22 @@ export class CanvasCollaborationController {
     return this.canvasSession !== undefined
   }
 
+  async flushForAgent(): Promise<void> {
+    const session = this.canvasSession
+    const assertReady = () => {
+      if (!session || this.disposed || this.canvasSession !== session || this.exiting || this.completedExitRoomId ||
+        this.state.status !== 'synced' || session.status.state !== 'synced' ||
+        !this.state.session || this.state.session.role === 'viewer') {
+        throw new Error('请确认具有编辑权限，并等待协作连接和修改同步完成后再开始任务')
+      }
+    }
+    assertReady()
+    // The checkpoint acknowledgement follows Yjs updates on the same socket and
+    // is sent only after the server has persisted the room's workspace revision.
+    await session!.flush()
+    assertReady()
+  }
+
   initializeFromLocation(): Promise<void> {
     const roomId = roomIdFromLocation(this.location)
     if (!roomId || this.disposed || this.canvasSession) return Promise.resolve()

@@ -137,7 +137,7 @@ export interface CanvasStoreState {
   redo: () => void
   serialize: () => string
   restore: (serialized: string) => void
-  reconcileRemoteSnapshot: (snapshot: ProjectSnapshot) => void
+  reconcileRemoteSnapshot: (snapshot: ProjectSnapshot, options?: { rebaseHistory?: boolean; onHistoryInvalidated?: (count: number) => void }) => void
   applyEntityChanges: (changes: CanvasEntityChangeSet) => void
 }
 

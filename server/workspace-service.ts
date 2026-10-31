@@ -1,3 +1,4 @@
+import { canvasContentIdentity } from '../src/model/canvasContentIdentity.ts'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -127,6 +128,19 @@ export class WorkspaceService {
     return this.#withLock(() => this.#readCanvasRecord(canvasId))
   }
 
+  /** Inspect a committed receipt without replaying an uncommitted mutation. */
+  async getOperationReceipt(input: WorkspaceMutation): Promise<WorkspaceMutationReceipt | undefined> {
+    const mutation = parseWorkspaceMutation(input)
+    return this.#withLock(async () => {
+      const content = await readOptionalText(join(this.#workspaceDir, 'operations', `${mutation.operationId}.json`))
+      if (!content) return undefined
+      const journal = this.#parseJournal(content)
+      if (journal.digest !== workspaceMutationDigest(mutation)) throw new WorkspaceOperationIdConflictError()
+      if (journal.status !== 'complete') throw new Error('Workspace operation recovery is not yet complete')
+      return structuredClone(journal.receipt)
+    })
+  }
+
   async #withLock<T>(read: () => Promise<T>): Promise<T> {
     const previous = this.#writeLock
     let release!: () => void
@@ -210,7 +224,10 @@ export class WorkspaceService {
       if (mutation.kind === 'save-canvas') {
         const canvas = mutation.canvas
         const currentRevision = revisions[canvas.canvasId] ?? 0
-        if (currentRevision !== mutation.expectedRevision || (await this.#readCanvasRecord(canvas.canvasId))?.deleted) {
+        const current = await this.#readCanvasRecord(canvas.canvasId)
+        const cameraOnly = current?.snapshot && mutation.expectedRevision <= currentRevision &&
+          canvasContentIdentity(current.snapshot) === canvasContentIdentity(canvas)
+        if ((currentRevision !== mutation.expectedRevision && !cameraOnly) || current?.deleted) {
           throw new WorkspaceConflictError()
         }
         const card = nextManifest.canvases.find((candidate) => candidate.canvasId === canvas.canvasId)

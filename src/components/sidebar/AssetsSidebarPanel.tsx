@@ -1,3 +1,4 @@
+import { ManagedMediaImage } from '../canvas/ManagedMediaImage'
 import {
   FileAudio,
   Image as ImageIcon,
@@ -260,14 +261,14 @@ export function AssetsSidebarPanel({
               >
                 <div className="sidebar-asset-card__thumb-box">
                   {asset.type === 'image' ? (
-                    <img
+                    <ManagedMediaImage
                       alt={asset.name}
                       className="sidebar-asset-card__thumb"
                       loading="lazy"
                       src={asset.thumbnailUrl || asset.url}
                     />
                   ) : asset.type === 'video' ? (
-                    <img
+                    <ManagedMediaImage
                       alt={asset.name}
                       className="sidebar-asset-card__thumb"
                       loading="lazy"
@@ -344,7 +345,7 @@ export function AssetsSidebarPanel({
               <X size={20} />
             </button>
             {previewAsset.type === 'image' ? (
-              <img alt={previewAsset.name} className="asset-preview-lightbox__media" src={previewAsset.url} />
+              <ManagedMediaImage variant="original" alt={previewAsset.name} className="asset-preview-lightbox__media" src={previewAsset.url} />
             ) : previewAsset.type === 'video' ? (
               <video autoPlay className="asset-preview-lightbox__media" controls src={previewAsset.url} />
             ) : (

@@ -1,10 +1,10 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
 } from 'react'
 import {
   applyNodeChanges,
@@ -16,6 +16,7 @@ import {
   type Connection,
   type OnConnectEnd,
   type NodeChange,
+  type EdgeChange,
   type ReactFlowInstance,
 } from '@xyflow/react'
 import type { StoreApi } from 'zustand/vanilla'
@@ -34,9 +35,15 @@ import {
 import type { InteractionPreview, NodeLease, NodeLeaseKind, PresenceState } from '../../contracts/collaboration'
 import { selectCatalogModel } from '../../contracts/catalog'
 import { getOrderedReferences } from '../../model/project'
+import { createCanvasContentIndex } from '../../model/canvasContentIndex'
+import { createCanvasViewportRuntime, type CanvasViewportRuntime } from './canvasViewportRuntime'
+import { CanvasMediaDemandContext, createCanvasMediaDemand } from './canvasMediaDemand'
 import {
   GenerationController,
 } from '../../services/generationController'
+import { canvasPerformanceFlags } from '../../performance/canvasPerformanceFlags'
+import { canvasDiagnostics } from '../../performance/canvasDiagnostics'
+import { markCanvasInteraction } from '../../services/canvasActivity'
 import { gatewayClient } from '../../services/gatewayClient'
 import {
   canvasStore,
@@ -63,7 +70,7 @@ import { SpecialNode } from './SpecialNode'
 import { FrameNode, PathNode, ShapeNode } from './CreativeNodes'
 import { canEditReferencesWithCatalog, resolveVideoMode } from './generationUi'
 import { CollaborationPresenceLayer } from './CollaborationPresenceLayer'
-import { ImageEditorWorkspace } from './ImageEditorModal'
+import { LazyImageEditorWorkspace as ImageEditorWorkspace } from './lazyPanels'
 import { rotatedBounds, snapRect, unionRect, type SnapRect, type SnapState } from './smartSnapping'
 import { stabilizeProjectedEdges, stabilizeProjectedNodes } from './flowProjection'
 import { useCanvasDrop } from './useCanvasDrop'
@@ -97,6 +104,7 @@ function sameViewport(left: Viewport, right: Viewport): boolean {
 export interface CanvasWorkspaceProps {
   activeTool?: 'select' | 'frame' | 'shape' | 'pen' | 'text' | 'brush' | 'upload' | 'undo' | 'redo' | 'more'
   canvasId?: string
+  camera?: CanvasViewportRuntime
   store?: StoreApi<CanvasStoreState>
   generationController?: Pick<
     GenerationController,
@@ -215,6 +223,7 @@ interface PendingConnectedNode {
 export function CanvasWorkspace({
   activeTool = 'select',
   canvasId,
+  camera: providedCamera,
   store = canvasStore,
   generationController: providedGenerationController,
   className,
@@ -463,6 +472,12 @@ export function CanvasWorkspace({
     })
   }, [store])
 
+  const ownedCamera = useMemo(() => createCanvasViewportRuntime(store.getState().snapshot.viewport), [store, canvasId])
+  const camera = providedCamera ?? ownedCamera
+  const cameraDrivenByFlow = useRef(false)
+  const mediaDemand = useMemo(() => createCanvasMediaDemand(createCanvasContentIndex(store.getState().snapshot.nodes, store.getState().snapshot.edges)), [store, canvasId])
+  useLayoutEffect(() => { mediaDemand.setContent(createCanvasContentIndex(snapshot.nodes, snapshot.edges)) }, [mediaDemand, snapshot.nodes, snapshot.edges])
+  useEffect(() => { camera.set(store.getState().snapshot.viewport, 'restore') }, [camera, store])
   const project = useMemo(
     () => mapProjectSnapshotToReactFlow(snapshot),
     [snapshot],
@@ -841,7 +856,8 @@ export function CanvasWorkspace({
       const soleSelectionId =
         selectedIds.size === 1 ? [...selectedIds][0] : undefined
       const current = store.getState().snapshot
-      const referenceCandidates = current.nodes.flatMap((candidate) =>
+      const index = createCanvasContentIndex(current.nodes, current.edges)
+      const referenceCandidates = activeGeneratorNodeId ? current.nodes.flatMap((candidate) =>
         (candidate.type === 'image' || candidate.type === 'video') && candidate.data.url
           ? [
               {
@@ -853,21 +869,11 @@ export function CanvasWorkspace({
               },
             ]
           : [],
-      )
+      ) : []
 
       return sourceNodes.map((node) => {
-        const currentNode = current.nodes.find(
-          (candidate) => candidate.id === node.id,
-        )
-        const sourceGenerations = current.nodes
-          .flatMap((candidate) => {
-            if (candidate.type !== 'image' && candidate.type !== 'video') {
-              return []
-            }
-            const generation = candidate.data.generation
-            return generation?.sourceNodeId === node.id ? [generation] : []
-          })
-          .sort((left, right) => (left.outputIndex ?? 0) - (right.outputIndex ?? 0))
+        const currentNode = index.nodeById.get(node.id)
+        const sourceGenerations = index.generationsBySource.get(node.id) ?? []
         const activeGeneration = sourceGenerations.find(
           (generation) =>
             generation.status === 'generating' ||
@@ -921,24 +927,10 @@ export function CanvasWorkspace({
             isSoleSelection: node.id === soleSelectionId && !connectionGestureActive,
             generatorOpen: node.id === activeGeneratorNodeId,
             onConnectionPointerDown: () => setConnectionGestureActive(true),
-            references: getOrderedReferences(current, node.id).flatMap(
-              ({ edge, node: reference }) =>
-                reference.type === 'image' || reference.type === 'video'
-                  ? [{
-                      id: reference.id,
-                      referenceAlias: edge.referenceAlias,
-                      name: reference.name,
-                      kind: reference.type,
-                      url: reference.data.url,
-                      poster: reference.type === 'video'
-                        ? reference.data.poster
-                        : undefined,
-                    }]
-                  : [],
-            ),
-            referenceCandidates: referenceCandidates.filter(
-              (candidate) => candidate.id !== node.id,
-            ),
+            references: node.data.references,
+            referenceCandidates: node.id === activeGeneratorNodeId
+              ? referenceCandidates.filter(candidate => candidate.id !== node.id)
+              : undefined,
             referencePickCandidate:
               referencePickTargetId !== null &&
               referencePickTargetId !== node.id &&
@@ -1023,62 +1015,14 @@ export function CanvasWorkspace({
   )
   const stableNodesRef = useRef<CanvasFlowNode[]>([])
   const stableEdgesRef = useRef<CanvasFlowEdge[]>([])
-  const stableModelSignaturesRef = useRef<Map<string, string>>(new Map())
-  const stableProjectIdRef = useRef(snapshot.projectId)
   const persistentNodes = useMemo(() => {
     void remoteLockKey
     void selectedNodeKey
-    const previousSignatures = stableModelSignaturesRef.current
-    const previousById = new Map(stableNodesRef.current.map((n) => [n.id, n]))
-    const incomingEdges = new Map<string, string>()
-    for (const edge of snapshot.edges) {
-      if (edge.relation === 'reference') {
-        const prevTarget = incomingEdges.get(edge.target) ?? ''
-        incomingEdges.set(edge.target, `${prevTarget}|${edge.source}:${edge.referenceAlias}`)
-      }
-    }
-    const signatures = new Map<string, string>()
-    const projectIdUnchanged = stableProjectIdRef.current === snapshot.projectId
-
-    const incoming = decorateNodes(project.nodes).map((node) => {
-      const model = node.data.node
-      const lock = remoteLocksRef.current.get(node.id)
-      const lockSig = lock ? `${lock.memberId}:${lock.kind}` : ''
-      const isSelected = selectedNodeIds.includes(node.id)
-      const isSole = selectedNodeIds.length === 1 && selectedNodeIds[0] === node.id && !connectionGestureActive
-      const refPickSig = `${node.data.referencePickCandidate ? 1 : 0}:${node.data.referencePickTarget ? 1 : 0}:${node.data.referencePickerActive ? 1 : 0}`
-      const isSoleSig = isSole ? 1 : 0
-      const isGenOpen = node.data.generatorOpen ? 1 : 0
-      const sig = model
-        ? `${JSON.stringify(model)}#${node.zIndex ?? ''}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}:${isSoleSig}:${isGenOpen}#${refPickSig}#${imagePanelMode}`
-        : `${node.id}#${node.zIndex ?? ''}#${incomingEdges.get(node.id) ?? ''}#${lockSig}#${isSelected ? 1 : 0}:${isSoleSig}:${isGenOpen}#${refPickSig}#${imagePanelMode}`
-      signatures.set(node.id, sig)
-
-      const previous = previousById.get(node.id)
-      const prevSig = previousSignatures.get(node.id)
-
-      if (previous && prevSig === sig && projectIdUnchanged) {
-        return previous
-      }
-      return node
-    })
-    const next = stabilizeProjectedNodes(stableNodesRef.current, incoming)
+    canvasDiagnostics.increment('projection.nodes', project.nodes.length)
+    const next = stabilizeProjectedNodes(stableNodesRef.current, decorateNodes(project.nodes))
     stableNodesRef.current = next
-    stableModelSignaturesRef.current = signatures
-    stableProjectIdRef.current = snapshot.projectId
     return next
-  }, [
-    activeGeneratorNodeId,
-    decorateNodes,
-    imagePanelMode,
-    project.nodes,
-    referencePickTargetId,
-    remoteLockKey,
-    selectedNodeIds,
-    selectedNodeKey,
-    snapshot.edges,
-    snapshot.projectId,
-  ])
+  }, [decorateNodes, project.nodes, remoteLockKey, selectedNodeKey])
   const persistentEdges = useMemo(() => {
     void selectedNodeKey
     void selectedEdgeKey
@@ -1091,8 +1035,27 @@ export function CanvasWorkspace({
     setTransientGeometry(new Map())
   }, [snapshot])
 
+  const [measuredSizes, setMeasuredSizes] = useState(new Map<string, { width: number; height: number }>())
+  const measuredNodeCache = useRef(new WeakMap<CanvasFlowNode, { dimensions: { width: number; height: number }; node: CanvasFlowNode }>())
+  const measuredNodes = useMemo(() => persistentNodes.map(node => {
+    const dimensions = measuredSizes.get(node.id)
+    if (!dimensions) return node
+    const cached = measuredNodeCache.current.get(node)
+    if (cached?.dimensions === dimensions) return cached.node
+    const projected = { ...node, measured: dimensions }
+    measuredNodeCache.current.set(node, { dimensions, node: projected })
+    return projected
+  }), [persistentNodes, measuredSizes])
+  useEffect(() => {
+    const ids = new Set(project.nodes.map(node => node.id))
+    setMeasuredSizes(current => {
+      if ([...current.keys()].every(id => ids.has(id))) return current
+      return new Map([...current].filter(([id]) => ids.has(id)))
+    })
+  }, [project.nodes])
+
   const flowNodes = useMemo(() => {
-    const projected = persistentNodes.map((node) => {
+    const projected = measuredNodes.map((node) => {
       const geometry = transientGeometry.get(node.id)
       const dropTarget = node.id === frameDropTargetId
       const isEditingVector = node.id === currentEditingPathNodeId
@@ -1120,7 +1083,7 @@ export function CanvasWorkspace({
       }
     })
     return pendingConnection ? [...projected, pendingConnection.node] : projected
-  }, [currentEditingPathNodeId, frameDropTargetId, pendingConnection, persistentNodes, transientGeometry])
+  }, [currentEditingPathNodeId, frameDropTargetId, pendingConnection, measuredNodes, transientGeometry])
   const flowNodesRef = useRef(flowNodes)
   flowNodesRef.current = flowNodes
   const flowEdges = useMemo(() => {
@@ -1151,11 +1114,31 @@ export function CanvasWorkspace({
     initialViewport: project.viewport,
     setCollaborationCursor,
   })
+  useLayoutEffect(() => {
+    const stage = workspaceRef.current
+    if (!stage || !canvasPerformanceFlags.mediaDemand) return
+    let size = { width: stage.clientWidth, height: stage.clientHeight }
+    let frame: number | undefined, idle: ReturnType<typeof setTimeout> | undefined
+    const update = () => {
+      if (frame === undefined) frame = requestAnimationFrame(() => { frame = undefined; mediaDemand.update(camera.getDisplay(), size, false) })
+      clearTimeout(idle)
+      idle = setTimeout(() => mediaDemand.update(camera.getDisplay(), size, true), 150)
+    }
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(() => {
+      size = { width: stage.clientWidth, height: stage.clientHeight }; update()
+    })
+    observer?.observe(stage)
+    mediaDemand.update(camera.getDisplay(), size, true)
+    const unsubscribe = camera.subscribe(update)
+    return () => { unsubscribe(); observer?.disconnect(); clearTimeout(idle); if (frame !== undefined) cancelAnimationFrame(frame) }
+  }, [camera, mediaDemand])
   type DragGeometry = { position: Point; positionAbsolute: Point }
   const activeDrag = useRef<{
     lease?: NodeLease
     geometries: Map<string, DragGeometry>
     candidates: SnapRect[]
+    frameCandidates: SnapRect[]
+    candidateNodes: readonly CanvasNode[]
     snapState: SnapState
     targetFrameId?: string
   } | undefined>(undefined)
@@ -1164,6 +1147,16 @@ export function CanvasWorkspace({
   const viewportSourceRef = useRef<
     'follow' | 'local' | 'fit' | 'restore' | undefined
   >(undefined)
+
+  useEffect(() => camera.subscribe(() => {
+    const next = camera.getDisplay()
+    flushViewportUi(next)
+    if (!cameraDrivenByFlow.current && flowInstance && !sameViewport(flowInstance.getViewport(), next)) {
+      viewportSourceRef.current = collaborationFollowingMemberId ? 'follow' : 'restore'
+      if (collaborationFollowingMemberId) followViewportRef.current = next
+      void flowInstance.setViewport(next)
+    }
+  }), [camera, flowInstance, flushViewportUi, collaborationFollowingMemberId])
 
   const captureDragGeometry = useCallback((nodes: CanvasFlowNode[]) => new Map(
     nodes.map((node) => {
@@ -1282,6 +1275,7 @@ export function CanvasWorkspace({
       sameViewport(viewportRef.current, project.viewport)
     const projectViewportChanged = !sameViewport(lastProjectViewportRef.current, project.viewport)
     lastProjectViewportRef.current = project.viewport
+    if (projectViewportChanged) camera.set(project.viewport, 'restore')
     if (collaborationFollowingMemberId && projectViewportChanged && !isLocal) {
       viewportSourceRef.current = 'local'
       stopCollaborationFollowing?.()
@@ -1321,6 +1315,7 @@ export function CanvasWorkspace({
     stopCollaborationFollowing?.()
     void flowInstance.fitView({ padding: 0.12, duration: 180 }).then(() => {
       const nextViewport = flowInstance.getViewport()
+      camera.set(nextViewport, 'fit')
       flushViewportUi(nextViewport)
       setCommittedZoom(nextViewport.zoom)
       setCollaborationViewport?.(nextViewport)
@@ -1385,8 +1380,21 @@ export function CanvasWorkspace({
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<CanvasFlowNode>[]) => {
+      if (changes.some(change => change.type === 'dimensions' && change.dimensions)) {
+        setMeasuredSizes(current => {
+          let next = current
+          for (const change of changes) {
+            if (change.type !== 'dimensions' || !change.dimensions) continue
+            const before = next.get(change.id), dimensions = change.dimensions
+            if (before?.width === dimensions.width && before?.height === dimensions.height) continue
+            if (next === current) next = new Map(current)
+            next.set(change.id, { ...dimensions })
+          }
+          return next
+        })
+      }
       const geometryChanges = changes.filter(
-        (change) => change.type === 'position' || change.type === 'dimensions',
+        (change) => change.type === 'position' || (change.type === 'dimensions' && Boolean(change.setAttributes || change.resizing)),
       )
       if (geometryChanges.length > 0) {
         const projected = applyNodeChanges(geometryChanges, flowNodesRef.current)
@@ -1394,6 +1402,7 @@ export function CanvasWorkspace({
         setTransientGeometry((current) => {
           const next = new Map(current)
           for (const change of geometryChanges) {
+            if (change.type !== 'position' && change.type !== 'dimensions') continue
             const node = projectedById.get(change.id)
             if (!node) continue
             const previous = next.get(change.id)
@@ -1460,6 +1469,24 @@ export function CanvasWorkspace({
       syncSelection([...nextIds])
     },
     [editingImageNodeId, imageEditorDirty, store, syncSelection],
+  )
+
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange<CanvasFlowEdge>[]) => {
+      if (readOnly) return
+      const state = store.getState()
+      const selectionChanges = changes.filter(change => change.type === 'select')
+      if (selectionChanges.length === 0) return
+      const edgeIds = new Set(state.snapshot.edges.map(edge => edge.id))
+      const nextIds = new Set(state.selectedEdgeIds)
+      for (const change of selectionChanges) {
+        if (change.selected && edgeIds.has(change.id)) nextIds.add(change.id)
+        else nextIds.delete(change.id)
+      }
+      const ids = [...nextIds]
+      if (!sameIds(state.selectedEdgeIds, ids)) store.setState({ selectedEdgeIds: ids })
+    },
+    [readOnly, store],
   )
 
   const handleConnect = useCallback(
@@ -1728,11 +1755,6 @@ export function CanvasWorkspace({
   const workspaceClassName = className
     ? `canvas-workspace ${className}`
     : 'canvas-workspace'
-  const workspaceStyle = {
-    '--canvas-ui-scale': String(
-      1 / Math.max(viewportRef.current.zoom, CANVAS_MIN_ZOOM),
-    ),
-  } as CSSProperties
   const selectedGroup =
     selectedNodeIds.length === 1
       ? snapshot.nodes.find((node) => node.id === selectedNodeIds[0])
@@ -1753,10 +1775,12 @@ export function CanvasWorkspace({
   })
 
   return (
+    <CanvasMediaDemandContext.Provider value={canvasPerformanceFlags.mediaDemand ? mediaDemand : null}>
     <div
       className={workspaceClassName}
       data-testid="canvas-workspace"
       data-canvas-mode={mode}
+      data-connecting={connectionGestureActive || undefined}
       data-active-tool={activeTool}
       data-multiselect={selectedNodeIds.length > 1 || undefined}
       data-reference-pick-target={referencePickTargetId ?? undefined}
@@ -1941,7 +1965,6 @@ export function CanvasWorkspace({
 
         onPaneDoubleClick?.({ x: event.clientX, y: event.clientY })
       }}
-      style={workspaceStyle}
     >
       <ReactFlow<CanvasFlowNode, CanvasFlowEdge>
         id="canvas-workspace-flow"
@@ -1963,6 +1986,7 @@ export function CanvasWorkspace({
         elevateNodesOnSelect={false}
         elevateEdgesOnSelect={false}
         onNodesChange={handleNodesChange}
+        onEdgesChange={handleEdgesChange}
         onSelectionStart={(event) => {
           const isModifier = Boolean(
             event.shiftKey || event.ctrlKey || event.metaKey,
@@ -2006,11 +2030,13 @@ export function CanvasWorkspace({
             setCollaborationLockNotice('所选节点正在由其他成员操作')
             return
           }
-          activeDrag.current = { lease, geometries, candidates: snapCandidates(ids), snapState: {} }
+          const candidates = snapCandidates(ids)
+          activeDrag.current = { lease, geometries, candidates, frameCandidates: candidates.filter(rect => rect.kind === 'frame'), candidateNodes: store.getState().snapshot.nodes, snapState: {} }
           setCollaborationLockNotice(undefined)
           collaboration?.setInteraction?.({ kind: 'dragging', nodeIds: ids })
         }}
         onNodeDrag={(event, node, draggedNodes) => {
+          markCanvasInteraction()
           if (blockedDrag.current || !activeDrag.current) return
           const nodes = draggedNodes.length > 0 ? draggedNodes : [node]
           const initialGeometries = activeDrag.current.geometries
@@ -2018,7 +2044,13 @@ export function CanvasWorkspace({
           const rawDx = initialPrimary ? node.position.x - initialPrimary.position.x : 0
           const rawDy = initialPrimary ? node.position.y - initialPrimary.position.y : 0
 
-          const modelById = new Map(store.getState().snapshot.nodes.map((n) => [n.id, n]))
+          const currentSnapshot = store.getState().snapshot
+          if (activeDrag.current.candidateNodes !== currentSnapshot.nodes) {
+            activeDrag.current.candidates = snapCandidates(nodes.map(item => item.id))
+            activeDrag.current.frameCandidates = activeDrag.current.candidates.filter(rect => rect.kind === 'frame')
+            activeDrag.current.candidateNodes = currentSnapshot.nodes
+          }
+          const modelById = createCanvasContentIndex(currentSnapshot.nodes, currentSnapshot.edges).nodeById
           const rects = nodes.map((item) => {
             const init = initialGeometries.get(item.id)
             const baseX = init?.positionAbsolute.x ?? item.position.x
@@ -2066,7 +2098,7 @@ export function CanvasWorkspace({
             return next
           })
           const center = { x: snapped.rect.x + snapped.rect.width / 2, y: snapped.rect.y + snapped.rect.height / 2 }
-          const targetFrameId = deepestFrameAt(center, nodes.map((item) => item.id))
+          const targetFrameId = deepestFrameAt(center, nodes.map((item) => item.id), activeDrag.current.frameCandidates)
           activeDrag.current.targetFrameId = targetFrameId
           setFrameDropTargetId(targetFrameId)
           setSnapOverlay({ guides: snapped.guides, distances: snapped.distances })
@@ -2207,7 +2239,13 @@ export function CanvasWorkspace({
         onEdgesDelete={(deletedEdges) => {
           void deleteSelection([], deletedEdges)
         }}
-        onViewportChange={scheduleViewportUi}
+        onViewportChange={(viewport) => {
+          markCanvasInteraction()
+          cameraDrivenByFlow.current = true
+          camera.set(viewport, collaborationFollowingMemberId && viewportSourceRef.current !== 'local' ? 'follow' : (viewportSourceRef.current ?? 'local'))
+          cameraDrivenByFlow.current = false
+          scheduleViewportUi(viewport)
+        }}
         onMoveStart={(event) => {
           const prevSource = viewportSourceRef.current
           if (
@@ -2246,6 +2284,10 @@ export function CanvasWorkspace({
             collaborationFollowingMemberId && followViewportRef.current &&
             sameViewport(nextViewport, followViewportRef.current)
           ) return
+          if (collaborationFollowingMemberId && !event) return
+          cameraDrivenByFlow.current = true
+          camera.set(nextViewport, 'local')
+          cameraDrivenByFlow.current = false
           setCollaborationViewport?.(nextViewport)
           if (!collaborationFollowingMemberId) {
             store.getState().setViewport(nextViewport)
@@ -2265,10 +2307,8 @@ export function CanvasWorkspace({
             y: event.clientY,
           })
         }}
-        onEdgeClick={(event, edge) => {
-          if (readOnly) return
+        onEdgeClick={(event) => {
           event.stopPropagation()
-          store.getState().selectEdge(edge.id, event.shiftKey)
         }}
         onPaneClick={() => {
           setActiveGeneratorNodeId(null)
@@ -2362,6 +2402,7 @@ export function CanvasWorkspace({
         onStopFollowing={stopCollaborationFollowing}
       />
     </div>
+    </CanvasMediaDemandContext.Provider>
   )
 }
 

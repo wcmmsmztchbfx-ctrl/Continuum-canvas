@@ -49,9 +49,8 @@
 }
 
 .canvas-workspace .react-flow__viewport {
-  will-change: transform;
-  transform: translateZ(0);
-  backface-visibility: hidden;
+  /* Let Chromium choose layers; forcing this whole canvas multiplies hidden SVG layers. */
+  backface-visibility: visible;
 }
 
 .canvas-workspace[data-viewport-moving="true"] .react-flow__viewport * {
@@ -510,12 +509,12 @@
   background: rgba(20, 20, 20, 0.72);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
   cursor: pointer;
-  backdrop-filter: blur(8px);
   transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
 }
 
 .canvas-media-node__download:hover,
 .canvas-media-node__download:focus-visible {
+  backdrop-filter: blur(8px);
   border-color: rgba(255, 255, 255, 0.34);
   color: #ffffff;
   background: rgba(34, 34, 34, 0.9);
@@ -934,8 +933,8 @@
   position: absolute;
   top: 50%;
   display: flex;
-  width: 80px;
-  height: 80px;
+  width: 32px;
+  height: 32px;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
@@ -944,7 +943,9 @@
   transform: translateY(-50%);
 }
 
-.canvas-node-handle--left .canvas-node-handle__hit {
+/* Large drop targets are useful only while creating a connection. Leaving
+   them active at rest covers the existing edges between nearby nodes. */
+.canvas-workspace[data-connecting="true"] .canvas-node-handle--left .canvas-node-handle__hit {
   width: 112px;
   height: 112px;
 }
@@ -958,6 +959,7 @@
 }
 
 .canvas-node-handle__icon {
+  position: absolute;
   display: flex;
   width: 20px;
   height: 20px;
@@ -970,6 +972,7 @@
   color: #bcbcbc;
   background: #252525;
   opacity: 0;
+  visibility: hidden;
   transition:
     opacity 150ms ease-out,
     color 150ms ease,
@@ -977,11 +980,11 @@
 }
 
 .canvas-node-handle--left .canvas-node-handle__icon {
-  transform: translateX(25px);
+  right: 6px;
 }
 
 .canvas-node-handle--right .canvas-node-handle__icon {
-  transform: translateX(-25px);
+  left: 6px;
 }
 
 .canvas-workspace[data-canvas-mode="connect"] .canvas-node-handle__icon,
@@ -989,36 +992,11 @@
 .react-flow__node.selected .canvas-node-handle__icon,
 .canvas-node-handle.connectingfrom .canvas-node-handle__icon,
 .canvas-node-handle.connectingto .canvas-node-handle__icon {
+  visibility: visible;
   opacity: 1;
 }
 
-.canvas-workspace[data-canvas-mode="connect"]
-  .canvas-node-handle--left
-  .canvas-node-handle__icon,
-.react-flow__node:hover
-  .canvas-node-handle--left
-  .canvas-node-handle__icon,
-.react-flow__node.selected
-  .canvas-node-handle--left
-  .canvas-node-handle__icon,
-.canvas-node-handle--left.connectingfrom .canvas-node-handle__icon,
-.canvas-node-handle--left.connectingto .canvas-node-handle__icon {
-  transform: translateX(25px);
-}
 
-.canvas-workspace[data-canvas-mode="connect"]
-  .canvas-node-handle--right
-  .canvas-node-handle__icon,
-.react-flow__node:hover
-  .canvas-node-handle--right
-  .canvas-node-handle__icon,
-.react-flow__node.selected
-  .canvas-node-handle--right
-  .canvas-node-handle__icon,
-.canvas-node-handle--right.connectingfrom .canvas-node-handle__icon,
-.canvas-node-handle--right.connectingto .canvas-node-handle__icon {
-  transform: translateX(-25px);
-}
 
 .canvas-node-handle__hit:hover .canvas-node-handle__icon,
 .canvas-node-handle.connectingfrom .canvas-node-handle__icon,
@@ -1031,6 +1009,7 @@
 .canvas-workspace[data-multiselect="true"]
   .react-flow__node.selected:not(:hover)
   .canvas-node-handle__icon {
+  visibility: hidden;
   opacity: 0;
 }
 
@@ -1058,9 +1037,7 @@
   pointer-events: none;
   stroke: #86909c;
   stroke-width: 2;
-  transition:
-    stroke 200ms ease,
-    stroke-width 200ms ease;
+  transition: stroke 120ms ease;
 }
 
 .canvas-edge[data-relation="reference"] .canvas-edge__path {
@@ -1071,84 +1048,52 @@
   stroke: #708078;
 }
 
-.canvas-edge__path--linked {
+.canvas-edge .canvas-edge__path--linked {
   stroke: #c0c8d0;
 }
 
-.canvas-edge__path--selected,
-.react-flow__edge.selected .canvas-edge__path {
+.canvas-workspace .react-flow__edge .canvas-edge:hover .canvas-edge__path {
+  stroke: #9acef5;
+}
+
+.canvas-workspace .react-flow__edge .canvas-edge[data-flow-active="true"] .canvas-edge__path {
   stroke: #0d99ff;
-  stroke-width: 3.5;
-  filter: drop-shadow(0 0 6px rgba(13, 153, 255, 0.7));
-}
-
-.canvas-edge__flow,
-.canvas-connection-preview__flow {
-  pointer-events: none;
-  stroke: rgba(120, 195, 255, 0.9);
-  stroke-width: 4;
+  stroke-width: 2;
   stroke-linecap: round;
-  stroke-dasharray: 12 88;
-  filter: drop-shadow(0 0 4px rgba(100, 180, 255, 0.75));
-}
-
-.canvas-edge__flow--animated {
-  animation: canvas-edge-flow 2800ms linear infinite;
+  stroke-dasharray: 6 6;
+  vector-effect: non-scaling-stroke;
+  animation: canvas-edge-flow 2s linear infinite;
 }
 
 @keyframes canvas-edge-flow {
-  to {
-    stroke-dashoffset: -100;
-  }
-}
-
-.canvas-edge__flow-group {
-  opacity: 0;
-  transition: opacity 500ms ease 800ms;
-}
-
-.canvas-edge:hover .canvas-edge__flow-group,
-.canvas-edge[data-flow-active="true"] .canvas-edge__flow-group,
-.canvas-connection-preview .canvas-edge__flow-group {
-  opacity: 1;
-  transition: opacity 300ms ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .canvas-edge__flow--animated {
-    animation: none;
-  }
-
-  .canvas-edge__flow-group {
-    transition: none;
-  }
+  to { stroke-dashoffset: -12; }
 }
 
 .canvas-edge__highlight {
   pointer-events: none;
   fill: none;
-  stroke: rgba(100, 180, 255, 0.35);
-  stroke-width: 6;
-  stroke-linecap: round;
+  stroke: rgba(100, 180, 255, 0.18);
+  stroke-width: 5;
+  vector-effect: non-scaling-stroke;
   opacity: 0;
-  /* 离开后保持全亮 800ms 再淡出，让快速划过也能看清高光 */
-  transition: opacity 500ms ease 800ms;
+  transition: opacity 120ms ease;
+}
+
+.canvas-edge:hover .canvas-edge__highlight {
+  opacity: 1;
 }
 
 .canvas-edge[data-flow-active="true"] .canvas-edge__highlight {
-  opacity: 1;
-  /* 激活时快速亮起，无延迟 */
-  transition: opacity 300ms ease;
+  opacity: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .canvas-edge__highlight {
-    transition: none;
-  }
+  .canvas-workspace .react-flow__edge .canvas-edge[data-flow-active="true"] .canvas-edge__path { animation: none; }
+  .canvas-edge__path, .canvas-edge__highlight { transition: none; }
 }
 
 .canvas-connection-preview__base {
-  stroke: #c0c8d0;
+  stroke: #0d99ff;
   stroke-width: 2;
 }
 
@@ -2449,13 +2394,13 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 32px;
-  min-height: 32px;
-  padding: 0 12px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 16px;
   flex-shrink: 0;
 }
 .layers-panel__section-header strong {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: #ffffff;
   letter-spacing: 0.2px;
@@ -2464,15 +2409,15 @@
 .layers-panel__search {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 26px;
-  min-height: 26px;
-  margin: 2px 8px 6px;
-  padding: 0 8px;
+  gap: 8px;
+  height: 30px;
+  min-height: 30px;
+  margin: 0 12px 10px;
+  padding: 0 10px;
   color: #858585;
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.16);
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 4px;
+  border-radius: 6px;
   flex-shrink: 0;
   transition: border-color 120ms ease;
 }
@@ -2492,12 +2437,12 @@
   background: transparent;
   border: 0;
   outline: 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 .layers-panel__list {
   flex: 1;
   min-height: 0;
-  padding: 2px 4px 16px;
+  padding: 2px 8px 20px;
   overflow: hidden auto;
   scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
   scrollbar-width: thin;
@@ -2505,14 +2450,15 @@
 .layers-panel__row {
   display: flex;
   align-items: center;
-  height: 30px;
-  border-radius: 3px;
+  height: 38px;
+  margin-bottom: 2px;
+  border-radius: 5px;
   user-select: none;
   cursor: pointer;
   transition: background 80ms ease;
 }
 .layers-panel__row:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.055);
 }
 .layers-panel__row[data-selected] {
   color: #ffffff;
@@ -2540,7 +2486,7 @@
 }
 .layers-panel__disclosure {
   display: grid;
-  flex: 0 0 16px;
+  flex: 0 0 12px;
   height: 22px;
   place-items: center;
   padding: 0;
@@ -2551,20 +2497,20 @@
 }
 .layers-panel__type-icon {
   display: grid;
-  width: 16px;
+  width: 14px;
   height: 16px;
   place-items: center;
   color: #858585;
   flex-shrink: 0;
-  margin-right: 4px;
+  margin-right: 6px;
 }
 .layers-panel__thumb {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
-  margin-right: 6px;
-  border-radius: 3px;
+  width: 28px;
+  height: 28px;
+  margin-right: 10px;
+  border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: #141414;
   overflow: hidden;
@@ -2572,20 +2518,20 @@
   box-sizing: border-box;
 }
 .layers-panel__thumb svg {
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
 }
 .layers-panel__thumb-shape-inner {
   display: block;
-  width: 12px;
-  height: 12px;
+  width: 18px;
+  height: 18px;
   box-sizing: border-box;
 }
 .layers-panel__thumb-frame-inner {
   display: grid;
   place-items: center;
-  width: 14px;
-  height: 14px;
+  width: 20px;
+  height: 20px;
   border: 1px dashed rgba(255, 255, 255, 0.35);
   border-radius: 2px;
   font-size: 8px;
@@ -2595,16 +2541,16 @@
   line-height: 1;
 }
 .layers-panel__thumb-text-inner {
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
   color: #888888;
 }
 .layers-panel__thumb-group-inner {
-  font-size: 9px;
+  font-size: 13px;
   color: #888888;
 }
 .layers-panel__thumb-placeholder {
-  font-size: 9px;
+  font-size: 12px;
   color: #666666;
 }
 .layers-panel__thumb-media {
@@ -2634,30 +2580,31 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+  line-height: 18px;
   font-weight: 400;
-  color: #cccccc;
+  color: #dedede;
   padding: 0 2px;
   border: 0;
   background: transparent;
   cursor: pointer;
 }
 .layers-panel__actions {
-  display: flex;
+  display: none;
   align-items: center;
+  flex-shrink: 0;
   gap: 2px;
   padding-right: 4px;
-  opacity: 0;
-  transition: opacity 80ms ease;
 }
 .layers-panel__row:hover .layers-panel__actions,
+.layers-panel__row:focus-within .layers-panel__actions,
 .layers-panel__row[data-selected] .layers-panel__actions,
 .layers-panel__actions:has([data-active]) {
-  opacity: 1;
+  display: flex;
 }
 .layers-panel__actions button {
   display: grid;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 26px;
   place-items: center;
   padding: 0;
   border-radius: 3px;
@@ -2682,5 +2629,4 @@
   border-radius: 3px;
   font-size: 11px;
 }
-@media (max-width: 720px) { .layers-panel { top: 0; bottom: 0; width: min(240px, 86vw); border: 1px solid #444; border-radius: 0 9px 9px 0; box-shadow: 12px 0 32px #0009; } }
 

@@ -1,3 +1,4 @@
+import { ManagedMediaImage } from '../canvas/ManagedMediaImage'
 import {
   useCallback,
   useMemo,
@@ -62,7 +63,7 @@ function LineageNodeThumb({ node }: { node: CanvasNode }) {
     const thumbUrl = getFastThumbnailUrl(node.data.url) || node.data.url
     return (
       <span className="sidebar-lineage-node__thumb">
-        <img alt={node.name} draggable={false} loading="lazy" src={thumbUrl} />
+        <ManagedMediaImage alt={node.name} draggable={false} loading="lazy" src={thumbUrl} />
       </span>
     )
   }
@@ -72,7 +73,7 @@ function LineageNodeThumb({ node }: { node: CanvasNode }) {
     if (poster) {
       return (
         <span className="sidebar-lineage-node__thumb">
-          <img alt={node.name} draggable={false} loading="lazy" src={poster} />
+          <ManagedMediaImage alt={node.name} draggable={false} loading="lazy" src={poster} />
           <span className="sidebar-lineage-node__thumb-play">▶</span>
         </span>
       )

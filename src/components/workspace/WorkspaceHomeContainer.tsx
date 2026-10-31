@@ -24,6 +24,7 @@ const ProviderDrawer = lazy(() =>
 )
 
 export interface WorkspaceHomeProps {
+  onSyncStatusHost?: (host: HTMLDivElement | null) => void
   initialCreate?: 'project' | 'canvas'
   onNavigateCanvas?: (canvas: WorkspaceCanvas) => void
   repository?: WorkspaceRepository
@@ -42,6 +43,7 @@ function createOperationId(): string {
 }
 
 export function WorkspaceHome({
+  onSyncStatusHost,
   gateway = gatewayClient,
   initialCreate,
   onNavigateCanvas,
@@ -235,6 +237,7 @@ export function WorkspaceHome({
   return (
     <>
       <WorkspaceHomeView
+        onSyncStatusHost={onSyncStatusHost}
         editingItem={editing ?? undefined}
         manifest={manifest}
         thumbnailUrls={thumbnailUrls}

@@ -1,24 +1,16 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { NodeResizer, Position, useStore as useReactFlowStore, type NodeProps } from '@xyflow/react'
+import { NodeResizer, Position, type NodeProps } from '@xyflow/react'
 
 import { EmptyMediaPlaceholder } from './EmptyMediaPlaceholder'
 import { EditableNodeLabel } from './EditableNodeLabel'
 import { GenerationOverlay } from './GenerationOverlay'
 import { MediaDownloadButton } from './MediaDownloadButton'
 import type { CanvasFlowNode } from './mapping'
-import { NodeGeneratorPanel } from './NodeGeneratorPanel'
+import { LazyNodeGeneratorPanel as NodeGeneratorPanel } from './lazyPanels'
 import { NodeHandle } from './NodeHandle'
-import {
-  cacheThumbnailFromElement,
-  getFastThumbnailUrl,
-  getResponsiveImageUrl,
-  subscribeThumbnailReady,
-} from '../../services/imageThumbnailCache'
-import {
-  isMediaLoaded,
-  requestMediaLoad,
-  type LoadPriority,
-} from '../../services/mediaLoadQueue'
+import { cacheThumbnailFromElement } from '../../services/imageThumbnailCache'
+import { useCanvasMediaDemand } from './canvasMediaDemand'
+import { useMediaResource } from './useMediaResource'
 import {
   computeAppearanceStyles,
   NOISE_SVG_DATA_URI,
@@ -33,112 +25,21 @@ function ImageNodeContent({
   selected,
   isConnectable,
 }: NodeProps<CanvasFlowNode>) {
-  const [failed, setFailed] = useState(false)
   const [highResLoaded, setHighResLoaded] = useState(false)
-  const [thumbnailAllowed, setThumbnailAllowed] = useState(false)
-  const [highResAllowed, setHighResAllowed] = useState(
-    () => typeof window === 'undefined' || typeof Image === 'undefined',
-  )
-  const [generatedThumbnail, setGeneratedThumbnail] = useState<string | undefined>(undefined)
   const resizeGranted = useRef(false)
-
-  let zoomTier: 'low' | 'normal' | 'high' = 'normal'
-  try {
-    zoomTier = useReactFlowStore((s) =>
-      s.transform[2] > 1.5 ? 'high' : s.transform[2] <= 0.35 ? 'low' : 'normal',
-    )
-  } catch {
-    zoomTier = 'normal'
-  }
-
-  const zoom = zoomTier === 'high' ? 2 : zoomTier === 'low' ? 0.3 : 1
-  const priority: LoadPriority = zoomTier
-
-  useEffect(() => {
-    setFailed(false)
-    setHighResLoaded(false)
-    setHighResAllowed(false)
-  }, [data.url])
-
-  useEffect(() => {
-    if (!data.url) return
-    const initialThumb = getFastThumbnailUrl(data.url, data.thumbnailUrl)
-    setGeneratedThumbnail(initialThumb)
-    return subscribeThumbnailReady((url, thumb) => {
-      if (url === data.url) {
-        setGeneratedThumbnail(thumb)
-      }
-    })
-  }, [data.url, data.thumbnailUrl])
-
-  const hasImage = Boolean(data.url) && !failed
+  const media = useCanvasMediaDemand(id, Boolean(selected))
+  const assetId = data.node?.type === 'image' ? data.node.data.assetId : undefined
+  const sourceUrl = (media.variant === 128 || media.variant === 360) && data.thumbnailUrl ? data.thumbnailUrl : data.url
+  const resource = useMediaResource({ url: sourceUrl ?? '', assetId, version: data.activeVersionId }, media.variant, media.demand)
+  const hasImage = Boolean(data.url)
   const isLayerMode = data.node?.type === 'image' && data.node.data.displayMode === 'layer'
   const showResizer = isLayerMode && selected && data.isSoleSelection !== false
   const showDetails = selected && data.isSoleSelection !== false && !isLayerMode && (data.generatorOpen ?? true)
   const modelData = data.node?.type === 'image' ? data.node.data : undefined
   const appearance = computeAppearanceStyles((modelData || {}) as Parameters<typeof computeAppearanceStyles>[0])
-
-
-  const explicitThumbnail =
-    data.thumbnailUrl ||
-    (data.url && data.versions?.[0]?.url && data.versions[0].url !== data.url
-      ? data.versions[0].url
-      : undefined)
-  const effectiveThumbnailUrl =
-    explicitThumbnail || generatedThumbnail || getFastThumbnailUrl(data.url)
-  const hasThumbnail = Boolean(effectiveThumbnailUrl)
-  const isLowResMode = zoom <= 0.35
-
-  // Purely zoom-based: zoom > 1.5 -> original, zoom <= 1.5 -> WebP
-  const responsiveHighResUrl = getResponsiveImageUrl(data.url, zoom) || data.url
-
-  // Prevent unmounting loaded images when zooming out: once loaded, keep mounted
-  const isHighResAlreadyLoaded =
-    isMediaLoaded(responsiveHighResUrl) || isMediaLoaded(data.url)
-  const shouldRenderHighRes =
-    !isLowResMode || !hasThumbnail || isHighResAlreadyLoaded || highResLoaded
-
-  useEffect(() => {
-    if (!effectiveThumbnailUrl) {
-      setThumbnailAllowed(true)
-      return
-    }
-    if (isMediaLoaded(effectiveThumbnailUrl)) {
-      setThumbnailAllowed(true)
-      return
-    }
-    const { promise, cancel } = requestMediaLoad(effectiveThumbnailUrl, priority)
-    let active = true
-    promise.then((success) => {
-      if (active && success) setThumbnailAllowed(true)
-    })
-    return () => {
-      active = false
-      cancel()
-    }
-  }, [effectiveThumbnailUrl, priority])
-
-  useEffect(() => {
-    if (!responsiveHighResUrl) {
-      return
-    }
-    if (isMediaLoaded(responsiveHighResUrl)) {
-      setHighResAllowed(true)
-      return
-    }
-    if (!shouldRenderHighRes) {
-      return
-    }
-    const { promise, cancel } = requestMediaLoad(responsiveHighResUrl, priority)
-    let active = true
-    promise.then((success) => {
-      if (active && success) setHighResAllowed(true)
-    })
-    return () => {
-      active = false
-      cancel()
-    }
-  }, [responsiveHighResUrl, shouldRenderHighRes, priority])
+  // The resizer already uses React Flow's autoScale; no global zoom subscription.
+  const zoom = 1
+  useEffect(() => { setHighResLoaded(false) }, [data.url])
 
   return (
     <article
@@ -234,53 +135,32 @@ function ImageNodeContent({
                 }}
               />
             )}
-            {hasThumbnail && thumbnailAllowed && effectiveThumbnailUrl ? (
-              <img
-                alt={data.alt ?? data.name}
-                className="canvas-media-node__content canvas-image-thumbnail"
-
-            decoding="async"
-            draggable={false}
-            loading="lazy"
-            src={effectiveThumbnailUrl}
-            style={{
-              objectFit: modelData?.objectFit ?? 'cover',
-              borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
-            }}
-          />
-        ) : null}
-        {hasImage && shouldRenderHighRes && (highResAllowed || !hasThumbnail) && responsiveHighResUrl ? (
+        {resource.displayUrl ? (
           <img
-            className={`canvas-media-node__content ${hasThumbnail ? 'canvas-image-highres' : ''} ${highResLoaded ? 'is-loaded' : ''}`}
+            key={resource.bindingKey}
+            className={`canvas-media-node__content canvas-image-highres ${highResLoaded ? 'is-loaded' : ''}`}
             decoding="async"
             draggable={false}
-            loading="lazy"
-            src={responsiveHighResUrl}
+            src={resource.displayUrl}
+            data-source-url={data.url}
             alt={data.alt ?? data.name}
-            style={{
-              objectFit: modelData?.objectFit ?? 'cover',
-              borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined,
-            }}
+            style={{ objectFit: modelData?.objectFit ?? 'cover', borderRadius: modelData?.radius ? `${modelData.radius}px` : undefined }}
             onLoad={(event) => {
+              resource.onLoad()
               setHighResLoaded(true)
-              data.onImageNaturalSize?.(
-                id,
-                event.currentTarget.naturalWidth,
-                event.currentTarget.naturalHeight,
-              )
-              if (data.url) {
-                cacheThumbnailFromElement(data.url, event.currentTarget)
+              if (resource.displayedSource === data.url) {
+                if (resource.originalWidth && resource.originalHeight) {
+                  data.onImageNaturalSize?.(id, resource.originalWidth, resource.originalHeight)
+                } else if (media.variant === 'original') {
+                  data.onImageNaturalSize?.(id, event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)
+                }
               }
+              if (data.url && !resource.preview && !resource.preserveAnimation && resource.displayedSource === data.url) cacheThumbnailFromElement({ url: data.url, assetId, version: data.activeVersionId }, event.currentTarget)
             }}
-            onError={(event) => {
-              if (event.currentTarget.getAttribute('src') && !hasThumbnail) {
-                setFailed(true)
-              }
-            }}
+            onError={resource.onError}
           />
-        ) : !hasThumbnail && !hasImage ? (
-          <EmptyMediaPlaceholder kind="image" />
-        ) : null}
+        ) : !hasImage ? <EmptyMediaPlaceholder kind="image" /> : null}
+        {resource.failed ? <button className="nodrag" onClick={resource.retry} type="button">加载失败，重试</button> : null}
         {data.generation?.status === 'generating' ? (
           <GenerationOverlay />
         ) : null}

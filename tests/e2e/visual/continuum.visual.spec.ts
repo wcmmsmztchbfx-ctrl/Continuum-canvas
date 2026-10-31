@@ -15,7 +15,7 @@ test.describe('Continuum visual regression', () => {
   test('layers sidebar', async ({ page }) => {
     await openCanvas(page)
     const sidebar = page.getByTestId('layers-sidebar')
-    await page.getByRole('button', { name: '展开图层' }).click()
+    await page.getByRole('button', { name: '展开侧边栏', exact: true }).click()
     await expect(sidebar).toBeVisible()
     await expect(page).toHaveScreenshot('canvas-layers.png', { animations: 'disabled' })
   })

@@ -45,6 +45,8 @@ import {
   type UiPreferences,
 } from './persistence'
 import { createCanvasSaveSession, type CapturedCanvasSave } from './persistence/canvasSaveSession'
+import { createAgentCanvasSync, type AgentCanvasSync } from './services/agent/agentCanvasSync'
+import { AgentRuntimeClient } from './services/agent/agentRuntimeClient'
 import {
   defaultWorkspaceRepository,
   type WorkspaceRepository,
@@ -76,6 +78,8 @@ import { useAppCollaboration } from './hooks/useAppCollaboration'
 import { useAppHotkeys } from './hooks/useAppHotkeys'
 import { useSidebarResize } from './hooks/useSidebarResize'
 import { useCanvasStageAnchor } from './hooks/useCanvasStageAnchor'
+import { canvasPerformanceFlags } from './performance/canvasPerformanceFlags'
+import { createCanvasViewportRuntime } from './components/canvas/canvasViewportRuntime'
 import { useCanvasClipboard } from './hooks/useCanvasClipboard'
 import { copyImageToClipboard } from './utils/clipboard'
 
@@ -164,6 +168,7 @@ const addNodeLabels: Record<AddNodeKind, string> = {
 }
 
 export interface AppProps {
+  onSyncStatusHost?: (host: HTMLDivElement | null) => void
   canvasId?: string
   projectId?: string
   projectName?: string
@@ -174,6 +179,7 @@ export interface AppProps {
 }
 
 export default function App({
+  onSyncStatusHost,
   canvasId,
   projectId,
   projectName,
@@ -186,6 +192,12 @@ export default function App({
   const [loadedCanvasId, setLoadedCanvasId] = useState<string | null>()
   const [loadError, setLoadError] = useState<string>()
   const [loadAttempt, setLoadAttempt] = useState(0)
+  const beforeAgentRunRef = useRef<(() => Promise<{ expectedRevision: number }>) | undefined>(undefined)
+  const agentSyncCanvasRef = useRef<string | undefined>(undefined)
+  const prepareAgentRun = useCallback(async () => {
+    if (!beforeAgentRunRef.current || agentSyncCanvasRef.current !== canvasId) throw new Error('画布已切换或尚未同步，请在当前画布重新发送')
+    return beforeAgentRunRef.current()
+  }, [canvasId])
   const [preferences, setPreferences] = useState<UiPreferences>(() =>
     loadUiPreferences(),
   )
@@ -219,7 +231,8 @@ export default function App({
     },
   })
 
-  useCanvasStageAnchor(canvasStageRef, hydrated)
+  const camera = useMemo(() => createCanvasViewportRuntime(canvasStore.getState().snapshot.viewport), [canvasId])
+  useCanvasStageAnchor(canvasStageRef, hydrated, canvasPerformanceFlags.runtimeViewport ? camera : undefined)
 
   const getStageCenterPoint = useCallback(() => {
     const rect = canvasStageRef.current?.getBoundingClientRect()
@@ -374,7 +387,12 @@ export default function App({
     let disposed = false
     let sharedSnapshotPending = false
     let unsubscribe = () => {}
+    let unsubscribeCamera = () => {}
+    let lastCapturedViewport = camera.getLocal()
     let isHydrated = false
+    let applyingAgentRemote = false
+    let agentSync: AgentCanvasSync | undefined
+    const pendingSaves = new Set<Promise<void>>()
     const saveSession = canvasId
       ? createCanvasSaveSession({ canvasId, projectId, owner: workspaceRepository })
       : undefined
@@ -385,14 +403,15 @@ export default function App({
     const submit = (save: CapturedCanvasSave) => {
       saveSession!.markQueued(save)
       let persisted = false
-      void workspaceRepository.saveCanvas(save.document)
+      const pending = workspaceRepository.saveCanvas(save.document)
         .then(() => {
           persisted = true
+          if (agentSync?.isSynchronizing()) return
           if (!saveSession!.succeed(save)) return
           const document = save.document
           return saveSession!.publish(save, async () => {
             thumbnailService.schedule(document)
-            if (disposed) await thumbnailService.flush(document.canvasId)
+            if (disposed) void thumbnailService.flush(document.canvasId)
             return gatewayClient.syncCanvasAssetReferences({
               canvasId: document.canvasId,
               projectId: document.projectId,
@@ -412,11 +431,26 @@ export default function App({
         })
         .catch((error: unknown) => {
           const current = persisted ? saveSession!.isLatest(save) : saveSession!.fail(save)
-          if (!disposed && current) {
+          if (!disposed && current && !agentSync?.isSynchronizing()) {
             notify(error instanceof Error ? error.message : '自动保存画布失败', 'error')
           }
         })
+      pendingSaves.add(pending)
+      void pending.finally(() => pendingSaves.delete(pending))
     }
+
+    const flushLocalCamera = () => {
+      if (!isHydrated || !saveSession || agentSync?.isSynchronizing()) return
+      sharedSnapshotPending = collaborationControllerRef.current?.isLocalAutosaveSuppressed() ?? sharedSnapshotPending
+      if (sharedSnapshotPending) return
+      const viewport = camera.getLocal()
+      if (viewport.x === lastCapturedViewport.x && viewport.y === lastCapturedViewport.y && viewport.zoom === lastCapturedViewport.zoom) return
+      const save = saveSession.capture(canvasStore.getState().snapshot, viewport)
+      if (save) { lastCapturedViewport = viewport; submit(save) }
+    }
+    const onVisibilityChange = () => { if (document.visibilityState === 'hidden') flushLocalCamera() }
+    window.addEventListener('pagehide', flushLocalCamera)
+    document.addEventListener('visibilitychange', onVisibilityChange)
 
     const hydrate = async () => {
       try {
@@ -450,6 +484,8 @@ export default function App({
 
         if (disposed) return
         if (canvasDocument) saveSession!.acceptLoaded(canvasDocument)
+        lastCapturedViewport = project.viewport
+        camera.set(project.viewport, 'restore')
         canvasStore.getState().restore(JSON.stringify(project))
         if (!canvasDocument) saveActiveProjectId(project.projectId)
         setLoadedCanvasId(canvasId ?? null)
@@ -463,13 +499,18 @@ export default function App({
       if (disposed) return
       isHydrated = true
       setHydrated(true)
+      unsubscribeCamera = camera.subscribe(() => {
+        sharedSnapshotPending = collaborationControllerRef.current?.isLocalAutosaveSuppressed() ?? sharedSnapshotPending
+      })
       unsubscribe = canvasStore.subscribe((state, previous) => {
-        if (state.snapshot === previous.snapshot) return
+        if (state.snapshot === previous.snapshot || applyingAgentRemote) return
         const project = state.snapshot
         if (saveSession) {
-          const save = saveSession.capture(project)
           sharedSnapshotPending = collaborationControllerRef.current?.isLocalAutosaveSuppressed() ?? false
-          if (save && !sharedSnapshotPending) submit(save)
+          if (sharedSnapshotPending) return
+          if (project.viewport !== previous.snapshot.viewport) camera.set(project.viewport, 'restore')
+          const save = saveSession.capture(project, camera.getLocal())
+          if (save) { lastCapturedViewport = save.document.viewport; if (!agentSync?.isSynchronizing()) submit(save) }
           return
         }
         if (collaborationControllerRef.current?.isLocalAutosaveSuppressed()) return
@@ -482,17 +523,57 @@ export default function App({
             ),
           )
       })
+      if (canvasId && saveSession && workspaceRepository.synchronizeCanvas) {
+        agentSync = createAgentCanvasSync({
+          canvasId,
+          repository: workspaceRepository,
+          readLocal: () => ({ ...canvasStore.getState().snapshot, version: 3, canvasId, viewport: camera.getLocal() }),
+          isCollaborating: () => collaborationControllerRef.current?.isLocalAutosaveSuppressed() ?? false,
+          flushLocal: async () => {
+            flushLocalCamera()
+            while (pendingSaves.size) await Promise.all([...pendingSaves])
+          },
+          prepareCollaboration: async () => {
+            const controller = collaborationControllerRef.current
+            if (!controller) throw new Error('协作连接尚未就绪')
+            await controller.flushForAgent()
+            return (await new AgentRuntimeClient().canvasRevision(canvasId)).expectedRevision
+          },
+          applyRemote: document => {
+            if (disposed) return
+            saveSession.acceptRemote(document)
+            applyingAgentRemote = true
+            try {
+              canvasStore.getState().reconcileRemoteSnapshot({ ...document, version: 1 }, {
+                rebaseHistory: true,
+                onHistoryInvalidated: count => notify(`后台更新已同步，${count} 项会覆盖新内容的旧撤销记录已失效`, 'info'),
+              })
+            } finally { applyingAgentRemote = false }
+          },
+          onError: message => notify(message, 'error'),
+        })
+        beforeAgentRunRef.current = agentSync.beforeRun
+        agentSyncCanvasRef.current = canvasId
+        agentSync.start()
+      }
     }
 
     void hydrate()
 
     return () => {
+      const syncingAtClose = agentSync?.isSynchronizing()
+      agentSync?.stop()
+      if (beforeAgentRunRef.current === agentSync?.beforeRun) { beforeAgentRunRef.current = undefined; agentSyncCanvasRef.current = undefined }
       disposed = true
+      flushLocalCamera()
+      window.removeEventListener('pagehide', flushLocalCamera)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      unsubscribeCamera()
       unsubscribe()
       const pending = saveSession?.close()
       // The collaboration hook clears its controller before this cleanup runs.
       // Retain the captured snapshot's owner so shared changes stay on the Yjs path.
-      if (pending && !sharedSnapshotPending) submit(pending)
+      if (pending && !sharedSnapshotPending && !syncingAtClose) submit(pending)
       if (canvasId && isHydrated) {
         void thumbnailService.flush(canvasId)
       }
@@ -675,7 +756,7 @@ export default function App({
 
   const setCanvasZoom = (nextZoom: number) => {
     const state = canvasStore.getState()
-    const current = state.snapshot.viewport
+    const current = camera.getDisplay()
     const zoom = Math.min(8, Math.max(0.1, nextZoom))
     const center = getStageCenterPoint()
     const flowCenter = {
@@ -785,9 +866,9 @@ export default function App({
     }
 
     const commitNode = (mediaUrl = content ?? '') => {
-      const current = canvasStore.getState().snapshot
       const id = createLocalNodeId(kind)
-      const zoom = Math.max(current.viewport.zoom, 0.01)
+      const displayViewport = camera.getDisplay()
+      const zoom = Math.max(displayViewport.zoom, 0.01)
       const name = fileName || addNodeLabels[kind]
       let node: CanvasNode
       const size =
@@ -812,15 +893,15 @@ export default function App({
       const position = addNodePosition
         ? {
             x:
-              (addNodePosition.x - current.viewport.x) / zoom -
+              (addNodePosition.x - displayViewport.x) / zoom -
               size.width / 2,
             y:
-              (addNodePosition.y - current.viewport.y) / zoom -
+              (addNodePosition.y - displayViewport.y) / zoom -
               size.height / 2,
           }
         : {
-            x: (stageCenter.x - current.viewport.x) / zoom - size.width / 2,
-            y: (stageCenter.y - current.viewport.y) / zoom - size.height / 2,
+            x: (stageCenter.x - displayViewport.x) / zoom - size.width / 2,
+            y: (stageCenter.y - displayViewport.y) / zoom - size.height / 2,
           }
 
       if (
@@ -1137,7 +1218,7 @@ export default function App({
             title="工作区与画布"
             type="button"
           >
-            <LibTvLogo size={20} />
+            <LibTvLogo size={18} variant="outline" />
           </button>
           <div className="app-layer-sidebar__rail-divider" />
           <button
@@ -1246,6 +1327,7 @@ export default function App({
               testId="workspace-control-sidebar"
               workspaceName={projectName ?? '未命名工作区'}
             />
+            {preferences.layersOpen && onSyncStatusHost && <div className="canvas-save-status" ref={onSyncStatusHost} />}
             <button
               aria-label="收起图层"
               className="app-layer-sidebar__toggle-btn"
@@ -1278,7 +1360,7 @@ export default function App({
               }}
               onToggleHidden={(id) => canvasStore.getState().setNodeVisibility(id, Boolean(snapshot.nodes.find((node) => node.id === id)?.hidden))}
               onToggleLocked={(id) => canvasStore.getState().setNodeLocked(id, !snapshot.nodes.find((node) => node.id === id)?.locked)}
-              open
+              open={preferences.layersOpen}
               selectedIds={selectedNodeIds}
             />
           )}
@@ -1304,7 +1386,7 @@ export default function App({
               onInsertAsset={(asset) => {
                 if (readOnly) return
                 const state = canvasStore.getState()
-                const viewport = state.snapshot.viewport
+                const viewport = camera.getDisplay()
                 const zoom = Math.max(viewport.zoom, 0.01)
                 const stageCenter = getStageCenterPoint()
                 const centerPos = {
@@ -1344,6 +1426,7 @@ export default function App({
           {activeLeftTab === 'agent' && (
             <AgentSidebarPanel
               canvasId={canvasId}
+              onBeforeRun={prepareAgentRun}
               onNotify={notify}
               onOpenProviderDrawer={() => {
                 setProviderDrawerTab('agent')
@@ -1380,24 +1463,27 @@ export default function App({
       >
         {!preferences.layersOpen && (
           <>
-            <div className="canvas-top-left-pill" data-testid="canvas-top-left-pill">
-              <WorkspaceMenu
-                canvasName={snapshot.name}
-                collaborationRestricted={collaborationRestricted}
-                onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
-                testId="workspace-control-floating"
-                workspaceName={projectName ?? '未命名工作区'}
-              />
-              <div className="canvas-top-left-pill__divider" />
-              <button
-                aria-label="展开侧边栏"
-                className="canvas-floating-expand-btn"
-                onClick={() => persistPreferences({ layersOpen: true })}
-                title="展开侧边栏 (Ctrl+\)"
-                type="button"
-              >
-                <PanelLeftOpen size={14} />
-              </button>
+            <div className="canvas-top-left-controls">
+              <div className="canvas-top-left-pill" data-testid="canvas-top-left-pill">
+                <WorkspaceMenu
+                  canvasName={snapshot.name}
+                  collaborationRestricted={collaborationRestricted}
+                  onClick={() => setPopup((current) => current === 'workspace' ? null : 'workspace')}
+                  testId="workspace-control-floating"
+                  workspaceName={projectName ?? '未命名工作区'}
+                />
+                <div className="canvas-top-left-pill__divider" />
+                <button
+                  aria-label="展开侧边栏"
+                  className="canvas-floating-expand-btn"
+                  onClick={() => persistPreferences({ layersOpen: true })}
+                  title="展开侧边栏 (Ctrl+\)"
+                  type="button"
+                >
+                  <PanelLeftOpen size={14} />
+                </button>
+              </div>
+              {onSyncStatusHost && <div className="canvas-save-status" ref={onSyncStatusHost} />}
             </div>
 
             <div
@@ -1478,6 +1564,7 @@ export default function App({
       {hydrated ? (
         <>
         <CanvasWorkspace
+          camera={camera}
           activeTool={activeTool}
           onToolComplete={() => setActiveTool('select')}
           editingPathNodeId={editingPathNodeId}
@@ -1536,8 +1623,11 @@ export default function App({
         <div className="canvas-stage__loading" aria-busy="true" />
       )}
 
+      </section>
+      <div className="canvas-controls">
       <BottomStatusBar
         hideConnections={preferences.hideConnections}
+        historyOpen={historyOpen}
         onHistory={() => setHistoryOpen(true)}
         onFitCanvas={() => {
           setFitViewRequest((current) => current + 1)
@@ -1560,8 +1650,8 @@ export default function App({
         }
         onToggleSnap={() => persistPreferences({ smartSnap: !preferences.smartSnap })}
         onToggleGridSnap={() => persistPreferences({ snapToGrid: !preferences.snapToGrid })}
-        onZoomIn={() => setCanvasZoom(snapshot.viewport.zoom * 1.2)}
-        onZoomOut={() => setCanvasZoom(snapshot.viewport.zoom / 1.2)}
+        onZoomIn={() => setCanvasZoom(camera.getDisplay().zoom * 1.2)}
+        onZoomOut={() => setCanvasZoom(camera.getDisplay().zoom / 1.2)}
         onZoomTo={setCanvasZoom}
         showMiniMap={preferences.showMiniMap}
         snapToGrid={preferences.snapToGrid}
@@ -1577,7 +1667,7 @@ export default function App({
         }}
         open={layoutPreviewOpen}
       />
-      </section>
+      </div>
 
       <InspectorPanel
         collapsed={!preferences.layersOpen}

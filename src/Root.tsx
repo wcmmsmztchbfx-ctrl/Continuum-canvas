@@ -74,11 +74,13 @@ function CanvasRoute({
   navigate,
   repository,
   thumbnailService,
+  onSyncStatusHost,
 }: {
   location: BrowserLocationSnapshot
   navigate: (url: string, replace?: boolean) => void
   repository: WorkspaceRepository
   thumbnailService?: Pick<CanvasThumbnailService, 'schedule' | 'flush'>
+  onSyncStatusHost?: (host: HTMLDivElement | null) => void
 }) {
   const [manifest, setManifest] = useState<WorkspaceManifestV1 | null>(null)
   const [resolved, setResolved] = useState<ResolvedCanvasLocation | null>(null)
@@ -153,6 +155,7 @@ function CanvasRoute({
       projectName={project?.name ?? canvas?.name ?? '独立画布'}
       workspaceRepository={repository}
       thumbnailService={thumbnailService}
+      onSyncStatusHost={onSyncStatusHost}
     />
   )
 }
@@ -162,6 +165,8 @@ export default function ApplicationRoot({
   thumbnailService,
 }: ApplicationRootProps) {
   const [location, setLocation] = useState(currentLocation)
+  const [syncStatusHost, setSyncStatusHost] = useState<HTMLDivElement | null>(null)
+  const onSyncStatusHost = repository === defaultWorkspaceRepository ? setSyncStatusHost : undefined
   const navigate = useCallback((url: string, replace = false) => {
     if (replace) window.history.replaceState(null, '', url)
     else window.history.pushState(null, '', url)
@@ -194,6 +199,7 @@ export default function ApplicationRoot({
             navigate(buildCanvasRoute(canvas.projectId, canvas.canvasId))
           }
           repository={repository}
+          onSyncStatusHost={onSyncStatusHost}
         />
       )}
       {route.kind === 'canvas' && (
@@ -203,6 +209,7 @@ export default function ApplicationRoot({
             navigate={navigate}
             repository={repository}
             thumbnailService={thumbnailService}
+            onSyncStatusHost={onSyncStatusHost}
           />
         </Suspense>
       )}
@@ -210,7 +217,7 @@ export default function ApplicationRoot({
         <main aria-busy="true" className="workspace-home-loading">正在返回工作区</main>
       )}
       {repository === defaultWorkspaceRepository && (
-        <WorkspaceSyncStatus service={defaultWorkspaceBackend} />
+        <WorkspaceSyncStatus service={defaultWorkspaceBackend} host={syncStatusHost} />
       )}
       <FloatingCollaborationBadge
         activeCollab={activeCollab}

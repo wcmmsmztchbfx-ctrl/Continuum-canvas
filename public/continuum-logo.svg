@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="164 164 964 964" fill="none">
+  <defs>
+    <linearGradient id="canvas-blue" x1="196" y1="600" x2="978" y2="350" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0785fe"/>
+      <stop offset="1" stop-color="#06a4fe"/>
+    </linearGradient>
+    <linearGradient id="canvas-cyan" x1="400" y1="1050" x2="1097" y2="500" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#03e1f6"/>
+      <stop offset="1" stop-color="#03ecf1"/>
+    </linearGradient>
+    <radialGradient id="canvas-lime" cx="1104" cy="302" r="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0.32" stop-color="#b2fb3e"/>
+      <stop offset="0.6" stop-color="#3df3c3"/>
+      <stop offset="0.72" stop-color="#28f1d6" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#03ecf1" stop-opacity="0"/>
+    </radialGradient>
+    <path id="canvas-right" d="M946 338H1013C1061 338 1097 376 1097 425V965C1097 1035 1038 1092 968 1092H354C331 1092 320 1066 337 1049L602 801H806V494H767L922 348C928 342 937 338 946 338Z"/>
+  </defs>
+  <path fill="url(#canvas-blue)" d="M328 202H953C977 202 987 228 970 244L709 494H489V801H539L368 966H263C224 966 196 932 196 893V330C196 260 257 202 328 202Z"/>
+  <use href="#canvas-right" fill="url(#canvas-cyan)"/>
+  <use href="#canvas-right" fill="url(#canvas-lime)"/>
+</svg>

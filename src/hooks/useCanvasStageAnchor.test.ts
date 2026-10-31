@@ -3,6 +3,7 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { canvasStore } from '../store/canvas-store'
+import { createCanvasViewportRuntime } from '../components/canvas/canvasViewportRuntime'
 import { useCanvasStageAnchor } from './useCanvasStageAnchor'
 
 let resizeCallback: ResizeObserverCallback
@@ -43,6 +44,27 @@ afterEach(() => {
 })
 
 describe('useCanvasStageAnchor', () => {
+  it('does not restore a local layout viewport over an active followed camera', () => {
+    vi.useFakeTimers()
+    const camera = createCanvasViewportRuntime(canvasStore.getState().snapshot.viewport)
+    camera.set({ x: 1000, y: 900, zoom: 2 }, 'follow')
+    renderHook(() => useCanvasStageAnchor({ current: stage }, true, camera))
+    moveStage(200)
+    act(() => vi.advanceTimersByTime(200))
+    expect(canvasStore.getState().snapshot.viewport).toEqual({ x: 100, y: 80, zoom: .5 })
+    expect(camera.getDisplay()).toEqual({ x: 800, y: 900, zoom: 2 })
+    expect(camera.getLocal()).toEqual({ x: -100, y: 80, zoom: .5 })
+    vi.useRealTimers()
+  })
+
+  it('does not read layout on an unrelated component render', () => {
+    const ref = { current: stage }
+    const hook = renderHook(() => useCanvasStageAnchor(ref, true))
+    vi.mocked(stage.getBoundingClientRect).mockClear()
+    hook.rerender()
+    expect(stage.getBoundingClientRect).not.toHaveBeenCalled()
+  })
+
   it('compensates the actual stage origin in CSS pixels without changing zoom or undo history', () => {
     renderHook(() => useCanvasStageAnchor({ current: stage }, true))
     moveStage(288, 12, 872)

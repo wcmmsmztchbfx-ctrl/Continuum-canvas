@@ -28,7 +28,8 @@ export function WorkspaceMenu({
       >
         <LibTvLogo
           className="workspace-menu__mark"
-          size={17}
+          size={18}
+          variant="outline"
         />
         <span className="workspace-menu__title">{workspaceName}</span>
         {showCanvas ? <><span aria-hidden="true" className="workspace-menu__divider" /><span className="workspace-menu__canvas">{canvasName}</span></> : null}
@@ -50,7 +51,8 @@ export function WorkspaceMenu({
     >
       <LibTvLogo
         className="workspace-menu__mark"
-        size={17}
+        size={18}
+        variant="outline"
       />
       <span className="workspace-menu__title">{workspaceName}</span>
       {showCanvas ? <><span aria-hidden="true" className="workspace-menu__divider" /><span className="workspace-menu__canvas">{canvasName}</span></> : null}

@@ -4,6 +4,26 @@ import { referenceProjectSnapshot } from '../../fixtures/reference'
 import { mapProjectSnapshotToReactFlow } from './mapping'
 
 describe('mapProjectSnapshotToReactFlow', () => {
+  it('reuses content projection when only the camera changes', () => {
+    const before = mapProjectSnapshotToReactFlow(referenceProjectSnapshot)
+    const after = mapProjectSnapshotToReactFlow({ ...referenceProjectSnapshot, viewport: { x: 80, y: 40, zoom: 0.5 } })
+    expect(after.nodes).toBe(before.nodes)
+    expect(after.edges).toBe(before.edges)
+    expect(after.viewport).toEqual({ x: 80, y: 40, zoom: 0.5 })
+  })
+
+  it('reads identifiers linearly when projecting one thousand unconnected nodes', () => {
+    let reads = 0
+    const nodes = Array.from({ length: 1000 }, (_, i) => ({
+      get id() { reads++; return 'linear-' + i },
+      type: 'image' as const, name: 'Image', position: { x: i * 300, y: 0 },
+      size: { width: 200, height: 100 }, data: { url: '' },
+    }))
+    const mapped = mapProjectSnapshotToReactFlow({ ...referenceProjectSnapshot, nodes, edges: [] })
+    expect(mapped.nodes).toHaveLength(1000)
+    expect(reads).toBeLessThan(20_000)
+  })
+
   it('maps the complete reference fixture and its exact viewport', () => {
     const flow = mapProjectSnapshotToReactFlow(referenceProjectSnapshot)
 
@@ -31,7 +51,7 @@ describe('mapProjectSnapshotToReactFlow', () => {
         name: '图片节点 7',
         mediaType: 'image',
         url:
-          'https://libtv-res.liblib.art/sd-gen-save-img/genius_playground/image/99788e835d91411eabd6137fdea949ee/811245973_2ab7aa1ad8f647acbb06c92d7a992728.png',
+          'https://media.continuum.example/fixture-1.png',
       },
     })
     expect(video).toMatchObject({

@@ -178,6 +178,17 @@ export function attachCollaborationWebSocket(options: {
     perMessageDeflate: false,
   })
   const rooms = new Map<string, RoomConnections>()
+  const stopAgentLeaseReader = options.service.setAgentLeaseReader((roomId) => {
+    const ids = new Set<string>(); const now = Date.now()
+    for (const state of rooms.get(roomId)?.awareness.getStates().values() ?? []) {
+      const lease = state.lease
+      if (state.role === 'viewer' || !lease || typeof lease !== 'object' || !Array.isArray(lease.nodeIds) ||
+        typeof lease.expiresAt !== 'number' || lease.expiresAt <= now ||
+        typeof lease.heartbeatAt !== 'number' || Math.abs(now - lease.heartbeatAt) > 30_000) continue
+      for (const id of lease.nodeIds.slice(0, 100)) if (typeof id === 'string') ids.add(id)
+    }
+    return ids
+  })
   const stopPersistenceErrors = options.service.onPersistenceError((roomId) => {
     const room = rooms.get(roomId)
     if (!room) return
@@ -446,6 +457,7 @@ export function attachCollaborationWebSocket(options: {
       closing ??= Promise.resolve().then(() => {
         clearInterval(heartbeat)
         stopPersistenceErrors()
+        stopAgentLeaseReader()
         options.server.off('upgrade', onUpgrade)
         for (const room of rooms.values()) {
           for (const socket of room.sockets) socket.terminate()

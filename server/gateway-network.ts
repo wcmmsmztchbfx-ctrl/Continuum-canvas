@@ -96,11 +96,10 @@ export function isAllowedRemoteAddress(
   return isLoopbackRemoteAddress(address) || isPrivateLanRemoteAddress(address)
 }
 
-export function hasLoopbackBrowserOrigin(request: IncomingMessage): boolean {
-  const origin = request.headers.origin
-  if (typeof origin !== 'string') return false
+function isLocalBrowserUrl(value: string | string[] | undefined): boolean {
+  if (typeof value !== 'string') return false
   try {
-    const parsed = new URL(origin)
+    const parsed = new URL(value)
     return (
       (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
       !parsed.username && !parsed.password &&
@@ -109,6 +108,18 @@ export function hasLoopbackBrowserOrigin(request: IncomingMessage): boolean {
   } catch {
     return false
   }
+}
+
+export function hasLoopbackBrowserOrigin(request: IncomingMessage): boolean {
+  return isLocalBrowserUrl(request.headers.origin)
+}
+
+export function hasLocalBrowserReadReferer(request: IncomingMessage): boolean {
+  // Same-origin browser GET/HEAD fetches normally omit Origin. Use Referer only
+  // for reads; an explicit Origin always wins, including null/invalid origins.
+  // The caller still requires a loopback connection and a valid admin cookie.
+  return (request.method === 'GET' || request.method === 'HEAD') &&
+    request.headers.origin === undefined && isLocalBrowserUrl(request.headers.referer)
 }
 
 export function formatGatewayOrigin(host: string, port: number): string {

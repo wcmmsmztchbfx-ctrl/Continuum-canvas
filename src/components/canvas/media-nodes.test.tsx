@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import type { NodeProps } from '@xyflow/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
 import { EmptyMediaPlaceholder } from './EmptyMediaPlaceholder'
 import { GroupNode } from './GroupNode'
@@ -10,6 +10,9 @@ import { ImageNode } from './ImageNode'
 import type { CanvasFlowNode, CanvasFlowNodeData } from './mapping'
 import { SpecialNode } from './SpecialNode'
 import { VideoNode } from './VideoNode'
+
+import { preloadNodeGeneratorPanel } from './lazyPanels'
+beforeAll(async () => { await preloadNodeGeneratorPanel() })
 
 function nodeProps(
   type: 'image' | 'video',

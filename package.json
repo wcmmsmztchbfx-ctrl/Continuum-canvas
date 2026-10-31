@@ -28,7 +28,8 @@
     "test:e2e:update-visual": "playwright test tests/e2e/visual --update-snapshots",
     "test:nightly": "npm run test:e2e:nightly && npm run test:e2e:visual",
     "test:all": "npm run lint && npm test && npm run test:server && npm run test:performance && npm run test:e2e:smoke",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:performance:browser": "playwright test -c playwright.performance.config.ts"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.3",
@@ -38,6 +39,7 @@
     "lucide-react": "^1.24.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "sharp": "0.35.5",
     "ws": "^8.21.1",
     "y-indexeddb": "^9.0.12",
     "y-protocols": "^1.0.7",

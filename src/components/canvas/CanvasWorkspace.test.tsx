@@ -203,6 +203,17 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('CanvasWorkspace', () => {
+  it('does not build reference candidate arrays for closed generators', () => {
+    const store = createCanvasStore(referenceProjectSnapshot)
+    render(<CanvasWorkspace store={store} />)
+    expect(flowNodes().every(node => !node.data.referenceCandidates?.length)).toBe(true)
+    const image = store.getState().snapshot.nodes.find(node => node.type === 'image')!
+    act(() => store.getState().selectNode(image.id))
+    act(() => flowProps().onNodeClick?.({ stopPropagation() {} } as never, flowNodes().find(node => node.id === image.id)!))
+    expect(flowNodes().find(node => node.id === image.id)!.data.referenceCandidates!.length).toBeGreaterThan(0)
+    expect(flowNodes().filter(node => node.id !== image.id).every(node => !node.data.referenceCandidates?.length)).toBe(true)
+  })
+
   it('owns persistent React Flow nodes and edges through controlled props', () => {
     const store = createCanvasStore(referenceProjectSnapshot)
     render(<CanvasWorkspace store={store} />)
@@ -678,6 +689,27 @@ describe('CanvasWorkspace', () => {
     expect(view.queryByTestId('canvas-minimap')).toBeNull()
   })
 
+  it('synchronizes edge selection and individual deselection without changing the document', () => {
+    const store = createCanvasStore(referenceProjectSnapshot)
+    render(<CanvasWorkspace store={store} />)
+    const [first, second] = referenceProjectSnapshot.edges
+    const snapshot = store.getState().snapshot
+
+    expect(flowProps().onEdgesChange).toBeTypeOf('function')
+    act(() => flowProps().onEdgesChange?.([
+      { type: 'select', id: first!.id, selected: true },
+      { type: 'select', id: second!.id, selected: true },
+    ]))
+    expect(store.getState().selectedEdgeIds).toEqual([first!.id, second!.id])
+    act(() => flowProps().onEdgesChange?.([{ type: 'select', id: first!.id, selected: false }]))
+    expect(store.getState().selectedEdgeIds).toEqual([second!.id])
+    expect(flowEdges().find(edge => edge.id === first!.id)?.selected).toBe(false)
+    expect(flowEdges().find(edge => edge.id === second!.id)?.selected).toBe(true)
+    act(() => flowProps().onEdgesChange?.([{ type: 'select', id: second!.id, selected: false }]))
+    expect(store.getState().selectedEdgeIds).toEqual([])
+    expect(store.getState().snapshot).toBe(snapshot)
+  })
+
   it('activates only edges incident to a selected node', () => {
     const store = createCanvasStore(referenceProjectSnapshot)
     render(<CanvasWorkspace store={store} />)
@@ -1140,6 +1172,20 @@ describe('CanvasWorkspace', () => {
       .toEqual(nextPosition)
     expect(store.getState().snapshot).toBe(baselineSnapshot)
     expect(store.getState().canUndo).toBe(false)
+  })
+
+  it('does not copy passive measurements into every later drag projection', () => {
+    const store = createCanvasStore(referenceProjectSnapshot)
+    render(<CanvasWorkspace store={store} />)
+    const before = [...flowNodes()]
+    act(() => flowProps().onNodesChange?.(before.map(node => ({
+      id: node.id, type: 'dimensions' as const, dimensions: { width: node.width!, height: node.height! },
+    }))))
+    expect(flowNodes()[1].measured).toEqual({ width: before[1].width, height: before[1].height })
+    const measured = [...flowNodes()]
+    act(() => flowProps().onNodesChange?.([{ id: before[0].id, type: 'position', position: { x: 30, y: 40 }, dragging: true }]))
+    expect(flowNodes()[1]).toBe(measured[1])
+    expect(flowNodes()[0].position).toEqual({ x: 30, y: 40 })
   })
 
   it('projects measured dimensions locally without persisting resize observations', () => {
@@ -1838,6 +1884,9 @@ describe('CanvasWorkspace', () => {
     const store = createCanvasStore(referenceProjectSnapshot)
     const view = render(<CanvasWorkspace store={store} />)
     const workspace = view.getByTestId('canvas-workspace')
+    const generator = document.createElement('div')
+    generator.className = 'canvas-node-generator'
+    workspace.append(generator)
     const renderCountBeforeMove = reactFlowMock.renderCount
     const initialViewport = store.getState().snapshot.viewport
     const viewports = Array.from({ length: 80 }, (_, index) => ({
@@ -1860,9 +1909,8 @@ describe('CanvasWorkspace', () => {
     await act(async () => {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     })
-    expect(workspace.style.getPropertyValue('--canvas-ui-scale')).toBe(
-      String(1 / nextViewport.zoom),
-    )
+    expect(workspace.style.getPropertyValue('--canvas-ui-scale')).toBe('')
+    expect(generator.style.getPropertyValue('--canvas-ui-scale')).toBe(String(1 / nextViewport.zoom))
 
     act(() => flowProps().onMoveEnd?.({} as never, nextViewport))
     expect(store.getState().snapshot.viewport).toEqual(nextViewport)

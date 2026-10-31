@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { referenceProjectSnapshot } from './reference'
 
 describe('reference project fixture', () => {
-  it('normalizes the structured LibTV canvas into snapshot v1', () => {
+  it('provides an anonymous canvas fixture in snapshot v1', () => {
     expect(referenceProjectSnapshot).toMatchObject({
       version: 1,
-      projectId: '9f4cca3a4e36451b900e0d5741199db8',
+      projectId: 'fixture-project',
       name: '画布 1',
       viewport: {
         x: 1.442118522171313,
@@ -18,7 +18,7 @@ describe('reference project fixture', () => {
     expect(referenceProjectSnapshot.edges).toHaveLength(27)
   })
 
-  it('keeps the source node distribution and remote media references', () => {
+  it('keeps the node distribution with anonymous media references', () => {
     const imageNodes = referenceProjectSnapshot.nodes.filter(
       (node) => node.type === 'image',
     )
@@ -34,6 +34,7 @@ describe('reference project fixture', () => {
         true,
       )
       expect(node.data.url).not.toMatch(/^data:/)
+      if (node.data.url) expect(new URL(node.data.url).hostname).toBe('media.continuum.example')
       expect(node.data).not.toHaveProperty('localPath')
     }
   })

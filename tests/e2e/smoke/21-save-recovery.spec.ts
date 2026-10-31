@@ -3,7 +3,7 @@ import type { CanvasSnapshotV2 } from '../../../src/model/project'
 import type { CanvasDocumentResponse, WorkspaceManifestResponse, WorkspaceMutation, WorkspaceMutationReceipt } from '../../../src/workspace/persistenceProtocol'
 import { expect, test } from '../../fixtures/e2e-env'
 
-const syncStatus = (page: Page) => page.getByRole('complementary', { name: '工作区保存状态' })
+const syncStatus = (page: Page) => page.getByTestId('workspace-sync-status')
 const textContents = (canvas: CanvasSnapshotV2) => canvas.nodes.flatMap((node) => node.type === 'text' ? [node.data.text] : [])
 
 async function serverCanvas(request: APIRequestContext, canvasId: string): Promise<CanvasDocumentResponse> {
@@ -44,10 +44,64 @@ async function editText(page: Page, text: string) {
 async function expectSavedText(page: Page, request: APIRequestContext, canvasId: string, text: string) {
   await expect.poll(async () => textContents((await serverCanvas(request, canvasId)).canvas)).toEqual([text])
   await expect(syncStatus(page)).toHaveAttribute('data-phase', 'synced')
+  await expect(syncStatus(page)).toBeHidden()
 }
 
 test.describe('21 - Save recovery', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
+
+  for (const width of [1440, 390]) {
+    test(`${width}px save indicator stays compact beside the title and persists until recovery`, async ({ page, request }) => {
+      const canvasId = await createEmptyCanvas(page)
+      await addText(page, '保存指示器测试')
+      await expectSavedText(page, request, canvasId, '保存指示器测试')
+      let release!: () => void
+      const hold = new Promise<void>((resolve) => { release = resolve })
+      let fail = true
+      await page.route('**/api/workspace/commit', async (route) => {
+        await hold
+        if (fail) await route.abort('internetdisconnected')
+        else await route.continue()
+      })
+      await editText(page, '延迟保存后恢复的文本')
+      const status = syncStatus(page)
+      await expect(status).toBeVisible()
+      await expect(status).toHaveText('保存中')
+      await page.setViewportSize({ width, height: 900 })
+      const bounds = (await status.boundingBox())!
+      const title = (await page.getByTestId('canvas-top-left-pill').boundingBox())!
+      expect(bounds.width).toBeLessThan(65)
+      expect(bounds.height).toBeLessThanOrEqual(24)
+      expect(bounds.x).toBeGreaterThanOrEqual(title.x + title.width)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
+      expect(Math.abs(bounds.y + bounds.height / 2 - title.y - title.height / 2)).toBeLessThan(2)
+      expect(await status.evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+      }), 'save indicator must not be covered by the right toolbar').toBe(true)
+      await page.screenshot({ path: test.info().outputPath('saving.png') })
+      release()
+      await expect(status).toHaveAttribute('data-phase', 'pending')
+      await expect(status).toHaveText('待同步')
+      await page.getByRole('button', { name: '展开侧边栏', exact: true }).click()
+      await expect(status).toBeVisible()
+      await page.getByRole('button', { name: '查看保存详情' }).click()
+      const details = page.getByRole('dialog', { name: '保存详情' })
+      await expect(details).toHaveText(/已保存到本地，等待同步/)
+      const popup = (await details.boundingBox())!
+      expect(popup.x).toBeGreaterThanOrEqual(0)
+      expect(popup.x + popup.width).toBeLessThanOrEqual(width)
+      await page.screenshot({ path: test.info().outputPath('pending-details.png') })
+      await page.keyboard.press('Escape')
+      await expect(details).toBeHidden()
+      await expect(status).toBeVisible()
+      await page.getByRole('button', { name: '查看保存详情' }).click()
+      fail = false
+      await details.getByRole('button', { name: '重试同步' }).click()
+      await expectSavedText(page, request, canvasId, '延迟保存后恢复的文本')
+      await expect(details).toBeHidden()
+    })
+  }
 
   test('failed loading cannot edit or save a canvas when returning home', async ({ page }) => {
     const canvasId = 'e2e-reference-canvas'
@@ -113,7 +167,8 @@ test.describe('21 - Save recovery', () => {
     expect((await serverCanvas(request, canvasId)).revision).toBe(before.revision)
 
     offline = false
-    await syncStatus(page).getByRole('button', { name: '重试同步' }).click()
+    await page.getByRole('button', { name: '查看保存详情' }).click()
+    await page.getByRole('dialog', { name: '保存详情' }).getByRole('button', { name: '重试同步' }).click()
     await expectSavedText(page, request, canvasId, '离线刷新后仍保留的文本')
     await page.reload()
     await expect(page.locator('.canvas-text-node__preview')).toHaveText('离线刷新后仍保留的文本')
@@ -153,7 +208,8 @@ test.describe('21 - Save recovery', () => {
     expect(accepted).toBeDefined()
     expect(accepted!.canvasRevisions[canvasId]).toBe(before.revision + 1)
     expect(textContents((await serverCanvas(request, canvasId)).canvas)).toEqual(['响应丢失后的文本'])
-    await syncStatus(page).getByRole('button', { name: '重试同步' }).click()
+    await page.getByRole('button', { name: '查看保存详情' }).click()
+    await page.getByRole('dialog', { name: '保存详情' }).getByRole('button', { name: '重试同步' }).click()
     allowRetry = true
     await expect(syncStatus(page)).toHaveAttribute('data-phase', 'synced', { timeout: 10_000 })
     expect(attempts.length).toBeGreaterThanOrEqual(2)
@@ -178,7 +234,8 @@ test.describe('21 - Save recovery', () => {
     await expect(syncStatus(peer)).toHaveAttribute('data-phase', 'conflict')
     await expect(peer.locator('.canvas-text-node__preview')).toHaveText('第二个窗口的本地冲突文本')
     expect(textContents((await serverCanvas(request, canvasId)).canvas)).toEqual(['第一个窗口的已保存文本'])
-    await syncStatus(peer).getByRole('button', { name: '保留为副本' }).click()
+    await peer.getByRole('button', { name: '查看保存详情' }).click()
+    await peer.getByRole('dialog', { name: '保存详情' }).getByRole('button', { name: '保留为副本' }).click()
     await expect(peer.locator('.canvas-text-node__preview')).toHaveText('第一个窗口的已保存文本')
 
     const manifestResponse = await request.get('/api/workspace/manifest')

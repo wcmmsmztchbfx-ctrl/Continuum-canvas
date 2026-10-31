@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { WorkspaceSyncQueue } from './workspaceSyncQueue'
-import { emptyWorkspaceSyncRecord, type WorkspaceSyncStorageBackend } from './workspaceSyncState'
+import { emptyWorkspaceSyncRecord, type WorkspaceSyncState, type WorkspaceSyncStorageBackend } from './workspaceSyncState'
 import type { WorkspaceMutation, WorkspaceMutationReceipt } from '../workspace/persistenceProtocol'
 import type { WorkspaceManifestV1 } from '../workspace/model'
 
@@ -31,6 +31,32 @@ function storage() {
 }
 
 describe('durable workspace sync queue', () => {
+  it.each([false, true])('keeps saving while later edits queue, then reports the actual outcome: fails=%s', async (fails) => {
+    const backend = storage()
+    let release!: () => void, started!: () => void
+    const hold = new Promise<void>((resolve) => { release = resolve })
+    const sending = new Promise<void>((resolve) => { started = resolve })
+    const states: WorkspaceSyncState[] = []
+    const queue = new WorkspaceSyncQueue(backend, async (input) => {
+      started()
+      await hold
+      if (fails) throw new Error('offline')
+      return receipt(input.operationId)
+    }, (state) => states.push(state))
+    await queue.enqueue({ manifest }, mutation())
+    const draining = queue.drain()
+    await sending
+    await queue.enqueue({ manifest }, mutation('operation-2'))
+    await queue.refresh()
+    const duringSend = states.at(-1)
+    release()
+    if (fails) await expect(draining).rejects.toThrow('offline')
+    else await draining
+    expect(duringSend).toEqual({ phase: 'saving', pendingCount: 2 })
+    expect(states.at(-1)?.phase).toBe(fails ? 'pending' : 'synced')
+    expect((await backend.readSyncRecord()).pending).toHaveLength(fails ? 2 : 0)
+  })
+
   it('drains a newly queued operation before confirming a caller that joined an idle drain', async () => {
     const backend = storage()
     const read = backend.readSyncRecord

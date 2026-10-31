@@ -47,6 +47,58 @@ async function closeSidebars(page: Page) {
 }
 
 test.describe("19 - Flex stage layout and screen anchors", () => {
+  test("sidebar transitions keep the rendered node steady on every frame", async ({ page }) => {
+    await openCanvas(page)
+    const origin = await box(page.locator(anchorSelector))
+    for (const label of ['展开侧边栏', '收起图层']) {
+      await page.evaluate((selector) => {
+        const samples: Array<{ x: number; y: number }> = []
+        const sample = () => {
+          const rect = document.querySelector(selector)!.getBoundingClientRect()
+          samples.push({ x: rect.x, y: rect.y })
+          if (samples.length < 40) requestAnimationFrame(sample)
+        }
+        ;(window as unknown as { sidebarFrames: typeof samples }).sidebarFrames = samples
+        requestAnimationFrame(sample)
+      }, anchorSelector)
+      await page.getByRole('button', { name: label, exact: true }).click()
+      await expect.poll(() => page.evaluate(() => (window as unknown as { sidebarFrames: unknown[] }).sidebarFrames.length)).toBe(40)
+      const samples = await page.evaluate(() => (window as unknown as { sidebarFrames: Array<{ x: number; y: number }> }).sidebarFrames)
+      expect(Math.max(...samples.map(point => Math.abs(point.x - origin.x))), `${label}: maximum frame X drift`).toBeLessThanOrEqual(1)
+      expect(Math.max(...samples.map(point => Math.abs(point.y - origin.y))), `${label}: maximum frame Y drift`).toBeLessThanOrEqual(1)
+    }
+  })
+
+  for (const width of [900, 780, 390]) {
+  test(`${width}px bottom controls remain inside the visible stage and clickable with both sidebars open`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await openCanvas(page)
+    await openSidebars(page)
+    const stage = await box(page.locator('.canvas-stage'))
+    const controls = page.getByTestId('bottom-status-bar')
+    const bounds = await box(controls)
+    expect(bounds.x).toBeGreaterThanOrEqual(stage.x)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(stage.x + stage.width)
+    for (const label of ['历史记录', '整理画布，Alt+Shift+F', '切换小地图', '隐藏节点连线', '智能吸附', '缩放选项']) {
+      await controls.getByRole('button', { name: label, exact: true }).click({ trial: true })
+    }
+    await controls.getByRole('button', { name: '缩放选项', exact: true }).click()
+    await page.getByRole('menuitem', { name: '缩放至100%', exact: true }).click()
+    await expect(controls.getByRole('button', { name: '缩放选项' })).toContainText('100%')
+    await page.screenshot({ path: test.info().outputPath('controls-open.png') })
+  })
+  }
+
+  test("a saved workspace hides its status with either sidebar layout", async ({ page }) => {
+    await openCanvas(page)
+    const status = page.getByTestId('workspace-sync-status')
+    await expect(status).toHaveAttribute('data-phase', 'synced')
+    await expect(status).toBeHidden()
+    await openSidebars(page)
+    await expect(status).toBeHidden()
+    await expect(page.getByTestId('workspace-control-sidebar')).toBeVisible()
+  })
+
   for (const width of [1440, 900]) {
     test(`${width}px desktop toggles and continuously resizes both sidebars without moving existing nodes`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 })

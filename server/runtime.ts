@@ -14,6 +14,7 @@ import { DataDirectoryLock } from './data-directory-lock.ts'
 import {
   GenerationJobStore,
   GenerationRunner,
+  GenerationDispatchDeferredError,
   type GenerationJobCollaborationContext,
 } from './jobs.ts'
 import { GenerationHistoryStore } from './generation-history.ts'
@@ -47,6 +48,8 @@ import { WorkspaceService } from './workspace-service.ts'
 import { TunnelService } from './tunnel-service.ts'
 import { CanvasPersistenceService } from './canvas-storage.ts'
 import { AgentConfigStore } from './agent-config-store.ts'
+import { CanvasAgentService } from './agent/service.ts'
+import type { AgentModel } from './agent/model.ts'
 
 export type AdapterFactory = (provider: ProviderMetadata, apiKey: string) => ProviderAdapter
 
@@ -212,6 +215,7 @@ export interface GatewayRuntime {
   readonly canvases: CanvasPersistenceService
   readonly tunnel: TunnelService
   readonly agentConfig: AgentConfigStore
+  readonly agent: CanvasAgentService
   trackOperation<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
   adapterFor(providerId: string): ProviderAdapter
   updateProvider(record: ProviderRecord): Promise<ProviderMetadata>
@@ -242,6 +246,7 @@ export async function createGatewayRuntime(options: {
   dohEndpoint?: string
   log?: (entry: { event: string; message: string }) => void
   collaborationOptions?: Omit<CollaborationServiceOptions, 'dataDir'>
+  agentModel?: AgentModel
 } = {}): Promise<GatewayRuntime> {
   const loaded = await loadGatewayEnvironment(options)
   const rootDir = loaded.rootDir
@@ -258,6 +263,7 @@ export async function createGatewayRuntime(options: {
   const abortController = new AbortController()
   let runner: GenerationRunner | undefined
   let collaboration: CollaborationService | undefined
+  let agent: CanvasAgentService | undefined
   try {
     const providers = await ProviderRegistry.open({ dataDir, env, envFile })
     const catalogs = await CatalogCache.open({ dataDir })
@@ -289,6 +295,8 @@ export async function createGatewayRuntime(options: {
     const tunnel = await TunnelService.open({ dataDir })
     const agentConfig = await AgentConfigStore.open({ dataDir, env: options.env ?? process.env, envFile })
     const writeCollaborativeJob = (job: import('../src/contracts/generation.ts').GenerationJob) => {
+      // Agent callbacks and restart replay always use the Agent's guarded path.
+      if (job.clientRequestId.startsWith('agent-')) return
       if (!job.roomId) return
       try {
         activeCollaboration.applyGenerationJobUpdate(job)
@@ -362,6 +370,14 @@ export async function createGatewayRuntime(options: {
       },
       signal: abortController.signal,
       maxRunTimeMs: generationMaxRunTimeMs,
+      dispatchCreate: async (job, prepare, start) => {
+        if (job.clientRequestId.startsWith('agent-')) {
+          if (!agent) throw new GenerationDispatchDeferredError('Agent scheduler is unavailable')
+          return agent.dispatchGeneration(job, prepare, start)
+        }
+        await prepare()
+        return start()
+      },
       log: options.log,
     })
 
@@ -380,6 +396,7 @@ export async function createGatewayRuntime(options: {
       canvases,
       tunnel,
       agentConfig,
+      get agent() { return agent! },
       trackOperation,
       adapterFor,
       async updateProvider(record) {
@@ -450,6 +467,7 @@ export async function createGatewayRuntime(options: {
           closing ??= (async () => {
             isClosing = true
             abortController.abort(new DOMException('Gateway runtime is closing', 'AbortError'))
+            await agent?.close()
             await Promise.allSettled([...activeOperations])
             unsubscribeJobChanges()
             let failure: unknown
@@ -481,9 +499,11 @@ export async function createGatewayRuntime(options: {
     }
 
     await runner.resume()
+    agent = await CanvasAgentService.open(runtime, options.agentModel)
     return runtime
   } catch (error) {
     abortController.abort(new DOMException('Gateway runtime startup failed', 'AbortError'))
+    await agent?.close().catch(() => {})
     await collaboration?.close().catch(() => {})
     if (runner) await runner.close().catch(() => {})
     else await lock.release().catch(() => {})

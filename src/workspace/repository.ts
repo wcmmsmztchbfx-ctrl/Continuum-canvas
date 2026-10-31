@@ -17,6 +17,7 @@ import {
 } from './model'
 import { createBrowserUuid } from '../utils/id'
 import { WorkspaceMutationQueue } from '../persistence/workspaceMutationQueue'
+import type { CanvasMergeConflict, CanvasMergeResult } from '../model/canvasMerge'
 import type {
   StoredCanvasDocument,
   WorkspaceCanvas,
@@ -27,6 +28,7 @@ import type {
 } from './model'
 
 export type { StoredCanvasDocument, WorkspaceCommit }
+export interface CanvasSynchronizationResult extends CanvasMergeResult { revision: number }
 
 export interface WorkspaceInitialization {
   manifest: string
@@ -43,6 +45,8 @@ export interface WorkspaceStorageBackend {
   saveCanvas?(snapshot: CanvasSnapshotV2, manifest?: string): Promise<void>
   // Resolve after durable local staging; the returned operation waits for server confirmation.
   stageCanvasSave?(snapshot: CanvasSnapshotV2): Promise<() => Promise<void>>
+  synchronizeCanvas?(snapshot: CanvasSnapshotV2, options?: { conflicts?: CanvasMergeConflict[] }): Promise<CanvasSynchronizationResult>
+  confirmedCanvasRevision?(canvasId: string): Promise<number>
 }
 
 export interface WorkspaceRepositoryOptions {
@@ -72,6 +76,8 @@ export interface WorkspaceRepository {
   loadCanvas(canvasId: string, options?: { requireRemote?: boolean }): Promise<CanvasSnapshotV2 | undefined>
   ensureInvitedCanvas?(projectId: string, canvasId: string): Promise<void>
   saveCanvas(snapshot: CanvasSnapshotV2): Promise<void>
+  synchronizeCanvas?(snapshot: CanvasSnapshotV2, options?: { conflicts?: CanvasMergeConflict[] }): Promise<CanvasSynchronizationResult>
+  confirmedCanvasRevision?(canvasId: string): Promise<number>
   createProject(name: string, position?: Point): Promise<WorkspaceProject>
   createCanvas(name: string, options?: CreateCanvasOptions): Promise<WorkspaceCanvas>
   renameProject(projectId: string, name: string): Promise<WorkspaceProject>
@@ -239,7 +245,7 @@ export function createWorkspaceRepository(
     if (project.deletedAt) throw new Error('不能使用回收站中的项目')
   }
 
-  const operations: Required<WorkspaceRepository> = {
+  const operations: Required<Omit<WorkspaceRepository, 'synchronizeCanvas' | 'confirmedCanvasRevision'>> = {
     getManifest: readManifest,
 
     loadCanvas: readCanvas,
@@ -739,6 +745,8 @@ export function createWorkspaceRepository(
   // Queue whole read/modify/commit operations. Internal helpers stay unqueued
   // so a mutation can read its inputs without waiting on its own completion.
   return {
+    ...(backend.synchronizeCanvas ? { synchronizeCanvas: queued(backend.synchronizeCanvas) } : {}),
+    ...(backend.confirmedCanvasRevision ? { confirmedCanvasRevision: queued(backend.confirmedCanvasRevision) } : {}),
     getManifest: queued(operations.getManifest),
     loadCanvas: queued(operations.loadCanvas),
     ensureInvitedCanvas: queued(operations.ensureInvitedCanvas),

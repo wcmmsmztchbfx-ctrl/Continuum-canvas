@@ -1,194 +1,163 @@
+import { canvasDiagnostics } from '../performance/canvasDiagnostics'
 export type LoadPriority = 'high' | 'normal' | 'low'
-
-interface QueueItem {
-  id: string
-  url: string
-  priority: LoadPriority
-  resolve: (value: boolean) => void
-  abortController?: AbortController
-  isCancelled: boolean
+export type MediaTaskKind = 'image' | 'decode' | 'poster' | 'encode'
+export type MediaTaskResult<T> = { status: 'ready'; value: T } | { status: 'cancelled' | 'failed' | 'timeout' }
+export interface MediaTaskSubscription<T> {
+  result: Promise<MediaTaskResult<T>>
+  cancel(): void
+  setPriority(priority: LoadPriority): void
 }
-
-const MAX_CONCURRENT_LOADS = 6
-let activeLoads = 0
-const queue: QueueItem[] = []
-const loadedCache = new Set<string>()
-const inFlightMap = new Map<string, Promise<boolean>>()
-
-const PRIORITY_ORDER: Record<LoadPriority, number> = {
-  high: 1,
-  normal: 2,
-  low: 3,
+interface TaskSubscriber { priority: LoadPriority; settle(result: MediaTaskResult<unknown>): void }
+interface MediaTask {
+  key: string; kind: MediaTaskKind; timeoutMs: number
+  run(signal: AbortSignal): Promise<unknown>
+  subscribers: Map<symbol, TaskSubscriber>
+  state: 'queued' | 'running' | 'finished'
+  controller: AbortController
+  timer?: ReturnType<typeof setTimeout>
+  slotReleased?: boolean
 }
-
-function processQueue() {
-  if (activeLoads >= MAX_CONCURRENT_LOADS || queue.length === 0) {
-    return
-  }
-
-  // Sort queue by priority: high -> normal -> low
-  queue.sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority])
-
-  while (activeLoads < MAX_CONCURRENT_LOADS && queue.length > 0) {
-    const item = queue.shift()
-    if (!item) break
-
-    if (item.isCancelled) {
-      item.resolve(false)
-      continue
+const limits: Record<MediaTaskKind, number> = { image: 6, decode: 2, poster: 1, encode: 1 }
+const active: Record<MediaTaskKind, number> = { image: 0, decode: 0, poster: 0, encode: 0 }
+const order: Record<LoadPriority, number> = { high: 0, normal: 1, low: 2 }
+const tasks = new Map<string, MediaTask>()
+const loadedCache = new Map<string, number>()
+let pumping = false
+function priority(task: MediaTask): number {
+  let value = 2
+  for (const subscriber of task.subscribers.values()) value = Math.min(value, order[subscriber.priority])
+  return value
+}
+function releaseSlot(task: MediaTask): void {
+  if (task.slotReleased || task.state === 'queued') return
+  task.slotReleased = true
+  active[task.kind]--
+  void Promise.resolve().then(pump)
+}
+function finish(task: MediaTask, result: MediaTaskResult<unknown>): void {
+  if (task.state === 'finished') return
+  const wasRunning = task.state === 'running'
+  task.state = 'finished'
+  canvasDiagnostics.increment('tasks.' + result.status + '.' + task.kind)
+  clearTimeout(task.timer)
+  if (tasks.get(task.key) === task) tasks.delete(task.key)
+  if (wasRunning && task.kind !== 'decode' && task.kind !== 'encode') releaseSlot(task)
+  if (result.status !== 'ready') task.controller.abort()
+  for (const subscriber of task.subscribers.values()) subscriber.settle(result)
+  task.subscribers.clear()
+  void Promise.resolve().then(pump)
+}
+function pump(): void {
+  if (pumping) return
+  pumping = true
+  try {
+    const queued = [...tasks.values()].filter(task => task.state === 'queued').sort((a, b) => priority(a) - priority(b))
+    for (const task of queued) {
+      if (active[task.kind] >= limits[task.kind] || task.state !== 'queued') continue
+      task.state = 'running'
+      active[task.kind]++
+      canvasDiagnostics.increment('tasks.started.' + task.kind)
+      task.timer = setTimeout(() => finish(task, { status: 'timeout' }), task.timeoutMs)
+      try {
+        void task.run(task.controller.signal).then(
+          value => finish(task, { status: 'ready', value }),
+          () => finish(task, { status: 'failed' }),
+        ).finally(() => releaseSlot(task))
+      } catch { finish(task, { status: 'failed' }); releaseSlot(task) }
     }
-
-    if (loadedCache.has(item.url)) {
-      item.resolve(true)
-      continue
-    }
-
-    activeLoads++
-    const controller = new AbortController()
-    item.abortController = controller
-
-    performImageLoad(item.url, controller.signal)
-      .then((success) => {
-        if (success) loadedCache.add(item.url)
-        item.resolve(success)
-      })
-      .catch(() => {
-        item.resolve(false)
-      })
-      .finally(() => {
-        activeLoads--
-        // Use requestAnimationFrame or microtask to smoothly process next batch
-        if (typeof window !== 'undefined' && 'requestAnimationFrame' in window && import.meta.env?.MODE !== 'test') {
-          window.requestAnimationFrame(processQueue)
-        } else {
-          setTimeout(processQueue, 0)
-        }
-      })
+  } finally { pumping = false }
+}
+/** Consumers own subscriptions, never a shared operation's abort controller. */
+export function requestMediaTask<T>(input: {
+  key: string; kind: MediaTaskKind; priority: LoadPriority; timeoutMs: number
+  run(signal: AbortSignal): Promise<T>
+}): MediaTaskSubscription<T> {
+  const key = input.kind + ':' + input.key
+  let task = tasks.get(key)
+  if (!task) {
+    task = { ...input, key, subscribers: new Map(), state: 'queued', controller: new AbortController() }
+    tasks.set(key, task)
+  }
+  const ownedTask = task
+  const id = Symbol(key)
+  const result = new Promise<MediaTaskResult<T>>(resolve => {
+    ownedTask.subscribers.set(id, { priority: input.priority, settle: value => resolve(value as MediaTaskResult<T>) })
+  })
+  pump()
+  return {
+    result,
+    cancel() {
+      const subscriber = ownedTask.subscribers.get(id)
+      if (!subscriber) return
+      ownedTask.subscribers.delete(id)
+      subscriber.settle({ status: 'cancelled' })
+      if (ownedTask.subscribers.size === 0) finish(ownedTask, { status: 'cancelled' })
+    },
+    setPriority(next) {
+      const subscriber = ownedTask.subscribers.get(id)
+      if (subscriber) subscriber.priority = next
+      pump()
+    },
   }
 }
-
-function performImageLoad(url: string, signal?: AbortSignal): Promise<boolean> {
-  if (typeof window === 'undefined' || typeof Image === 'undefined') {
-    return Promise.resolve(true)
-  }
-
-  if (signal?.aborted) {
-    return Promise.resolve(false)
-  }
-
-  if (inFlightMap.has(url)) {
-    return inFlightMap.get(url)!
-  }
-
-  const promise = new Promise<boolean>((resolve) => {
+function performImageLoad(url: string, signal: AbortSignal): Promise<boolean> {
+  if (typeof Image === 'undefined') return Promise.resolve(true)
+  return new Promise(resolve => {
     const img = new Image()
     let settled = false
-
-    const cleanup = () => {
+    let decode: MediaTaskSubscription<void> | undefined
+    const complete = (success: boolean) => {
       if (settled) return
       settled = true
       img.onload = null
       img.onerror = null
-      if (signal) {
-        signal.removeEventListener('abort', onAbort)
-      }
+      signal.removeEventListener('abort', abort)
+      resolve(success)
     }
-
-    const onAbort = () => {
-      if (settled) return
-      cleanup()
-      try {
-        img.src = ''
-      } catch {}
-      resolve(false)
-    }
-
-    if (signal) {
-      signal.addEventListener('abort', onAbort, { once: true })
-    }
-
+    const abort = () => { decode?.cancel(); complete(false); img.src = '' }
+    if (signal.aborted) { abort(); return }
+    signal.addEventListener('abort', abort, { once: true })
     img.decoding = 'async'
+    img.onerror = () => complete(false)
     img.onload = () => {
       if (settled) return
-      cleanup()
-      if ('decode' in img && typeof img.decode === 'function') {
-        img.decode().then(() => resolve(true)).catch(() => resolve(true))
-      } else {
-        resolve(true)
-      }
-    }
-    img.onerror = () => {
-      if (settled) return
-      cleanup()
-      resolve(false)
+      if (typeof img.decode !== 'function') { complete(true); return }
+      decode = requestMediaTask({ key: url, kind: 'decode', priority: 'high', timeoutMs: 30_000, run: () => img.decode() })
+      void decode.result.then(result => {
+        // Native display can work even when explicit decode rejects.
+        complete(!signal.aborted && result.status !== 'cancelled' && result.status !== 'timeout')
+      })
     }
     img.src = url
-  }).finally(() => {
-    inFlightMap.delete(url)
   })
-
-  inFlightMap.set(url, promise)
-  return promise
 }
-
-/**
- * Enqueues a media URL to be loaded in a controlled, staggered queue based on priority.
- */
-export function requestMediaLoad(
-  url: string,
-  priority: LoadPriority = 'normal',
-): { promise: Promise<boolean>; cancel: () => void } {
-  if (!url || loadedCache.has(url)) {
-    return {
-      promise: Promise.resolve(true),
-      cancel: () => {},
-    }
-  }
-
-  if (inFlightMap.has(url)) {
-    return {
-      promise: inFlightMap.get(url)!,
-      cancel: () => {},
-    }
-  }
-
-  let item: QueueItem
-  const promise = new Promise<boolean>((resolve) => {
-    item = {
-      id: Math.random().toString(36).slice(2),
-      url,
-      priority,
-      resolve,
-      isCancelled: false,
-    }
-
-    queue.push(item)
-    // Schedule processing with idle or next frame
-    if (typeof window !== 'undefined' && 'requestIdleCallback' in window && priority === 'low') {
-      window.requestIdleCallback(() => processQueue())
-    } else {
-      processQueue()
-    }
-  })
-
-  const cancel = () => {
-    if (item) {
-      item.isCancelled = true
-      item.abortController?.abort()
-      const index = queue.indexOf(item)
-      if (index !== -1) {
-        queue.splice(index, 1)
+export function requestMediaLoad(url: string, priority: LoadPriority = 'normal'): {
+  promise: Promise<boolean>; cancel(): void; setPriority(priority: LoadPriority): void
+} {
+  if (!url || isMediaLoaded(url)) return { promise: Promise.resolve(true), cancel() {}, setPriority() {} }
+  const subscription = requestMediaTask({ key: url, kind: 'image', priority, timeoutMs: 30_000,
+    run: signal => performImageLoad(url, signal) })
+  return {
+    promise: subscription.result.then(result => {
+      const success = result.status === 'ready' && result.value
+      if (success) {
+        loadedCache.delete(url)
+        loadedCache.set(url, Date.now())
+        while (loadedCache.size > 256) loadedCache.delete(loadedCache.keys().next().value!)
       }
-    }
+      return success
+    }),
+    cancel: subscription.cancel, setPriority: subscription.setPriority,
   }
-
-  return { promise, cancel }
 }
-
 export function isMediaLoaded(url?: string): boolean {
   if (!url) return false
-  return loadedCache.has(url)
+  const loadedAt = loadedCache.get(url)
+  if (loadedAt === undefined) return false
+  if (Date.now() - loadedAt > 60_000) { loadedCache.delete(url); return false }
+  return true
 }
+export function invalidateMediaLoad(url: string): void { loadedCache.delete(url) }
 
 export function calculateLoadPriority(
   nodePos: { x: number; y: number } | undefined,

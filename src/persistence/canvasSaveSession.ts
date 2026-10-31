@@ -1,4 +1,4 @@
-import { CANVAS_SNAPSHOT_VERSION, type CanvasSnapshotV2, type ProjectSnapshotV1 } from '../model/project'
+import { CANVAS_SNAPSHOT_VERSION, type CanvasSnapshotV2, type ProjectSnapshotV1, type Viewport } from '../model/project'
 import { WorkspaceMutationQueue } from './workspaceMutationQueue'
 
 export interface CapturedCanvasSave {
@@ -49,13 +49,22 @@ export function createCanvasSaveSession(scope: CanvasSaveScope) {
     failLoading(): void {
       phase = 'error'
     },
-    capture(snapshot: ProjectSnapshotV1): CapturedCanvasSave | undefined {
+    acceptRemote(document: CanvasSnapshotV2): void {
+      if (phase !== 'ready' || document.canvasId !== scope.canvasId || document.projectId !== projectId) throw new Error('远端画布与当前保存会话不一致')
+      // Invalidate earlier acknowledgements/publications as well as close-time
+      // retries. Remote contents already have their own durable save path.
+      coordinator.confirmed.set(scope.canvasId, ++coordinator.sequence)
+      lastOwnedSave = undefined
+      queuedSequence = undefined
+      dirty = false
+    },
+    capture(snapshot: ProjectSnapshotV1, viewport?: Viewport): CapturedCanvasSave | undefined {
       if (phase !== 'ready' || snapshot.projectId !== projectId) return undefined
       lastOwnedSave = {
         sessionId,
         sequence: ++coordinator.sequence,
         document: {
-          ...structuredClone(snapshot),
+          ...structuredClone(viewport ? { ...snapshot, viewport } : snapshot),
           version: CANVAS_SNAPSHOT_VERSION,
           canvasId: scope.canvasId,
         },

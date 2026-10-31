@@ -1,3 +1,6 @@
+import { acquireMediaResource, type MediaSource } from '../services/mediaResource'
+import { requestMediaTask } from '../services/mediaLoadQueue'
+import { waitForCanvasIdle } from '../services/canvasActivity'
 import type { CanvasNode, CanvasSnapshotV2, Point } from '../model/project'
 import {
   deleteCanvasThumbnail,
@@ -33,7 +36,7 @@ export function computeCanvasThumbnailHash(snapshot: CanvasSnapshotV2): string {
       parentId: node.parentId,
       hidden: node.hidden,
     }
-    if (node.type === 'image') return { ...base, data: { url: node.data.url } }
+    if (node.type === 'image') return { ...base, data: { url: node.data.url, assetId: node.data.assetId, activeVersionId: node.data.activeVersionId } }
     if (node.type === 'video') {
       return { ...base, data: { poster: node.data.poster, url: node.data.poster ? undefined : node.data.url } }
     }
@@ -83,18 +86,37 @@ function imageUrl(node: CanvasNode): string | undefined {
   return undefined
 }
 
-function defaultLoadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.decoding = 'async'
-    image.crossOrigin = 'anonymous'
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error(`Unable to load thumbnail media: ${url}`))
-    image.src = url
+let coverBinding = 0
+async function defaultLoadImage(source: MediaSource, signal: AbortSignal): Promise<{ image: HTMLImageElement; release(): void }> {
+  const lease = acquireMediaResource({ source, variant: 128, demand: 'background', sessionId: 'cover' })
+  const abort = () => lease.release()
+  signal.addEventListener('abort', abort, { once: true })
+  const result = await lease.result
+  if (result.status !== 'ready' || signal.aborted) {
+    signal.removeEventListener('abort', abort); lease.release(); throw new Error('Cover media unavailable')
+  }
+  const binding = requestMediaTask({ key: 'cover-dom:' + (++coverBinding), kind: 'image', priority: 'low', timeoutMs: 30000,
+    run: bindingSignal => new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image()
+      const cleanup = () => { image.onload = null; image.onerror = null; bindingSignal.removeEventListener('abort', cancel) }
+      const cancel = () => { cleanup(); image.src = ''; reject(new Error('Cancelled')) }
+      bindingSignal.addEventListener('abort', cancel, { once: true })
+      image.decoding = 'async'; image.crossOrigin = 'anonymous'
+      image.onload = () => { cleanup(); resolve(image) }
+      image.onerror = () => { cleanup(); reject(new Error('Cover image failed')) }
+      image.src = result.value.displayUrl
+    }),
   })
+  const cancel = () => binding.cancel()
+  signal.addEventListener('abort', cancel, { once: true })
+  const loaded = await binding.result
+  signal.removeEventListener('abort', cancel); signal.removeEventListener('abort', abort)
+  if (loaded.status !== 'ready' || signal.aborted) { lease.release(); throw new Error('Cover media unavailable') }
+  return { image: loaded.value, release: lease.release }
 }
 
 export interface CanvasThumbnailRenderOptions {
+  signal?: AbortSignal
   createCanvas?: () => HTMLCanvasElement
   loadImage?: (url: string) => Promise<CanvasImageSource>
 }
@@ -165,8 +187,10 @@ export async function renderCanvasThumbnail(
     context.stroke()
   }
 
-  const loadImage = options.loadImage ?? defaultLoadImage
+  const signal = options.signal ?? new AbortController().signal
   for (const node of visibleNodes) {
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    await waitForCanvasIdle(signal)
     const position = point(positions.get(node.id)!)
     const width = Math.max(2, node.size.width * scale)
     const height = Math.max(2, node.size.height * scale)
@@ -174,13 +198,13 @@ export async function renderCanvasThumbnail(
     context.fillRect(position.x, position.y, width, height)
     const mediaUrl = imageUrl(node)
     if (mediaUrl) {
-      try {
-        const image = await loadImage(mediaUrl)
-        context.drawImage(image, position.x, position.y, width, height)
-      } catch {
-        context.strokeStyle = '#68707c'
-        context.strokeRect(position.x, position.y, width, height)
-      }
+        if (options.loadImage) context.drawImage(await options.loadImage(mediaUrl), position.x, position.y, width, height)
+        else {
+          const media = await defaultLoadImage({ url: mediaUrl,
+            assetId: node.type === 'image' ? node.data.assetId : undefined,
+            version: node.type === 'image' ? node.data.activeVersionId : undefined }, signal)
+          try { context.drawImage(media.image, position.x, position.y, width, height) } finally { media.release() }
+        }
     } else if (node.type === 'text') {
       context.fillStyle = node.data.color || '#f4f5f7'
       context.font = `${Math.max(8, Math.min(22, (node.data.fontSize ?? 16) * scale))}px sans-serif`
@@ -191,14 +215,22 @@ export async function renderCanvasThumbnail(
       context.strokeRect(position.x, position.y, width, height)
     }
   }
-  return canvasToBlob(canvas)
+  const encoding = requestMediaTask({ key: 'cover-encode:' + (++coverBinding), kind: 'encode', priority: 'low', timeoutMs: 15000,
+    run: encodeSignal => waitForCanvasIdle(encodeSignal).then(() => canvasToBlob(canvas)) })
+  const cancel = () => encoding.cancel()
+  signal.addEventListener('abort', cancel, { once: true })
+  if (signal.aborted) cancel()
+  const encoded = await encoding.result
+  signal.removeEventListener('abort', cancel)
+  if (encoded.status !== 'ready' || signal.aborted) throw new Error('Cover encoding cancelled or failed')
+  return encoded.value
 }
 
 export interface CanvasThumbnailDependencies {
   load: (canvasId: string) => Promise<CanvasThumbnailRecord | undefined>
   save: (record: CanvasThumbnailRecord) => Promise<void>
   delete: (canvasId: string) => Promise<void>
-  render?: (snapshot: CanvasSnapshotV2) => Promise<Blob>
+  render?: (snapshot: CanvasSnapshotV2, options?: { signal: AbortSignal }) => Promise<Blob>
   now?: () => string
 }
 
@@ -209,7 +241,10 @@ interface PendingThumbnail {
 
 export class CanvasThumbnailService {
   private readonly pending = new Map<string, PendingThumbnail>()
+  private readonly publishing = new Map<string, Promise<void>>()
   private readonly running = new Map<string, Promise<void>>()
+  private readonly generations = new Map<string, number>()
+  private readonly controllers = new Map<string, AbortController>()
   private readonly dependencies: CanvasThumbnailDependencies
 
   constructor(dependencies: CanvasThumbnailDependencies) {
@@ -219,7 +254,10 @@ export class CanvasThumbnailService {
   schedule(snapshot: CanvasSnapshotV2): void {
     const existing = this.pending.get(snapshot.canvasId)
     if (existing) clearTimeout(existing.timer)
-    const copy = structuredClone(snapshot)
+    this.generations.set(snapshot.canvasId, (this.generations.get(snapshot.canvasId) ?? 0) + 1)
+    this.controllers.get(snapshot.canvasId)?.abort()
+    // Saved documents are already immutable owned captures.
+    const copy = snapshot
     const timer = setTimeout(() => {
       this.pending.delete(copy.canvasId)
       void this.persist(copy)
@@ -238,23 +276,41 @@ export class CanvasThumbnailService {
     await this.running.get(canvasId)
   }
 
-  async delete(canvasId: string): Promise<void> {
+  cancel(canvasId: string): void {
+    this.generations.set(canvasId, (this.generations.get(canvasId) ?? 0) + 1)
+    this.controllers.get(canvasId)?.abort()
     const pending = this.pending.get(canvasId)
     if (pending) clearTimeout(pending.timer)
     this.pending.delete(canvasId)
+  }
+
+  async delete(canvasId: string): Promise<void> {
+    this.cancel(canvasId)
+    const pending = this.pending.get(canvasId)
+    if (pending) clearTimeout(pending.timer)
+    this.pending.delete(canvasId)
+    // Rendering is cancellable; an IndexedDB write that has begun must finish first.
+    await this.publishing.get(canvasId)?.catch(() => undefined)
     await this.dependencies.delete(canvasId)
   }
 
   private persist(snapshot: CanvasSnapshotV2): Promise<void> {
+    const generation = this.generations.get(snapshot.canvasId)
+    const current = () => this.generations.get(snapshot.canvasId) === generation
     const previous = this.running.get(snapshot.canvasId) ?? Promise.resolve()
     const operation = previous
       .catch(() => undefined)
       .then(async () => {
+        if (!current()) return
+        const controller = new AbortController()
+        this.controllers.set(snapshot.canvasId, controller)
+        await waitForCanvasIdle(controller.signal)
         const contentHash = computeCanvasThumbnailHash(snapshot)
         const existing = await this.dependencies.load(snapshot.canvasId)
-        if (existing?.contentHash === contentHash) return
-        const blob = await (this.dependencies.render ?? renderCanvasThumbnail)(snapshot)
-        await this.dependencies.save({
+        if (!current() || existing?.contentHash === contentHash) return
+        const blob = await (this.dependencies.render ?? renderCanvasThumbnail)(snapshot, { signal: controller.signal })
+        if (!current() || controller.signal.aborted) return
+        const publication = this.dependencies.save({
           canvasId: snapshot.canvasId,
           blob,
           width: CANVAS_THUMBNAIL_WIDTH,
@@ -262,11 +318,16 @@ export class CanvasThumbnailService {
           contentHash,
           updatedAt: (this.dependencies.now ?? (() => new Date().toISOString()))(),
         })
+        this.publishing.set(snapshot.canvasId, publication)
+        try { await publication } finally {
+          if (this.publishing.get(snapshot.canvasId) === publication) this.publishing.delete(snapshot.canvasId)
+        }
       })
       .catch(() => undefined)
       .finally(() => {
         if (this.running.get(snapshot.canvasId) === operation) {
           this.running.delete(snapshot.canvasId)
+          this.controllers.delete(snapshot.canvasId)
         }
       })
     this.running.set(snapshot.canvasId, operation)

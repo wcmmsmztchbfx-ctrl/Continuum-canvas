@@ -1,7 +1,11 @@
+import { isValidElement } from 'react'
 import type { CanvasFlowEdge, CanvasFlowNode } from './mapping'
 
 function sameValue(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true
+  // Editor elements carry React owner graphs and callbacks, not canvas data.
+  // Only reuse the same element instance; never recurse into its internals.
+  if (isValidElement(left) || isValidElement(right)) return false
   if (typeof left === 'function' && typeof right === 'function') return true
   if (typeof left !== 'object' || left === null || typeof right !== 'object' || right === null) return false
   if (Array.isArray(left) || Array.isArray(right)) {

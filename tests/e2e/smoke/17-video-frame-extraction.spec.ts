@@ -35,6 +35,6 @@ test.describe("17 - Video Frame Extraction", () => {
     expect(capturedId).toBeTruthy()
     const captured = page.locator(`.react-flow__node-image[data-id="${capturedId}"]`)
     await expect(captured.getByRole("article", { name: /关键帧/ })).toBeVisible()
-    await expect(captured.locator("img.canvas-image-highres")).toHaveAttribute("src", /\/api\/assets\//)
+    await expect(captured.locator("img.canvas-image-highres")).toHaveAttribute("data-source-url", /\/api\/assets\//)
   })
 })

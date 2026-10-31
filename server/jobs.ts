@@ -851,6 +851,9 @@ export class GenerationJobStore {
   }
 }
 
+/** No provider create was started; retain the same recoverable request ID. */
+export class GenerationDispatchDeferredError extends Error {}
+
 export class GenerationRunner {
   private readonly schedule: Schedule
   private readonly cancelSchedule: (handle: ScheduleHandle) => void
@@ -873,6 +876,7 @@ export class GenerationRunner {
     lock: DataDirectoryLockHandle
     adapterFor: (providerId: string) => ProviderAdapter
     catalogFor: (providerId: string) => ProviderCatalog | Promise<ProviderCatalog>
+    dispatchCreate?: (job: GenerationJob, prepare: () => Promise<void>, start: () => Promise<string>) => Promise<string>
     schedule?: Schedule
     cancelSchedule?: (handle: ScheduleHandle) => void
     pollDelayMs?: () => number
@@ -890,6 +894,7 @@ export class GenerationRunner {
     lock: DataDirectoryLockHandle
     adapterFor: (providerId: string) => ProviderAdapter
     catalogFor: (providerId: string) => ProviderCatalog | Promise<ProviderCatalog>
+    dispatchCreate?: (job: GenerationJob, prepare: () => Promise<void>, start: () => Promise<string>) => Promise<string>
     schedule?: Schedule
     cancelSchedule?: (handle: ScheduleHandle) => void
     pollDelayMs?: () => number
@@ -1052,11 +1057,16 @@ export class GenerationRunner {
         error: sanitizedError('REFERENCE_STAGING_FAILED', 'Reference staging can be resumed safely'),
       })
     }
-    await this.options.jobs.update(job.id, { createAttemptedAt: new Date().toISOString() })
     let upstreamTaskId: string
     try {
-      upstreamTaskId = await adapter.createGeneration(job.request as GenerationRequest, references, this.signal)
+      const prepare = async () => { await this.options.jobs.update(job.id, { createAttemptedAt: new Date().toISOString() }) }
+      const start = () => adapter.createGeneration(job.request as GenerationRequest, references, this.signal)
+      if (this.options.dispatchCreate) upstreamTaskId = await this.options.dispatchCreate(job, prepare, start)
+      else { await prepare(); upstreamTaskId = await start() }
     } catch (error) {
+      if (error instanceof GenerationDispatchDeferredError) return this.options.jobs.update(job.id, {
+        status: 'queued', createAttemptedAt: undefined, error: sanitizedError('DISPATCH_DEFERRED', 'Submission paused before contacting the provider'),
+      })
       this.report('generation.create_failed', error)
       if (error instanceof ProviderRequestRejectedError) {
         return this.options.jobs.update(job.id, {

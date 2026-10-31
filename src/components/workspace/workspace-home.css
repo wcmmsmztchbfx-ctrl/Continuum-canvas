@@ -39,8 +39,10 @@
 }
 
 .workspace-home__brand { gap: 10px; height: 36px; padding: 0 8px; margin-bottom: 20px; font-size: 15px; }
-.workspace-home__brand > span { display: grid; place-items: center; width: 28px; height: 28px; color: #d8f2f5; background: #303738; border: 1px solid #455052; border-radius: 6px; }
+.workspace-home__brand > span { display: grid; place-items: center; width: 28px; height: 28px; }
+.workspace-home__save-status { flex: 0 0 62px; margin-left: auto; }
 .workspace-home svg { width: 16px; height: 16px; stroke-width: 1.8; }
+.workspace-home__brand .continuum-logo { width: 24px; height: 24px; }
 .workspace-home__rail nav { display: grid; gap: 4px; }
 .workspace-home__rail nav button { gap: 10px; width: 100%; height: 38px; padding: 0 10px; color: #aaa; font-size: 13px; background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
 .workspace-home__rail nav button:hover { color: #ececec; background: #232323; }

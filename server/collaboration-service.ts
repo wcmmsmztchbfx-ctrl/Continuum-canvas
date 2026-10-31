@@ -12,6 +12,7 @@ import type { CanvasSnapshotV2 } from '../src/model/project.ts'
 import {
   createCollaborativeCanvasDocument,
   exportCollaborativeCanvasSnapshot,
+  applyCollaborativeSnapshotChange,
 } from '../src/collaboration/document.ts'
 import { atomicWriteJson } from './atomic-json.ts'
 
@@ -453,6 +454,7 @@ export class CollaborationService {
   readonly dataDir: string
   private readonly rooms = new Map<string, ActiveRoom>()
   private readonly activeRoomIdsByScope = new Map<string, string>()
+  private agentLeasedNodes: (roomId: string) => ReadonlySet<string> = () => new Set()
   private readonly now: () => Date
   private readonly id: () => string
   private readonly secret: () => string
@@ -1057,6 +1059,60 @@ export class CollaborationService {
 
   documentForRoom(roomId: string): Y.Doc {
     return this.room(roomId).document.doc
+  }
+
+  /** A durable grant stores revocable session/member IDs, never bearer secrets. */
+  createAgentGrant(roomId: string, sessionToken: string) {
+    const authorized = this.authorizeSession({ roomId, sessionToken, write: true })
+    const room = this.room(roomId)
+    const session = room.metadata.sessions.find(s => !s.revokedAt && equalDigest(s.tokenDigest, sessionToken))!
+    return { kind: 'collaboration' as const, roomId, memberId: authorized.memberId, sessionId: session.id,
+      epoch: `${roomId}:${room.metadata.createdAt}` }
+  }
+
+  setAgentLeaseReader(reader: (roomId: string) => ReadonlySet<string>): () => void {
+    this.agentLeasedNodes = reader
+    return () => { if (this.agentLeasedNodes === reader) this.agentLeasedNodes = () => new Set() }
+  }
+
+  agentAuthority(projectId: string, canvasId: string): string {
+    const roomId = this.activeRoomIdsByScope.get(collaborationScope(projectId, canvasId))
+    if (!roomId) return 'local'
+    const room = this.room(roomId)
+    return `${roomId}:${room.metadata.createdAt}`
+  }
+
+  authorizeAgentGrant(grant: { roomId: string; memberId: string; sessionId: string; epoch: string }, canvasId: string): void {
+    const room = this.room(grant.roomId)
+    this.assertWritable(room)
+    const member = room.metadata.members.find(m => m.id === grant.memberId && !m.removedAt)
+    const session = room.metadata.sessions.find(s => s.id === grant.sessionId && s.memberId === grant.memberId && !s.revokedAt)
+    if (!member || !session || member.role === 'viewer' || room.metadata.canvasId !== canvasId ||
+      `${room.metadata.roomId}:${room.metadata.createdAt}` !== grant.epoch) {
+      throw new CollaborationAuthorizationError('Agent grant has been revoked or the canvas authority has changed')
+    }
+  }
+
+  isAgentRoomOwner(grant: { roomId: string; memberId: string; sessionId: string; epoch: string }, canvasId: string): boolean {
+    this.authorizeAgentGrant(grant, canvasId)
+    return this.room(grant.roomId).metadata.ownerId === grant.memberId
+  }
+
+  applyAgentChange(grant: { roomId: string; memberId: string; sessionId: string; epoch: string },
+    before: CanvasSnapshotV2, after: CanvasSnapshotV2): void {
+    this.authorizeAgentGrant(grant, before.canvasId)
+    const room = this.room(grant.roomId)
+    if (JSON.stringify(exportCollaborativeCanvasSnapshot(room.document)) !== JSON.stringify(before)) {
+      throw new CollaborationConflictError('Canvas changed before the Agent operation was applied')
+    }
+    const leased = this.agentLeasedNodes(grant.roomId)
+    if (before.nodes.some(node => leased.has(node.id) && JSON.stringify(node) !== JSON.stringify(after.nodes.find(n => n.id === node.id)))) {
+      throw new CollaborationConflictError('A collaborator is actively editing the Agent target')
+    }
+    // There is no await between authorization, comparison and the Yjs transaction.
+    room.document.doc.transact(() => applyCollaborativeSnapshotChange(room.document, before, after), SERVER_TASK_ORIGIN)
+    room.validationDocument?.destroy()
+    room.validationDocument = undefined
   }
 
   applyGenerationJobUpdate(job: GenerationJob): boolean {

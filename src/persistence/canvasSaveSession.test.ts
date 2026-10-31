@@ -10,6 +10,23 @@ const project = (name = '已修改'): ProjectSnapshotV1 => ({ ...document(), ver
 const createSession = (owner = {}) => createCanvasSaveSession({ canvasId: 'canvas', projectId: 'project', owner })
 
 describe('canvas save session', () => {
+  it('accepts remote contents without resaving an obsolete snapshot or publishing its late acknowledgement', () => {
+    const session = createSession()
+    session.acceptLoaded(document())
+    const old = session.capture(project('local'))!
+    session.acceptRemote({ ...document(), name: 'merged' })
+    expect(session.succeed(old)).toBe(false)
+    expect(session.close()).toBeUndefined()
+  })
+  it('captures a supplied local camera immutably alongside current contents', () => {
+    const session = createSession()
+    session.acceptLoaded(document())
+    const viewport = { x: 30, y: 40, zoom: .5 }
+    const save = session.capture(project(), viewport)!
+    viewport.x = 200
+    expect(save.document.viewport).toEqual({ x: 30, y: 40, zoom: .5 })
+  })
+
   it('only accepts the requested canvas and project before allowing capture', () => {
     const session = createSession()
     expect(session.capture(project())).toBeUndefined()

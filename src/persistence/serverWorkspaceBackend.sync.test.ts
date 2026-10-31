@@ -57,10 +57,126 @@ function server() {
     if (url.endsWith('/manifest')) return Response.json({ manifest: workspace, workspaceRevision: revision, canvasRevisions: { 'canvas-a': canvasRevision } })
     return Response.json({ canvas: document, revision: canvasRevision, workspaceRevision: revision })
   }
-  return { fetchImpl, requests, setOffline: (value: boolean) => { offline = value }, loseNextResponse: () => { loseResponse = true }, changeRemote: () => { document.name = 'remote edit'; revision++; canvasRevision++ }, document: () => document, revision: () => revision, manifest: () => structuredClone(workspace) }
+  return { fetchImpl, requests, setOffline: (value: boolean) => { offline = value }, loseNextResponse: () => { loseResponse = true }, changeRemote: (update?: (canvas: CanvasSnapshotV2) => void) => { if (update) update(document); else document.name = 'remote edit'; revision++; canvasRevision++ }, document: () => document, revision: () => revision, manifest: () => structuredClone(workspace) }
 }
 
 describe('workspace synchronization integration', () => {
+  it('merges a pending local edit with an Agent addition against the confirmed canvas basis', async () => {
+    const local = memorySyncBackend(), remote = server()
+    const backend = createServerWorkspaceBackend({ fallbackBackend: local, fetchImpl: remote.fetchImpl })
+    await backend.getManifest(); await backend.getCanvasDocument('canvas-a')
+    remote.changeRemote(doc => { doc.nodes.push({ id: 'agent', type: 'text', name: 'Agent', position: { x: 0, y: 0 }, size: { width: 100, height: 80 }, data: { text: 'created remotely' } }) })
+    await expect(backend.saveCanvas({ ...canvas, name: 'my edit' })).rejects.toThrow()
+    const result = await backend.synchronizeCanvas({ ...canvas, name: 'my edit' })
+    expect(result.conflicts).toEqual([])
+    expect(result.canvas.name).toBe('my edit')
+    expect(result.canvas.nodes.map(node => node.id)).toEqual(['agent'])
+    await backend.retry()
+    expect(remote.document().name).toBe('my edit')
+    expect(remote.document().nodes.map(node => node.id)).toEqual(['agent'])
+    expect((await local.readSyncRecord()).pending).toEqual([])
+  })
+
+  it('accepts remote content into the cache and revision basis without an echo save', async () => {
+    const local = memorySyncBackend(), remote = server()
+    const backend = createServerWorkspaceBackend({ fallbackBackend: local, fetchImpl: remote.fetchImpl })
+    await backend.getManifest(); await backend.getCanvasDocument('canvas-a')
+    remote.changeRemote()
+    const result = await backend.synchronizeCanvas({ ...canvas, viewport: { x: 90, y: 70, zoom: .25 } })
+    expect(result.canvas.name).toBe('remote edit')
+    expect(result.canvas.viewport).toEqual({ x: 90, y: 70, zoom: .25 })
+    expect(await backend.confirmedCanvasRevision('canvas-a')).toBe(2)
+    await backend.saveCanvas(result.canvas)
+    expect(remote.requests).toEqual([])
+    expect(JSON.parse((await local.getCanvasDocument('canvas-a'))!).name).toBe('remote edit')
+    await backend.saveCanvas({ ...result.canvas, name: 'later edit' })
+    expect(remote.requests[0]).toMatchObject({ expectedRevision: 2 })
+  })
+
+  it('retains both versions of a true field conflict and blocks automatic overwrite', async () => {
+    const local = memorySyncBackend(), remote = server()
+    const backend = createServerWorkspaceBackend({ fallbackBackend: local, fetchImpl: remote.fetchImpl })
+    await backend.getManifest(); await backend.getCanvasDocument('canvas-a')
+    remote.changeRemote()
+    const result = await backend.synchronizeCanvas({ ...canvas, name: 'local name' })
+    expect(result.conflicts).toEqual([{ path: 'name', base: 'original', local: 'local name', remote: 'remote edit' }])
+    expect(result.canvas.name).toBe('local name')
+    expect(backend.getState().phase).toBe('conflict')
+    await expect(backend.retry()).rejects.toThrow()
+    expect(remote.document().name).toBe('remote edit')
+    const recovery = JSON.parse(await backend.exportRecovery())
+    expect(recovery.sync.canvasConflicts['canvas-a'].remote.name).toBe('remote edit')
+    expect(recovery.sync.canvasConflicts['canvas-a'].local.name).toBe('local name')
+    expect(remote.requests).toEqual([])
+  })
+
+  it('durably retains edits made while a remote merge conflict is awaiting resolution', async () => {
+    const local = memorySyncBackend(), remote = server()
+    const backend = createServerWorkspaceBackend({ fallbackBackend: local, fetchImpl: remote.fetchImpl })
+    await backend.getManifest(); await backend.getCanvasDocument('canvas-a')
+    remote.changeRemote()
+    await backend.synchronizeCanvas({ ...canvas, name: 'first local edit' })
+    await backend.synchronizeCanvas({ ...canvas, name: 'latest local edit' })
+    expect(JSON.parse((await local.getCanvasDocument('canvas-a'))!).name).toBe('latest local edit')
+    expect((await local.readSyncRecord()).canvasConflicts?.['canvas-a']?.local.name).toBe('latest local edit')
+    expect(remote.document().name).toBe('remote edit')
+  })
+
+  it('stores camera-only changes locally without competing for a server content revision', async () => {
+    const local = memorySyncBackend(), remote = server()
+    const backend = createServerWorkspaceBackend({ fallbackBackend: local, fetchImpl: remote.fetchImpl })
+    await backend.getManifest(); await backend.getCanvasDocument('canvas-a')
+    await backend.saveCanvas({ ...canvas, viewport: { x: 200, y: 80, zoom: .2 } })
+    expect(remote.requests).toHaveLength(0)
+    const reopened = createServerWorkspaceBackend({ fallbackBackend: local, fetchImpl: remote.fetchImpl })
+    await reopened.getManifest()
+    expect(JSON.parse((await reopened.getCanvasDocument('canvas-a'))!).viewport).toEqual({ x: 200, y: 80, zoom: .2 })
+    await backend.saveCanvas({ ...canvas, name: 'edited', viewport: { x: 200, y: 80, zoom: .2 } })
+    expect(remote.requests).toHaveLength(1)
+    expect(remote.document().name).toBe('edited')
+  })
+  it('does not replace another tabs content cache when persisting an old viewers camera', async () => {
+    const local = memorySyncBackend(), remote = server()
+    const viewer = createServerWorkspaceBackend({ fallbackBackend: local, fetchImpl: remote.fetchImpl })
+    const editor = createServerWorkspaceBackend({ fallbackBackend: local, fetchImpl: remote.fetchImpl })
+    await viewer.getManifest(); await viewer.getCanvasDocument('canvas-a')
+    await editor.getManifest(); await editor.getCanvasDocument('canvas-a')
+    await editor.saveCanvas({ ...canvas, name: 'new content' })
+    await viewer.saveCanvas({ ...canvas, viewport: { x: 999, y: 0, zoom: .2 } })
+    expect(remote.document().name).toBe('new content')
+    expect(JSON.parse((await local.getCanvasDocument('canvas-a'))!).name).toBe('new content')
+    expect(remote.requests).toHaveLength(1)
+  })
+  it('rechecks a blocked request without changing its operation ID or expected revision', async () => {
+    const local = memorySyncBackend(), remote = server()
+    let reject = true
+    const requests: WorkspaceMutation[] = []
+    const backend = createServerWorkspaceBackend({ fallbackBackend: local, fetchImpl: async (url, init) => {
+      if (init?.method === 'POST') {
+        requests.push(JSON.parse(String(init.body)))
+        if (reject) return Response.json({ error: { message: 'conflict' } }, { status: 409 })
+      }
+      return remote.fetchImpl(url, init)
+    } })
+    await backend.getManifest(); await backend.getCanvasDocument('canvas-a')
+    await expect(backend.saveCanvas({ ...canvas, name: 'retained work' })).rejects.toThrow()
+    expect(backend.getState().phase).toBe('conflict')
+    reject = false
+    await backend.retry()
+    expect(requests[1]).toEqual(requests[0])
+    expect(backend.getState().phase).toBe('synced')
+    expect(remote.document().name).toBe('retained work')
+  })
+  it('describes a version conflict without promising automatic network recovery', async () => {
+    const local = memorySyncBackend(), remote = server()
+    const backend = createServerWorkspaceBackend({ fallbackBackend: local, fetchImpl: remote.fetchImpl })
+    await backend.getManifest(); await backend.getCanvasDocument('canvas-a')
+    remote.changeRemote()
+    await expect(backend.saveCanvas({ ...canvas, name: 'local edit' })).rejects.toThrow('版本冲突')
+    expect((await local.readSyncRecord()).pending).toHaveLength(1)
+    expect(remote.document().name).toBe('remote edit')
+  })
+
   it('refuses a cached document when collaboration handoff requires a remote read', async () => {
     const local = memorySyncBackend(), remote = server()
     let disconnected = false

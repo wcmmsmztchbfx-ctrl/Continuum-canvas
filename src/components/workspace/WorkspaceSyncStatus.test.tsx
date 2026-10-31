@@ -31,28 +31,67 @@ function syncService(initial: WorkspaceSyncState = { phase: 'pending', pendingCo
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
 describe('WorkspaceSyncStatus', () => {
-  it.each([
-    ['saving', '保存中'], ['synced', '已同步'], ['pending', '已保存到本地，等待同步'],
-    ['conflict', '存在冲突'], ['error', '保存失败'],
-  ] as const)('reports the %s phase without implying a remote save', (phase, label) => {
-    const { service } = syncService({ phase, pendingCount: phase === 'synced' ? 0 : 1 })
-    render(<WorkspaceSyncStatus service={service} />)
-    expect(screen.getByRole('status')).toHaveTextContent(label)
-    if (phase !== 'synced') expect(screen.queryByText('已同步')).toBeNull()
+  const openDetails = async () => fireEvent.click(await screen.findByRole('button', { name: '查看保存详情' }))
+
+  it('stays hidden when saved and coalesces quick saves without flashing', () => {
+    vi.useFakeTimers()
+    const fixture = syncService({ phase: 'synced', pendingCount: 0 })
+    render(<WorkspaceSyncStatus service={fixture.service} />)
+    expect(screen.queryByRole('complementary')).toBeNull()
+    for (let i = 0; i < 3; i++) {
+      act(() => fixture.publish({ phase: 'pending', pendingCount: 1 }))
+      act(() => fixture.publish({ phase: 'saving', pendingCount: 1 }))
+      act(() => vi.advanceTimersByTime(150))
+      expect(screen.queryByRole('complementary')).toBeNull()
+      act(() => fixture.publish({ phase: 'synced', pendingCount: 0 }))
+      act(() => vi.advanceTimersByTime(1000))
+      expect(screen.queryByRole('complementary')).toBeNull()
+    }
+    expect(fixture.service.start).toHaveBeenCalledOnce()
   })
 
-  it('subscribes to state updates and stops the service on unmount', () => {
+  it('shows a sustained save, keeps failed saves visible through retries, and hides after success', () => {
+    vi.useFakeTimers()
+    const fixture = syncService({ phase: 'saving', pendingCount: 1 })
+    render(<WorkspaceSyncStatus service={fixture.service} />)
+    act(() => vi.advanceTimersByTime(300))
+    expect(screen.getByRole('status')).toHaveTextContent('保存中')
+    act(() => fixture.publish({ phase: 'pending', pendingCount: 1 }))
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(screen.getByRole('status')).toHaveTextContent('待同步')
+    act(() => fixture.publish({ phase: 'saving', pendingCount: 1 }))
+    expect(screen.getByRole('status')).toHaveTextContent('保存中')
+    act(() => fixture.publish({ phase: 'error', pendingCount: 1 }))
+    expect(screen.getByRole('status')).toHaveTextContent('保存失败')
+    act(() => fixture.publish({ phase: 'synced', pendingCount: 0 }))
+    expect(screen.queryByRole('complementary')).toBeNull()
+  })
+
+  it.each([
+    ['saving', '保存中'], ['pending', '待同步'], ['conflict', '保存冲突'], ['error', '保存失败'],
+  ] as const)('reports the %s phase compactly without implying a remote save', async (phase, label) => {
+    const { service } = syncService({ phase, pendingCount: 1 })
+    render(<WorkspaceSyncStatus service={service} />)
+    expect(await screen.findByRole('status')).toHaveTextContent(label)
+    expect(screen.queryByRole('button', { name: '重试同步' })).toBeNull()
+    expect(screen.queryByText('已同步')).toBeNull()
+  })
+
+  it('subscribes to state updates and stops the service on unmount', async () => {
     const fixture = syncService()
     const view = render(<WorkspaceSyncStatus service={fixture.service} />)
     expect(fixture.service.start).toHaveBeenCalledOnce()
-    expect(screen.getByRole('status')).toHaveTextContent('2 项待同步')
+    await openDetails()
+    expect(screen.getByRole('dialog', { name: '保存详情' })).toHaveTextContent('2 项待同步')
     act(() => fixture.publish({ phase: 'synced', pendingCount: 0 }))
-    expect(screen.getByRole('status')).toHaveTextContent('已同步')
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
     expect(screen.queryByRole('button', { name: '重试同步' })).toBeNull()
     view.unmount()
     expect(fixture.dispose).toHaveBeenCalledOnce()
@@ -64,20 +103,23 @@ describe('WorkspaceSyncStatus', () => {
     const { service } = fixture
     vi.mocked(service.retry).mockRejectedValue(new Error('网络未连接'))
     render(<WorkspaceSyncStatus service={service} />)
+    await openDetails()
     fireEvent.click(screen.getByRole('button', { name: '重试同步' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('网络未连接')
     expect(service.retry).toHaveBeenCalledOnce()
-    expect(screen.getByRole('status')).toHaveTextContent('已保存到本地，等待同步')
+    expect(screen.getByRole('dialog')).toHaveTextContent('已保存到本地，等待同步')
     expect(screen.queryByText('已同步')).toBeNull()
     expect(screen.getByRole('button', { name: '重试同步' })).toBeEnabled()
     act(() => fixture.publish({ phase: 'synced', pendingCount: 0 }))
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('shows service error details and permits recovery actions', () => {
+  it('keeps error details behind a compact trigger and permits recovery actions', async () => {
     const { service } = syncService({ phase: 'error', pendingCount: 1, message: '本地存储空间不足' })
     render(<WorkspaceSyncStatus service={service} />)
-    expect(screen.getByRole('status')).toHaveTextContent('本地存储空间不足')
+    expect(screen.queryByText('本地存储空间不足')).toBeNull()
+    await openDetails()
+    expect(screen.getByRole('dialog')).toHaveTextContent('本地存储空间不足')
     expect(screen.getByRole('button', { name: '重试同步' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '导出本地恢复文件' })).toBeEnabled()
   })
@@ -89,6 +131,7 @@ describe('WorkspaceSyncStatus', () => {
     const reloadPage = vi.fn()
     const confirm = vi.spyOn(window, 'confirm')
     render(<WorkspaceSyncStatus service={service} reloadPage={reloadPage} />)
+    await openDetails()
     fireEvent.click(screen.getByRole('button', { name: '保留为副本' }))
     expect(service.resolveConflict).toHaveBeenCalledWith('copy')
     expect(confirm).not.toHaveBeenCalled()
@@ -103,6 +146,7 @@ describe('WorkspaceSyncStatus', () => {
     const reloadPage = vi.fn()
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(confirmed)
     render(<WorkspaceSyncStatus service={service} reloadPage={reloadPage} />)
+    await openDetails()
     fireEvent.click(screen.getByRole('button', { name: '重新载入服务器版本' }))
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('覆盖本地未同步修改'))
     if (confirmed) {
@@ -119,6 +163,7 @@ describe('WorkspaceSyncStatus', () => {
     vi.mocked(service.resolveConflict).mockRejectedValue(new Error('服务器仍不可用'))
     const reloadPage = vi.fn()
     render(<WorkspaceSyncStatus service={service} reloadPage={reloadPage} />)
+    await openDetails()
     fireEvent.click(screen.getByRole('button', { name: '保留为副本' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('服务器仍不可用')
     expect(reloadPage).not.toHaveBeenCalled()
@@ -130,6 +175,7 @@ describe('WorkspaceSyncStatus', () => {
     vi.mocked(service.resolveConflict).mockImplementation(() => new Promise<void>((done) => { resolve = done }))
     const reloadPage = vi.fn()
     const view = render(<WorkspaceSyncStatus service={service} reloadPage={reloadPage} />)
+    await openDetails()
     fireEvent.click(screen.getByRole('button', { name: '保留为副本' }))
     view.unmount()
     await act(async () => resolve())
@@ -146,6 +192,7 @@ describe('WorkspaceSyncStatus', () => {
       downloads.push({ href: this.href, download: this.download })
     })
     render(<WorkspaceSyncStatus service={service} />)
+    await openDetails()
     fireEvent.click(screen.getByRole('button', { name: '导出本地恢复文件' }))
     await waitFor(() => expect(downloads).toHaveLength(1))
     expect(downloads[0]).toEqual({ href: 'blob:workspace-recovery', download: 'continuum-workspace-recovery.json' })
@@ -158,5 +205,19 @@ describe('WorkspaceSyncStatus', () => {
     })
     expect(contents).toBe('{"local":"recovery"}')
     await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:workspace-recovery'))
+  })
+
+  it('closes details with Escape or an outside click without dismissing the failure indicator', async () => {
+    const { service } = syncService({ phase: 'error', pendingCount: 1 })
+    render(<WorkspaceSyncStatus service={service} />)
+    await openDetails()
+    expect(screen.getByRole('dialog')).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('button', { name: '查看保存详情' })).toHaveFocus()
+    await openDetails()
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('status')).toHaveTextContent('保存失败')
   })
 })

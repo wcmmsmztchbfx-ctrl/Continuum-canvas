@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType, type DragEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type DragEvent, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, Circle, Eye, EyeOff, Frame, Image, Lock, MousePointerSquareDashed, PenTool, Search, Type, Unlock, Video } from 'lucide-react'
 import type { CanvasNode } from '../../model/project'
-import { getFastThumbnailUrl } from '../../services/imageThumbnailCache'
+import { ManagedMediaImage } from './ManagedMediaImage'
+import { canvasPerformanceFlags } from '../../performance/canvasPerformanceFlags'
+import { getLayerWindow, LAYER_ROW_PITCH } from './layerWindow'
 
 export interface LayersPanelProps {
   nodes: CanvasNode[]
@@ -61,6 +63,21 @@ export function LayersPanel(props: LayersPanelProps) {
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [dropTarget, setDropTarget] = useState<{ id: string; placement: 'before' | 'after' | 'inside' }>()
+  const listRef = useRef<HTMLDivElement>(null)
+  const [scrollTop, setScrollTop] = useState(0)
+  const [listHeight, setListHeight] = useState(600)
+  const [focusedId, setFocusedId] = useState<string>()
+  const [draggedId, setDraggedId] = useState<string>()
+  useLayoutEffect(() => {
+    const element = listRef.current
+    if (!element || !props.open) return
+    element.scrollTop = scrollTop
+    const measure = () => setListHeight(element.clientHeight || 600)
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
+    observer?.observe(element)
+    return () => observer?.disconnect()
+  }, [props.open])
   const lastSelectedIdRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -73,12 +90,15 @@ export function LayersPanel(props: LayersPanelProps) {
 
   const children = useMemo(() => {
     const result = new Map<string | undefined, CanvasNode[]>()
+    if (!props.open) return result
     for (const node of props.nodes) {
-      result.set(node.parentId, [...(result.get(node.parentId) ?? []), node])
+      let siblings = result.get(node.parentId)
+      if (!siblings) { siblings = []; result.set(node.parentId, siblings) }
+      siblings.push(node)
     }
     for (const list of result.values()) list.reverse()
     return result
-  }, [props.nodes])
+  }, [props.nodes, props.open])
 
   const visible = useMemo(() => {
     const result: Array<{ node: CanvasNode; depth: number }> = []
@@ -101,6 +121,9 @@ export function LayersPanel(props: LayersPanelProps) {
     return null
   }
 
+  const window = getLayerWindow(visible.length, canvasPerformanceFlags.virtualLayers ? scrollTop : 0, canvasPerformanceFlags.virtualLayers ? listHeight : visible.length * LAYER_ROW_PITCH,
+    [editingId, focusedId, draggedId].map(id => id ? visible.findIndex(item => item.node.id === id) : -1))
+  const rows = [...Array.from({ length: window.end - window.start }, (_, i) => window.start + i), ...window.pinned].sort((a, b) => a - b)
   const finishRename = (id: string) => {
     if (draft.trim()) props.onRename(id, draft.trim())
     setEditingId(undefined)
@@ -153,8 +176,16 @@ export function LayersPanel(props: LayersPanelProps) {
         <Search size={13} />
         <input aria-label="搜索图层" onChange={(event) => setQuery(event.target.value)} placeholder="搜索图层" type="search" value={query} />
       </label>
-      <div className="layers-panel__list">
-        {visible.map(({ node, depth }) => {
+      <div className="layers-panel__list" ref={listRef} onScroll={event => setScrollTop(event.currentTarget.scrollTop)}
+        onDragOver={event => {
+          event.preventDefault()
+          const element = event.currentTarget, rect = element.getBoundingClientRect()
+          if (event.clientY < rect.top + 40) element.scrollTop -= 24
+          else if (event.clientY > rect.bottom - 40) element.scrollTop += 24
+        }}>
+        <div style={{ height: visible.length * LAYER_ROW_PITCH, position: 'relative' }}>
+        {rows.map(index => {
+          const { node, depth } = visible[index]
           const expandable = node.type === 'group' || node.type === 'frame'
           const Icon = icons[node.type]
           const mediaUrl = node.type === 'image' ? (node.data as { url?: string }).url : node.type === 'video' ? (node.data as { poster?: string; url?: string }).poster : undefined
@@ -167,18 +198,21 @@ export function LayersPanel(props: LayersPanelProps) {
               key={node.id}
               onClick={(e) => handleNodeClick(node.id, e)}
               onDoubleClick={() => props.onFocusNode?.(node.id)}
-              onDragEnd={() => setDropTarget(undefined)}
+              onFocusCapture={() => setFocusedId(node.id)}
+              onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocusedId(undefined) }}
+              onDragEnd={() => { setDropTarget(undefined); setDraggedId(undefined) }}
               onDragOver={(event) => {
                 event.preventDefault()
                 setDropTarget({ id: node.id, placement: placementAt(event, node) })
               }}
               onDragStart={(event) => {
+                setDraggedId(node.id)
                 const ids = props.selectedIds.includes(node.id) ? props.selectedIds : [node.id]
                 event.dataTransfer.setData('application/x-canvas-nodes', JSON.stringify(ids))
                 event.dataTransfer.effectAllowed = 'move'
               }}
               onDrop={(event) => commitDrop(event, node)}
-              style={{ paddingLeft: 6 + depth * 14 }}
+              style={{ paddingLeft: 6 + depth * 16, position: 'absolute', top: index * LAYER_ROW_PITCH, left: 0, right: 0 }}
             >
               <button
                 aria-label={expandable ? `${collapsed.has(node.id) ? '展开' : '收起'} ${node.name}` : undefined}
@@ -250,11 +284,11 @@ export function LayersPanel(props: LayersPanelProps) {
                 <span className="layers-panel__thumb" title={node.type === 'video' ? '视频' : '图片'}>
                   {mediaUrl ? (
                     <span className="layers-panel__thumb-media">
-                      <img
+                      <ManagedMediaImage
                         alt=""
                         decoding="async"
                         loading="lazy"
-                        src={getFastThumbnailUrl(mediaUrl) || mediaUrl}
+                        src={mediaUrl}
                       />
                       {node.type === 'video' ? <span className="layers-panel__thumb-play">▶</span> : null}
                     </span>
@@ -327,6 +361,7 @@ export function LayersPanel(props: LayersPanelProps) {
             </div>
           )
         })}
+        </div>
       </div>
     </aside>
   )

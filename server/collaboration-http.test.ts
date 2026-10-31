@@ -43,16 +43,27 @@ function snapshot(): CanvasSnapshotV2 {
 
 async function start(options: Parameters<typeof startGateway>[0] = {}): Promise<GatewayHandle> {
   const dataDir = await mkdtemp(join(tmpdir(), 'libtv-collaboration-http-'))
-  const gateway = await startGateway({
-    dataDir,
-    envFile: join(dataDir, '.env.local'),
-    env: { API_PROVIDER_AISTARTLAB_KEY: 'test-key' },
-    host: '127.0.0.1',
-    port: 0,
-    ...options,
-  })
-  gateways.push(gateway)
-  return gateway
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const gateway = await startGateway({
+      dataDir,
+      envFile: join(dataDir, '.env.local'),
+      env: { API_PROVIDER_AISTARTLAB_KEY: 'test-key' },
+      host: '127.0.0.1',
+      port: 0,
+      ...options,
+    })
+    try {
+      // OS-assigned ephemeral ports can still be on Fetch's blocked-port list.
+      await fetch(`${gateway.origin}/api/health`)
+    } catch (error) {
+      await gateway.close()
+      if (!options.port && /bad port/i.test(String((error as Error & { cause?: unknown }).cause ?? error))) continue
+      throw error
+    }
+    gateways.push(gateway)
+    return gateway
+  }
+  throw new Error('Could not allocate a Fetch-compatible test port')
 }
 
 function cookie(response: Response): string {

@@ -1,58 +1,38 @@
-const MAX_CACHE_ENTRIES = 120
-
-class LruBlobCache {
-  private cache = new Map<string, string>()
-
-  get(key: string): string | undefined {
-    const value = this.cache.get(key)
-    if (value !== undefined) {
-      this.cache.delete(key)
-      this.cache.set(key, value)
+import { mediaPreviewKey, type MediaPreviewSource } from './mediaPreviewIdentity'
+import { waitForCanvasIdle } from './canvasActivity'
+import { requestMediaTask } from './mediaLoadQueue'
+import { writeMediaPreview } from './mediaPreviewStorage'
+export interface PreviewLease { url: string; release(): void }
+interface PreviewEntry { blob: Blob; url: string; refs: number; width: number; height: number; touched: number }
+const previews = new Map<string, PreviewEntry>()
+function trimPreviews(all = false) {
+  let bytes = 0, decoded = 0
+  for (const [key, entry] of [...previews].sort((a, b) => b[1].touched - a[1].touched)) {
+    if (entry.refs) continue
+    bytes += entry.blob.size; decoded += entry.width * entry.height * 4
+    if (all || bytes > 16 * 1024 * 1024 || decoded > 32 * 1024 * 1024) {
+      URL.revokeObjectURL(entry.url); previews.delete(key)
     }
-    return value
-  }
-
-  has(key: string): boolean {
-    return this.cache.has(key)
-  }
-
-  set(key: string, objectUrl: string): void {
-    if (this.cache.has(key)) {
-      const old = this.cache.get(key)!
-      if (old.startsWith('blob:') && old !== objectUrl) {
-        try {
-          URL.revokeObjectURL(old)
-        } catch {}
-      }
-      this.cache.delete(key)
-    } else if (this.cache.size >= MAX_CACHE_ENTRIES) {
-      const oldestKey = this.cache.keys().next().value
-      if (oldestKey) {
-        const oldestUrl = this.cache.get(oldestKey)
-        if (oldestUrl?.startsWith('blob:')) {
-          try {
-            URL.revokeObjectURL(oldestUrl)
-          } catch {}
-        }
-        this.cache.delete(oldestKey)
-      }
-    }
-    this.cache.set(key, objectUrl)
-  }
-
-  clear(): void {
-    for (const url of this.cache.values()) {
-      if (url.startsWith('blob:')) {
-        try {
-          URL.revokeObjectURL(url)
-        } catch {}
-      }
-    }
-    this.cache.clear()
   }
 }
-
-export const memoryThumbnailCache = new LruBlobCache()
+export function clearIdlePreviews() { trimPreviews(true) }
+export function getCachedPreviewBlob(key: string): Blob | undefined { return previews.get(key)?.blob }
+export function acquirePreview(key: string): PreviewLease | undefined {
+  const entry = previews.get(key)
+  if (!entry) return undefined
+  entry.refs++; entry.touched = Date.now()
+  let released = false
+  return { url: entry.url, release() { if (released) return; released = true; entry.refs--; entry.touched = Date.now(); trimPreviews() } }
+}
+export function storePreview(key: string, blob: Blob, dimensions: { width: number; height: number }): PreviewLease {
+  if (!previews.has(key)) {
+    previews.set(key, { blob, url: URL.createObjectURL(blob), refs: 0, ...dimensions, touched: Date.now() })
+    void writeMediaPreview(key, blob)
+  }
+  const lease = acquirePreview(key)!
+  trimPreviews()
+  return lease
+}
 const listeners = new Set<(url: string, thumbnailUrl: string) => void>()
 
 export function subscribeThumbnailReady(
@@ -143,11 +123,6 @@ export function getFastThumbnailUrl(
     }
   }
 
-  // Check in-memory generated blob cache
-  if (memoryThumbnailCache.has(url)) {
-    return memoryThumbnailCache.get(url)
-  }
-
   return undefined
 }
 
@@ -155,147 +130,88 @@ export function getFastThumbnailUrl(
  * Extracts a lightweight WebP thumbnail from an already loaded DOM image or video element
  * without initiating any secondary network requests.
  */
-export function cacheThumbnailFromElement(
-  url: string,
-  element: HTMLImageElement | HTMLVideoElement,
-  maxDimension = 320,
-): void {
-  if (!url || memoryThumbnailCache.has(url)) return
-  if (typeof document === 'undefined') return
-  try {
-    const width =
-      ('naturalWidth' in element ? element.naturalWidth : (element as HTMLVideoElement).videoWidth) ||
-      element.width
-    const height =
-      ('naturalHeight' in element ? element.naturalHeight : (element as HTMLVideoElement).videoHeight) ||
-      element.height
-    if (!width || !height) return
-
-    const scale = Math.min(1, maxDimension / Math.max(width, height))
-    const targetWidth = Math.max(16, Math.round(width * scale))
-    const targetHeight = Math.max(16, Math.round(height * scale))
-
-    const canvas = document.createElement('canvas')
-    canvas.width = targetWidth
-    canvas.height = targetHeight
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    ctx.drawImage(element, 0, 0, targetWidth, targetHeight)
-    canvas.toBlob(
-      (blob) => {
-        if (blob) {
-          const objectUrl = URL.createObjectURL(blob)
-          memoryThumbnailCache.set(url, objectUrl)
-          notifyThumbnailReady(url, objectUrl)
-        }
-      },
-      'image/webp',
-      0.6,
-    )
-  } catch {
-    // Canvas security or context error fallback
-  }
-}
-
-const pendingVideoThumbnails = new Set<string>()
-const MAX_CONCURRENT_VIDEO_EXTRACTIONS = 2
-let activeVideoExtractions = 0
-const videoExtractionQueue: Array<() => void> = []
-
-function runNextVideoExtraction() {
-  if (activeVideoExtractions >= MAX_CONCURRENT_VIDEO_EXTRACTIONS) return
-  const next = videoExtractionQueue.shift()
-  if (next) {
-    activeVideoExtractions++
-    next()
-  }
-}
-
-function generateVideoThumbnail(videoUrl: string): void {
-  if (pendingVideoThumbnails.has(videoUrl) || memoryThumbnailCache.has(videoUrl)) return
-  if (typeof document === 'undefined') return
-  pendingVideoThumbnails.add(videoUrl)
-
-  videoExtractionQueue.push(() => {
-    const video = document.createElement('video')
-    video.crossOrigin = 'anonymous'
-    video.preload = 'metadata'
-    video.muted = true
-    video.playsInline = true
-
-    let finished = false
-    const cleanup = () => {
-      if (finished) return
-      finished = true
-      activeVideoExtractions--
-      pendingVideoThumbnails.delete(videoUrl)
-      video.removeAttribute('src')
-      video.load()
-      runNextVideoExtraction()
-    }
-
-    const timer = setTimeout(() => {
-      cleanup()
-    }, 8000)
-
-    video.onloadedmetadata = () => {
+export function cacheThumbnailFromElement(source: string | MediaPreviewSource, element: HTMLImageElement | HTMLVideoElement, maxDimension = 320): void {
+  const url = typeof source === 'string' ? source : source.url
+  const key = mediaPreviewKey(source, maxDimension)
+  if (!url || previews.has(key) || typeof document === 'undefined') return
+  const expectedSource = element.currentSrc || element.src
+  const request = requestMediaTask({
+    key: 'preview:' + key, kind: 'encode', priority: 'low', timeoutMs: 15000,
+    run: signal => waitForCanvasIdle(signal).then(() => new Promise<void>((resolve, reject) => {
+      if (signal.aborted || (element.currentSrc || element.src) !== expectedSource) { reject(new Error('Stale media')); return }
+      const width = ('naturalWidth' in element ? element.naturalWidth : element.videoWidth) || element.width
+      const height = ('naturalHeight' in element ? element.naturalHeight : element.videoHeight) || element.height
+      if (!width || !height) { reject(new Error('Media has no dimensions')); return }
+      const scale = Math.min(1, maxDimension / Math.max(width, height))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(width * scale)); canvas.height = Math.max(1, Math.round(height * scale))
       try {
-        const targetTime = Math.min(0.1, (video.duration || 1) / 2)
-        video.currentTime = targetTime
-      } catch {
-        // Fallback if seeking not supported
-      }
-    }
-
-    const captureFrame = () => {
-      try {
-        const width = video.videoWidth || 480
-        const height = video.videoHeight || 270
-        const canvas = document.createElement('canvas')
-        canvas.width = Math.min(480, width)
-        canvas.height = Math.round(canvas.width * (height / width))
         const ctx = canvas.getContext('2d')
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-          canvas.toBlob(
-            (blob) => {
-              clearTimeout(timer)
-              cleanup()
-              canvas.width = 0
-              canvas.height = 0
-              if (blob) {
-                const objectUrl = URL.createObjectURL(blob)
-                memoryThumbnailCache.set(videoUrl, objectUrl)
-                notifyThumbnailReady(videoUrl, objectUrl)
-              }
-            },
-            'image/webp',
-            0.8,
-          )
-          return
-        }
-      } catch {}
-      clearTimeout(timer)
-      cleanup()
-    }
-
-    video.onseeked = captureFrame
-    video.onloadeddata = () => {
-      if (video.readyState >= 2 && !video.seeking) {
-        captureFrame()
-      }
-    }
-
-    video.onerror = () => {
-      clearTimeout(timer)
-      cleanup()
-    }
-
-    video.src = videoUrl
+        if (!ctx) { reject(new Error('No canvas')); return }
+        ctx.drawImage(element, 0, 0, canvas.width, canvas.height)
+        canvas.toBlob(blob => {
+          if (blob && !signal.aborted) {
+            const lease = storePreview(key, blob, { width: canvas.width, height: canvas.height })
+            notifyThumbnailReady(key, lease.url); lease.release()
+          }
+          canvas.width = 0; canvas.height = 0; resolve()
+        }, 'image/webp', .7)
+      } catch (error) { reject(error) }
+    })),
   })
+  void request.result
+}
 
-  runNextVideoExtraction()
+/** Explicit demand owns poster extraction. Reading a poster URL never starts work. */
+export function requestVideoPoster(videoUrl: string) {
+  const key = mediaPreviewKey(videoUrl)
+  return requestMediaTask({
+    key: 'poster:' + videoUrl, kind: 'poster', priority: 'low', timeoutMs: 15000,
+    run: signal => new Promise<void>((resolve, reject) => {
+      if (previews.has(key)) { resolve(); return }
+      const video = document.createElement('video')
+      video.crossOrigin = 'anonymous'; video.preload = 'metadata'; video.muted = true; video.playsInline = true
+      let capturing = false, finished = false
+      let encoding: ReturnType<typeof requestMediaTask<void>> | undefined
+      const cleanup = () => {
+        video.onloadedmetadata = null; video.onloadeddata = null; video.onseeked = null; video.onerror = null
+        signal.removeEventListener('abort', abort); video.removeAttribute('src'); video.load()
+      }
+      const finish = (error?: unknown) => { if (finished) return; finished = true; cleanup(); if (error) reject(error); else resolve() }
+      const abort = () => { encoding?.cancel(); finish(new DOMException('Aborted', 'AbortError')) }
+      if (signal.aborted) { abort(); return }
+      signal.addEventListener('abort', abort, { once: true })
+      const capture = () => {
+        if (capturing || finished || video.readyState < 2 || video.seeking) return
+        capturing = true
+        encoding = requestMediaTask({
+          key: 'preview:' + key, kind: 'encode', priority: 'low', timeoutMs: 15000,
+          run: encodeSignal => new Promise<void>((done, fail) => {
+            try {
+              const canvas = document.createElement('canvas')
+              canvas.width = Math.min(320, video.videoWidth || 480)
+              canvas.height = Math.max(1, Math.round(canvas.width * (video.videoHeight || 270) / (video.videoWidth || 480)))
+              const ctx = canvas.getContext('2d')
+              if (!ctx) { fail(new Error('No canvas')); return }
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+              canvas.toBlob(blob => {
+                if (blob && !signal.aborted && !encodeSignal.aborted) {
+                  const lease = storePreview(key, blob, { width: canvas.width, height: canvas.height })
+                  notifyThumbnailReady(key, lease.url); lease.release()
+                }
+                canvas.width = 0; canvas.height = 0; done()
+              }, 'image/webp', .8)
+            } catch (error) { fail(error) }
+          }),
+        })
+        void encoding.result.then(result => finish(result.status === 'ready' ? undefined : new Error(result.status)))
+      }
+      video.onloadedmetadata = () => { try { video.currentTime = Math.min(.1, (video.duration || 1) / 2) } catch { capture() } }
+      video.onloadeddata = capture; video.onseeked = capture
+      video.onerror = () => finish(new Error('Video poster failed'))
+      video.src = videoUrl
+    }),
+  })
 }
 
 /**
@@ -325,16 +241,6 @@ export function getVideoPosterUrl(
       }
       return `${videoUrl}${separator}x-oss-process=video/snapshot,t_500,f_jpg,w_960,m_fast`
     }
-  }
-
-  // Check in-memory generated blob cache
-  if (memoryThumbnailCache.has(videoUrl)) {
-    return memoryThumbnailCache.get(videoUrl)
-  }
-
-  // Offscreen client extraction for local/gateway/blob video URLs
-  if (typeof document !== 'undefined' && !pendingVideoThumbnails.has(videoUrl)) {
-    generateVideoThumbnail(videoUrl)
   }
 
   return undefined

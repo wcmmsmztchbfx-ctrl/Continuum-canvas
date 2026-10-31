@@ -1,3 +1,9 @@
+import { PREVIEW_SIZES, PreviewBusyError } from './asset-preview.ts'
+import { createHash } from 'node:crypto'
+import { AgentError } from './agent/types.ts'
+import type { AgentGrant } from './agent/types.ts'
+import type { AgentModel } from './agent/model.ts'
+import type { AgentCreateRunInput, AgentControlInput, AgentAnswerInput } from '../src/contracts/agent.ts'
 import { createReadStream } from 'node:fs'
 import { readdir, stat, unlink } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
@@ -8,6 +14,7 @@ import { resolveCollaborationNetworkConfig, type GatewayEnvironment } from './co
 import {
   formatGatewayOrigin,
   hasLoopbackBrowserOrigin,
+  hasLocalBrowserReadReferer,
   isAllowedHost,
   isAllowedRemoteAddress,
   isLoopbackHost,
@@ -535,6 +542,7 @@ function classifyApiPath(pathname: string): { reserved: boolean; encoded: boolea
 }
 
 function publicError(error: unknown): ApiError {
+  if (error instanceof AgentError) return new ApiError(error.status, error.code, error.message)
   if (error instanceof ApiError) return error
   if (error instanceof WorkspacePreconditionError) return new ApiError(428, error.code, error.message)
   if (error instanceof WorkspaceConflictError || error instanceof WorkspaceOperationIdConflictError) {
@@ -1110,6 +1118,41 @@ async function routeApi({
     return true
   }
 
+  if (method === 'GET' && path === '/api/agent/skills') {
+    sendJson(response, 200, { skills: runtime.agent.skills.list() })
+    return true
+  }
+  const agentRunsMatch = /^\/api\/agent\/canvases\/([A-Za-z0-9._:-]+)\/runs$/.exec(path)
+  const agentRunMatch = /^\/api\/agent\/runs\/([0-9a-f-]{36})(?:\/(control|answer))?$/.exec(path)
+  if ((path === '/api/agent/runs' && method === 'POST') || agentRunsMatch || agentRunMatch) {
+    const authorization = authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'editor')
+    const actor: AgentGrant = authorization.kind === 'local-admin' ? { kind: 'local-admin', tokenDigest: createHash('sha256').update(localAdminTokenFromCookie(request.headers.cookie)).digest('hex') } :
+      runtime.collaboration.createAgentGrant(authorization.roomId, collaborationSessionToken(request, authorization.roomId))
+    if (agentRunsMatch && method === 'GET') {
+      const canvasId = agentRunsMatch[1]
+      if (actor.kind === 'collaboration') runtime.collaboration.authorizeAgentGrant(actor, canvasId)
+      const runs = runtime.agent.list(canvasId).filter(run => {
+        try { runtime.agent.authorize(run.id, actor); return true } catch { return false }
+      })
+      sendJson(response, 200, { runs }); return true
+    }
+    if (path === '/api/agent/runs' && method === 'POST') {
+      const input = record(await readJson(request)) as unknown as AgentCreateRunInput
+      sendJson(response, 202, { run: await runtime.agent.create(input, actor) }); return true
+    }
+    if (agentRunMatch) {
+      const [, runId, action] = agentRunMatch
+      runtime.agent.authorize(runId, actor)
+      if (method === 'GET' && !action) { sendJson(response, 200, { run: runtime.agent.get(runId) }); return true }
+      if (method === 'POST' && action === 'control') {
+        sendJson(response, 200, { run: await runtime.agent.control(runId, record(await readJson(request)) as unknown as AgentControlInput, actor) }); return true
+      }
+      if (method === 'POST' && action === 'answer') {
+        sendJson(response, 200, { run: await runtime.agent.answer(runId, record(await readJson(request)) as unknown as AgentAnswerInput) }); return true
+      }
+    }
+    throw new ApiError(405, 'method_not_allowed', 'Agent route method is not supported')
+  }
   if (method === 'GET' && path === '/api/agent/status') {
     const preferred = runtime.agentConfig.getPreferred()
     if (preferred && preferred.enabled && preferred.secretConfigured) {
@@ -1349,6 +1392,7 @@ async function routeApi({
       for (const id of (await runtime.workspace.getReferencedAssetMap()).keys()) protectedIds.add(id)
       for (const id of runtime.history.referencedAssetIds()) protectedIds.add(id)
       for (const id of runtime.jobs.referencedAssetIds()) protectedIds.add(id)
+      for (const id of runtime.agent.referencedAssetIds()) protectedIds.add(id)
       return runtime.assets.deleteUnreferenced(candidates, protectedIds)
     })
     sendJson(response, 200, { canvasId, deletedAssetIds })
@@ -1473,6 +1517,9 @@ async function routeApi({
     authorizeProviderWrite(request, runtime, localAdmin, localAdminAllowed)
     const refMap = await runtime.workspace.getReferencedAssetMap()
     const referencedIds = new Set(refMap.keys())
+    for (const id of runtime.agent.referencedAssetIds()) referencedIds.add(id)
+    for (const id of runtime.jobs.referencedAssetIds()) referencedIds.add(id)
+    for (const id of runtime.history.referencedAssetIds()) referencedIds.add(id)
     const candidateIds = runtime.assets.list().map((a) => a.id)
     const deletedIds = await runtime.trackOperation(() =>
       runtime.assets.deleteUnreferenced(candidateIds, referencedIds),
@@ -1492,6 +1539,32 @@ async function routeApi({
     return true
   }
   if (assetMatch && (method === 'GET' || method === 'HEAD')) {
+    if (url.searchParams.has('preview')) {
+      const size = Number(url.searchParams.get('preview'))
+      if (!PREVIEW_SIZES.has(size)) throw new ApiError(400, 'invalid_input', 'Unsupported preview size')
+      const asset = runtime.assets.get(assetMatch[1])
+      if (!asset) throw new RuntimeNotFoundError('Asset not found')
+      if (!asset.contentType.startsWith('image/')) throw new ApiError(400, 'invalid_input', 'Preview requires an image')
+      let preview
+      try { preview = await runtime.trackOperation(() => runtime.assets.getPreview(assetMatch[1], size, signal)) }
+      catch (error) {
+        if (error instanceof PreviewBusyError) throw new ApiError(503, 'preview_busy', 'Preview queue is full')
+        throw error
+      }
+      if (preview) {
+        response.writeHead(200, {
+          'content-type': 'image/webp', 'content-length': String(preview.bytes.length),
+          'cache-control': 'private, max-age=31536000, immutable',
+          'x-content-type-options': 'nosniff', 'access-control-allow-origin': '*',
+          'cross-origin-resource-policy': 'cross-origin',
+          'x-image-original-width': String(preview.originalWidth),
+          'x-image-original-height': String(preview.originalHeight),
+          'x-image-preview': '1',
+        })
+        response.end(method === 'HEAD' ? undefined : preview.bytes)
+        return true
+      }
+    }
     await serveAsset(runtime, request, response, assetMatch[1])
     return true
   }
@@ -1517,6 +1590,7 @@ async function routeApi({
   }
   if (method === 'POST' && path === '/api/generation-jobs') {
     const input = record(await readJson(request))
+    if (typeof input.clientRequestId === 'string' && input.clientRequestId.startsWith('agent-')) throw new ApiError(400, 'reserved_request_id', 'Agent request IDs are server-owned')
     const authorization = authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'editor')
     let job
     if (authorization.kind === 'collaboration') {
@@ -1579,6 +1653,7 @@ export async function startGateway(options: {
   collaborationMaxMessageBytes?: number
   collaborationHeartbeatMs?: number
   collaborationOptions?: Omit<CollaborationServiceOptions, 'dataDir'>
+  agentModel?: AgentModel
 } = {}): Promise<GatewayHandle> {
   const host = options.host ?? '127.0.0.1'
   const network = resolveCollaborationNetworkConfig(host, {
@@ -1662,10 +1737,11 @@ export async function startGateway(options: {
           rawBodyLimit: options.rawBodyLimit ?? RAW_LIMIT,
           signal,
           secureCollaborationCookies: (dynamicPublicOrigin ?? publicOrigin)?.toLowerCase().startsWith('https://') ?? false,
-          localAdminAllowed: (localHostOnly && isLoopbackHost(host)) || loopbackBrowserOrigin,
+          localAdminAllowed: (localHostOnly && isLoopbackHost(host)) || loopbackBrowserOrigin || hasLocalBrowserReadReferer(request),
           localAdminRecoveryAllowed: loopbackBrowserOrigin,
           frontendPort,
           onReset: async () => {
+            await runtime.agent.reset()
             await runtime.workspace.reset()
             runtime.jobs.clear?.()
             runtime.canvases.clear?.()

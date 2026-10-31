@@ -1,3 +1,4 @@
+import { canvasPerformanceFlags } from '../../performance/canvasPerformanceFlags'
 import type { Edge, Node, Viewport } from '@xyflow/react'
 
 import type {
@@ -8,7 +9,7 @@ import type {
   ProjectSnapshot,
 } from '../../model/project'
 import type { GenerationQuoteRequest } from '../../contracts/generation'
-import { getOrderedReferences } from '../../model/project'
+import { createCanvasContentIndex, type CanvasContentIndex } from '../../model/canvasContentIndex'
 
 export type CanvasFlowNodeType =
   | 'image'
@@ -201,15 +202,20 @@ export function mapNode(
   }
 }
 
+const contentProjections = new WeakMap<CanvasContentIndex, Pick<ReactFlowProject, 'nodes' | 'edges'>>()
+
 export function mapProjectSnapshotToReactFlow(
   snapshot: ProjectSnapshot,
+  contentIndex = createCanvasContentIndex(snapshot.nodes, snapshot.edges),
 ): ReactFlowProject {
-  return {
+  const cached = canvasPerformanceFlags.indexedProjection ? contentProjections.get(contentIndex) : undefined
+  if (cached) return { ...cached, viewport: snapshot.viewport }
+  const result: ReactFlowProject = {
     viewport: { ...snapshot.viewport },
     nodes: snapshot.nodes.map((node, index) =>
       mapNode(
         node,
-        getOrderedReferences(snapshot, node.id).flatMap(({ edge, node: reference }) =>
+        contentIndex.orderedReferences(node.id).flatMap(({ edge, node: reference }) =>
           reference.type === 'image' || reference.type === 'video'
             ? [{
                 id: reference.id,
@@ -235,6 +241,8 @@ export function mapProjectSnapshotToReactFlow(
       },
     })),
   }
+  contentProjections.set(contentIndex, { nodes: result.nodes, edges: result.edges })
+  return result
 }
 
 export const mapFixtureToReactFlow = mapProjectSnapshotToReactFlow

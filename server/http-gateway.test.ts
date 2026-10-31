@@ -1,3 +1,4 @@
+import sharp from 'sharp'
 import { request as nodeRequest } from 'node:http'
 import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,6 +7,7 @@ import { Readable } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GenerationRequest, ProviderCatalog } from '../src/contracts/generation.ts'
 import { AssetStore } from './asset-store.ts'
+import { defaultInitialCanvas } from './canvas-storage.ts'
 import { DataDirectoryLock } from './data-directory-lock.ts'
 import * as gatewayModule from './http-gateway.ts'
 import { startGateway, type GatewayHandle } from './http-gateway.ts'
@@ -93,7 +95,7 @@ async function start(
       port: 0,
       dataDir,
       envFile: join(dataDir, '.env.local'),
-      env: { API_PROVIDER_AISTARTLAB_KEY: 'initial-secret-123456' },
+      env: { API_PROVIDER_AISTARTLAB_KEY: 'initial-secret-123456' }, // Synthetic fixture. gitleaks:allow
       adapterFactory: () => adapter(),
       ...options,
     })
@@ -298,6 +300,21 @@ describe('HTTP gateway', () => {
 
     expect(response.status).toBe(200)
     expect(await json(response)).toEqual({ canvasId, assetCount: 0 })
+  })
+
+  it('serves resized bytes and original dimensions without changing download bytes', async () => {
+    const gateway = await start()
+    const bytes = await sharp({ create: { width: 2048, height: 1024, channels: 4, background: '#4488aa80' } }).png().toBuffer()
+    const asset = await gateway.runtime.assets.save({ filename: 'preview.png', contentType: 'image/png', bytes })
+    const response = await fetch(gateway.origin + asset.url + '?preview=128')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('x-image-original-width')).toBe('2048')
+    expect(response.headers.get('cache-control')).toContain('immutable')
+    expect(await sharp(Buffer.from(await response.arrayBuffer())).metadata()).toMatchObject({ width: 128, height: 64, hasAlpha: true })
+    const head = await fetch(gateway.origin + asset.url + '?preview=128', { method: 'HEAD' })
+    expect(head.status).toBe(200); expect((await head.arrayBuffer()).byteLength).toBe(0)
+    expect((await fetch(gateway.origin + asset.url + '?preview=999999')).status).toBe(400)
+    expect(Buffer.from(await (await fetch(gateway.origin + asset.url)).arrayBuffer())).toEqual(bytes)
   })
 
   it('serves assets with CORS headers and responds to OPTIONS preflight', async () => {
@@ -667,7 +684,7 @@ describe('HTTP gateway', () => {
 
     const replaced = await fetch(`${gateway.origin}/api/providers/aistartlab/secret`, {
       method: 'PUT', headers: adminHeaders(gateway, { 'content-type': 'application/json' }),
-      body: JSON.stringify({ apiKey: 'replacement-secret-9876' }),
+      body: JSON.stringify({ apiKey: 'replacement-secret-9876' }), // Synthetic fixture. gitleaks:allow
     })
     expect(replaced.status).toBe(200)
     expect(JSON.stringify(await json(replaced))).not.toContain('replacement-secret-9876')
@@ -676,7 +693,7 @@ describe('HTTP gateway', () => {
       method: 'GET', headers: adminHeaders(gateway),
     })
     expect(revealed.status).toBe(200)
-    expect(await json(revealed)).toEqual({ apiKey: 'replacement-secret-9876' })
+    expect(await json(revealed)).toEqual({ apiKey: 'replacement-secret-9876' }) // Synthetic fixture. gitleaks:allow
 
     const cleared = await fetch(`${gateway.origin}/api/providers/aistartlab/secret`, { method: 'DELETE', headers: adminHeaders(gateway) })
     expect(cleared.status).toBe(200)
@@ -1191,6 +1208,64 @@ describe('HTTP gateway', () => {
     })).status).not.toBe(403)
   })
 
+  it.each(['http://127.0.0.1:4173', 'http://192.168.1.4:4173'])(
+    'reads Agent progress from %s without an Origin header on a LAN-bound gateway', async (browserOrigin) => {
+      const gateway = await start({
+        host: '0.0.0.0', publicOrigin: 'http://192.168.1.4:4173',
+        allowedOrigins: ['http://192.168.1.4:4173', 'http://127.0.0.1:4173'],
+        allowInsecureLan: true,
+        agentModel: async () => ({ text: '你好，任务已完成。', calls: [] }),
+      }, false)
+      await gateway.runtime.workspace.applyWorkspaceMutation({
+        protocolVersion: 1, operationId: 'seed-agent-auth', kind: 'save-canvas', expectedRevision: 0,
+        canvas: { ...defaultInitialCanvas('agent-auth', 'agent-project', 'Agent'), nodes: [], edges: [] },
+      })
+      const session = await fetch(`${gateway.origin}/api/local-admin/session`, {
+        method: 'POST', headers: { origin: browserOrigin },
+      })
+      expect(session.status).toBe(200)
+      const cookie = session.headers.get('set-cookie')!.split(';', 1)[0]
+      const created = await fetch(`${gateway.origin}/api/agent/runs`, {
+        method: 'POST', headers: { cookie, origin: browserOrigin, 'content-type': 'application/json' },
+        body: JSON.stringify({ requestId: 'greet', canvasId: 'agent-auth', expectedRevision: 1, prompt: '哈喽', attachments: [] }),
+      })
+      expect(created.status).toBe(202)
+      const { run } = await json(created)
+      await vi.waitFor(() => expect(gateway.runtime.agent.get(run.id).status).toBe('complete'))
+      // Same-origin browser GETs carry Referer, but normally omit Origin.
+      const headers = { cookie, referer: `${browserOrigin}/canvas?canvasId=agent-auth`, 'sec-fetch-site': 'same-origin' }
+      const listed = await fetch(`${gateway.origin}/api/agent/canvases/agent-auth/runs`, { headers })
+      expect(listed.status).toBe(200)
+      expect((await json(listed)).runs).toEqual([expect.objectContaining({ id: run.id, status: 'complete' })])
+      const detail = await fetch(`${gateway.origin}/api/agent/runs/${run.id}`, { headers })
+      expect(detail.status).toBe(200)
+      expect((await json(detail)).run.response).toBe('你好，任务已完成。')
+
+      for (const rejectedHeaders of [
+        { referer: headers.referer },
+        { ...headers, cookie: 'canvas_local_admin=invalid' },
+        { ...headers, 'x-collaboration-room': 'missing-room' },
+        { cookie },
+        { ...headers, referer: 'https://canvas.example/canvas' },
+        { ...headers, referer: 'not-a-url' },
+        { ...headers, referer: 'file://localhost/canvas' },
+        { ...headers, referer: 'http://user:password@127.0.0.1:4173/canvas' },
+        { ...headers, referer: 'http://localhost.attacker.example/canvas' },
+        { ...headers, origin: 'https://canvas.example' },
+        { ...headers, origin: 'null' },
+        { ...headers, origin: 'not-an-origin' },
+      ]) {
+        expect((await fetch(`${gateway.origin}/api/agent/runs/${run.id}`, { headers: rejectedHeaders })).status).toBe(403)
+      }
+      // Referer may authorize an existing session read, never bootstrap or mutate.
+      expect((await fetch(`${gateway.origin}/api/local-admin/session`, { method: 'POST', headers })).status).toBe(403)
+      const controlUrl = `${gateway.origin}/api/agent/runs/${run.id}/control`
+      const body = JSON.stringify({ requestId: 'stop', action: 'stop' })
+      expect((await fetch(controlUrl, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body })).status).toBe(403)
+      expect((await fetch(controlUrl, { method: 'POST', headers: { ...headers, origin: browserOrigin, 'content-type': 'application/json' }, body })).status).toBe(200)
+    },
+  )
+
   it('does not derive a public mutation origin from an attacker-controlled Host header', async () => {
     const gateway = await start({
       host: '0.0.0.0',
@@ -1393,7 +1468,7 @@ describe('HTTP gateway', () => {
       method: 'PUT', headers, body: JSON.stringify({ ...sameRequest, canvas: { ...canvas, name: '不同内容' } }),
     })).status).toBe(409)
     expect((await fetch(`${gateway.origin}/api/canvases/empty-canvas`, {
-      method: 'PUT', headers, body: JSON.stringify({ ...sameRequest, operationId: 'stale-http-write' }),
+      method: 'PUT', headers, body: JSON.stringify({ ...sameRequest, operationId: 'stale-http-write', canvas: { ...canvas, name: 'stale content edit' } }),
     })).status).toBe(409)
     expect(await json(await fetch(`${gateway.origin}/api/workspace/manifest`)))
       .toMatchObject({ workspaceRevision: 1, canvasRevisions: { 'empty-canvas': 1 } })

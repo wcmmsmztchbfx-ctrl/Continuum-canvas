@@ -4,6 +4,8 @@ import { assertWorkspaceReceipt, mergeWorkspaceVersions, type WorkspaceSyncStora
 
 export class WorkspaceSyncQueue {
   #running?: Promise<void>
+  #sending?: string
+  #paused?: Promise<void>
   readonly storage: WorkspaceSyncStorageBackend
   readonly send: (mutation: WorkspaceMutation) => Promise<WorkspaceMutationReceipt>
   readonly changed: (state: WorkspaceSyncState) => void
@@ -31,6 +33,7 @@ export class WorkspaceSyncQueue {
       }
       record.pending.push({ operationId: mutation.operationId, sequence: record.nextSequence++, mutation: structuredClone(mutation), status: 'pending' })
       if (mutation.kind === 'save-canvas') {
+        (record.localViewports ??= {})[mutation.canvas.canvasId] = structuredClone(mutation.canvas.viewport)
         record.localVersions.workspaceRevision++
         record.localVersions.canvasRevisions[mutation.canvas.canvasId] = mutation.expectedRevision + 1
       } else {
@@ -47,11 +50,13 @@ export class WorkspaceSyncQueue {
   async refresh(): Promise<void> {
     const { pending } = await this.storage.readSyncRecord()
     const blocked = pending.find((item) => item.status !== 'pending')
-    this.changed({ phase: blocked?.status ?? (pending.length ? 'pending' : 'synced'), pendingCount: pending.length, message: blocked?.message })
+    const sending = pending.some((item) => item.operationId === this.#sending)
+    this.changed({ phase: blocked?.status ?? (sending ? 'saving' : pending.length ? 'pending' : 'synced'), pendingCount: pending.length, message: blocked?.message })
   }
 
   async drain(): Promise<void> {
     for (;;) {
+      if (this.#paused) await this.#paused
       if (!this.#running) this.#running = this.#drain().finally(() => { this.#running = undefined })
       await this.#running
       // A caller may enqueue while the previous worker is finishing an empty
@@ -60,8 +65,24 @@ export class WorkspaceSyncQueue {
     }
   }
 
+  // Let an in-flight request settle before replacing its outbox branch. New
+  // drain callers wait; no uncertain write is deleted while it can still commit.
+  async withPaused<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.#paused) await this.#paused
+    let release!: () => void
+    this.#paused = new Promise<void>(resolve => { release = resolve })
+    try {
+      await this.#running?.catch(() => undefined)
+      return await operation()
+    } finally {
+      this.#paused = undefined
+      release()
+    }
+  }
+
   async #drain(): Promise<void> {
     for (;;) {
+      if (this.#paused) return
       const { pending } = await this.storage.readSyncRecord()
       const operation = pending[0]
       if (!operation) { await this.refresh(); return }
@@ -69,6 +90,7 @@ export class WorkspaceSyncQueue {
         await this.refresh()
         throw Object.assign(new Error(operation.message ?? '请先处理未同步的修改'), { status: operation.status === 'conflict' ? 409 : 400 })
       }
+      this.#sending = operation.operationId
       this.changed({ phase: 'saving', pendingCount: pending.length })
       try {
         const receipt = await this.send(operation.mutation)
@@ -77,6 +99,13 @@ export class WorkspaceSyncQueue {
           if (!record.pending.some((item) => item.operationId === receipt.operationId)) return undefined
           record.pending = record.pending.filter((item) => item.operationId !== receipt.operationId)
           mergeWorkspaceVersions(record.versions, receipt)
+          if (operation.mutation.kind === 'save-canvas') {
+            const canvas = operation.mutation.canvas
+            const revision = receipt.canvasRevisions[canvas.canvasId]
+            if (revision !== undefined && revision >= (record.canvasBases?.[canvas.canvasId]?.revision ?? 0)) {
+              (record.canvasBases ??= {})[canvas.canvasId] = { revision, canvas: structuredClone(canvas) }
+            }
+          }
           if (!record.pending.length) {
             record.localVersions = structuredClone(record.versions)
             // An idempotent replay may be older than another tab's known
@@ -88,6 +117,7 @@ export class WorkspaceSyncQueue {
         })
         this.confirmed(operation.mutation, receipt)
       } catch (error) {
+        this.#sending = undefined
         const status = (error as { status?: number })?.status
         const message = error instanceof Error ? error.message : '保存失败'
         await this.storage.transactSync((record) => {
@@ -100,6 +130,8 @@ export class WorkspaceSyncQueue {
         })
         await this.refresh()
         throw error
+      } finally {
+        this.#sending = undefined
       }
     }
   }

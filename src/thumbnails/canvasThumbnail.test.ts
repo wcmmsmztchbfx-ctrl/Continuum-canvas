@@ -27,6 +27,28 @@ const snapshot: CanvasSnapshotV2 = {
 }
 
 describe('canvas thumbnail rendering', () => {
+  it('serializes final cover encodes across different canvases', async () => {
+    const callbacks: BlobCallback[] = []
+    const context = { fillRect: vi.fn(), fillText: vi.fn() }
+    const createCanvas = () => ({ width: 0, height: 0, getContext: () => context,
+      toBlob: (callback: BlobCallback) => callbacks.push(callback) }) as unknown as HTMLCanvasElement
+    const first = renderCanvasThumbnail(snapshot, { createCanvas })
+    const second = renderCanvasThumbnail({ ...snapshot, canvasId: 'second' }, { createCanvas })
+    await vi.waitFor(() => expect(callbacks.length).toBeGreaterThan(0))
+    const initialEncodes = callbacks.length
+    callbacks[0](new Blob(['first']))
+    await vi.waitFor(() => expect(callbacks).toHaveLength(2))
+    callbacks[1](new Blob(['second']))
+    await Promise.all([first, second])
+    expect(initialEncodes).toBe(1)
+  })
+
+  it('invalidates a cover when the source version changes at the same URL', () => {
+    const image = { id: 'versioned', type: 'image' as const, name: 'versioned', position: { x: 0, y: 0 },
+      size: { width: 320, height: 180 }, data: { url: '/same.png', activeVersionId: 'v1' } }
+    expect(computeCanvasThumbnailHash({ ...snapshot, nodes: [image] })).not.toBe(
+      computeCanvasThumbnailHash({ ...snapshot, nodes: [{ ...image, data: { ...image.data, activeVersionId: 'v2' } }] }))
+  })
   it('hashes visual snapshot content deterministically without viewport', () => {
     const changedViewport = {
       ...snapshot,
@@ -96,6 +118,34 @@ describe('canvas thumbnail rendering', () => {
 })
 
 describe('CanvasThumbnailService', () => {
+  it('deletes after an already-started storage write so a cover cannot reappear', async () => {
+    let finish!: () => void
+    const events: string[] = []
+    const save = vi.fn(() => new Promise<void>(resolve => { finish = () => { events.push('saved'); resolve() } }))
+    const service = new CanvasThumbnailService({ load: async () => undefined, save,
+      delete: async () => { events.push('deleted') }, render: async () => new Blob(['cover']) })
+    service.schedule(snapshot)
+    const flushed = service.flush(snapshot.canvasId)
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    const removed = service.delete(snapshot.canvasId)
+    finish()
+    await Promise.all([flushed, removed])
+    expect(events).toEqual(['saved', 'deleted'])
+  })
+  it('discards an obsolete render and does not recreate a deleted cover', async () => {
+    let finish!: (blob: Blob) => void
+    const render = vi.fn(() => new Promise<Blob>(resolve => { finish = resolve }))
+    const save = vi.fn(async () => undefined)
+    const service = new CanvasThumbnailService({ load: async () => undefined, save, delete: async () => undefined, render })
+    service.schedule(snapshot)
+    const flushed = service.flush(snapshot.canvasId)
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1))
+    await service.delete(snapshot.canvasId)
+    finish(new Blob(['old']))
+    await flushed
+    expect(save).not.toHaveBeenCalled()
+  })
+
   it('debounces saves and skips rendering when persisted content hash matches', async () => {
     vi.useFakeTimers()
     const render = vi.fn(async () => new Blob(['new'], { type: 'image/webp' }))

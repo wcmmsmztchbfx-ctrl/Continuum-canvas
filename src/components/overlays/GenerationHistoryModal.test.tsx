@@ -80,7 +80,7 @@ describe('GenerationHistoryModal', () => {
     )
 
     expect(await screen.findByRole('dialog', { name: '生成历史' })).toBeVisible()
-    expect(screen.getByText('2026年7月17日')).toBeVisible()
+    expect(await screen.findByText('2026年7月17日')).toBeVisible()
     expect(screen.getByText('2026年7月16日')).toBeVisible()
     const cards = screen.getAllByTestId('generation-history-entry')
     expect(within(cards[0]!).getByText(newestImage.prompt)).toBeVisible()

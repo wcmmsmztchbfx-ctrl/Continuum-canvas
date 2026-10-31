@@ -1,3 +1,5 @@
+import { createCanvasContentIndex } from './canvasContentIndex.ts'
+
 export const PROJECT_SNAPSHOT_VERSION = 1 as const
 export const CANVAS_SNAPSHOT_VERSION = 3 as const
 export const LEGACY_CANVAS_SNAPSHOT_VERSION = 2 as const
@@ -1069,6 +1071,7 @@ function withoutLegacyReferenceIds(
 type NormalizableSnapshot = ProjectSnapshotV1 | CanvasSnapshotV2
 
 export function normalizeCanvasHierarchy(nodes: readonly CanvasNode[]): CanvasNode[] {
+  const sourceById = new Map(nodes.map(node => [node.id, node]))
   const ids = new Set(nodes.map((node) => node.id))
   const containers = new Set(nodes.flatMap((node) =>
     node.type === 'frame' || node.type === 'group' ? [node.id] : [],
@@ -1090,7 +1093,7 @@ export function normalizeCanvasHierarchy(nodes: readonly CanvasNode[]): CanvasNo
         break
       }
       visited.add(cursor)
-      cursor = parentById.get(cursor) ?? nodes.find((item) => item.id === cursor)?.parentId
+      cursor = parentById.get(cursor) ?? sourceById.get(cursor)?.parentId
     }
     parentById.set(node.id, cyclic ? undefined : candidate)
   }
@@ -1109,6 +1112,14 @@ export function normalizeCanvasHierarchy(nodes: readonly CanvasNode[]): CanvasNo
     const parentId = parentById.get(node.id)
     const legacyHidden = Boolean(node.data && 'hidden' in node.data && node.data.hidden === true)
     const legacyLocked = Boolean(node.data && 'locked' in node.data && node.data.locked === true)
+    const childIds = childrenByParent.get(node.id) ?? []
+    const childrenUnchanged = (node.type !== 'frame' && node.type !== 'group') ||
+      (Array.isArray(node.data.childIds) && node.data.childIds.length === childIds.length && node.data.childIds.every((id, i) => id === childIds[i]))
+    if (node.parentId === parentId && node.hidden === ((node.hidden ?? legacyHidden) || undefined) &&
+      node.locked === ((node.locked ?? legacyLocked) || undefined) && childrenUnchanged) {
+      normalized.set(node.id, node)
+      continue
+    }
     const { parentId: _legacyParentId, ...nodeWithoutParent } = node
     const base = {
       ...nodeWithoutParent,
@@ -1348,24 +1359,7 @@ export function getOrderedReferences(
   snapshot: ProjectSnapshot,
   targetNodeId: string,
 ): OrderedReference[] {
-  const nodeById = new Map(snapshot.nodes.map((node) => [node.id, node]))
-  return snapshot.edges
-    .filter(
-      (edge): edge is CanvasEdge & {
-        relation: 'reference'
-        referenceAlias: number
-      } =>
-        edge.target === targetNodeId &&
-        edge.relation === 'reference' &&
-        edge.referenceAlias !== undefined,
-    )
-    .map((edge) => ({ edge, node: nodeById.get(edge.source) }))
-    .filter((item): item is OrderedReference => item.node !== undefined)
-    .sort(
-      (left, right) =>
-        left.edge.referenceAlias - right.edge.referenceAlias ||
-        left.edge.id.localeCompare(right.edge.id),
-    )
+  return [...createCanvasContentIndex(snapshot.nodes, snapshot.edges).orderedReferences(targetNodeId)]
 }
 
 export interface PromptReferenceValidation {

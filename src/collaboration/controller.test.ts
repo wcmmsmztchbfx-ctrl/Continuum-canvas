@@ -219,6 +219,36 @@ function setup(input: {
 }
 
 describe('CanvasCollaborationController', () => {
+  it.each(['owner', 'editor'] as const)('waits for a durable collaboration checkpoint before an Agent run for %s', async role => {
+    const subject = setup({ serverSession: { ...owner, role } })
+    await subject.controller.enable('Member')
+    subject.store.getState().renameNode('text-a', 'Must reach the server')
+    let release!: () => void
+    let persistedName: string | undefined
+    subject.session.flush.mockImplementation(() => new Promise<void>(resolve => { release = () => { persistedName = subject.session.snapshot.nodes[0]!.name; resolve() } }))
+    let prepared = false
+    const pending = subject.controller.flushForAgent().then(() => { prepared = true })
+    await Promise.resolve()
+    expect(prepared).toBe(false)
+    release()
+    await pending
+    expect(persistedName).toBe('Must reach the server')
+    await subject.controller.destroy()
+  })
+
+  it('refuses to prepare an Agent run for a viewer or after losing the connection', async () => {
+    const viewer = setup({ serverSession: { ...owner, role: 'viewer' } })
+    await viewer.controller.enable('Viewer')
+    await expect(viewer.controller.flushForAgent()).rejects.toThrow()
+    expect(viewer.session.flush).not.toHaveBeenCalled()
+    await viewer.controller.destroy()
+    const subject = setup()
+    await subject.controller.enable('Owner')
+    subject.session.flush.mockImplementation(async () => { subject.session.emitStatus({ state: 'offline' }) })
+    await expect(subject.controller.flushForAgent()).rejects.toThrow()
+    await subject.controller.destroy()
+  })
+
   it.each(['leave', 'closeRoom'] as const)('refreshes the server checkpoint during %s without saving against the old revision', async (action) => {
     const subject = setup()
     await subject.controller.enable('Owner')

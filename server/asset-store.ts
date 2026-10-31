@@ -1,3 +1,4 @@
+import { AssetPreviewStore } from './asset-preview.ts'
 import { lookup as dnsLookup } from 'node:dns/promises'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, readFile, readdir, rename, rm } from 'node:fs/promises'
@@ -203,6 +204,7 @@ function parseRange(header: string | undefined, size: number): { start: number; 
 }
 
 export class AssetStore {
+  #previews?: AssetPreviewStore
   private filesRoot: string
   private indexPath: string
   private assets: StoredAsset[]
@@ -408,6 +410,13 @@ export class AssetStore {
       await atomicWriteJson(this.indexPath, [])
       await Promise.all(removable.map((asset) => rm(this.assetPath(asset), { force: true })))
     })
+  }
+
+  async getPreview(id: string, size: number, signal?: AbortSignal) {
+    const asset = this.requireAsset(id)
+    if (!asset.contentType.startsWith('image/')) throw new RangeError('Asset is not an image')
+    this.#previews ??= new AssetPreviewStore(join(this.filesRoot, '..', 'previews-v1'))
+    return this.#previews.get(id, this.assetPath(asset), size, signal)
   }
 
   async readBytes(id: string): Promise<Uint8Array> {

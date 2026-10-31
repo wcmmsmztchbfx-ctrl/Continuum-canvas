@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest'
+import { StrictMode } from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -10,7 +11,7 @@ import { VideoNode } from './VideoNode'
 afterEach(cleanup)
 
 describe('VideoNode', () => {
-  it('opens the generator immediately and moves capture actions into it', () => {
+  it('opens the generator on selection and moves capture actions into it', async () => {
     render(<ReactFlowProvider><VideoNode {...({
       id: 'video-a', selected: true, isConnectable: true,
       data: {
@@ -19,19 +20,19 @@ describe('VideoNode', () => {
       },
     } as never)} /></ReactFlowProvider>)
 
-    expect(screen.getByLabelText('视频生成描述')).toBeVisible()
+    expect(await screen.findByLabelText('视频生成描述')).toBeVisible()
     expect(screen.queryByRole('button', { name: /^生成$/ })).toBeNull()
     expect(screen.getByRole('button', { name: '截取首帧' })).toBeVisible()
     expect(screen.getByRole('button', { name: '截取当前帧' })).toBeVisible()
     expect(screen.getByRole('button', { name: '截取尾帧' })).toBeVisible()
   })
 
-  it('hides capture actions for an empty video node', () => {
+  it('hides capture actions for an empty video node', async () => {
     render(<ReactFlowProvider><VideoNode {...({
       id: 'video-empty', selected: true, isConnectable: true,
       data: { name: '空视频', mediaType: 'video', url: '', isSoleSelection: true },
     } as never)} /></ReactFlowProvider>)
-    expect(screen.getByLabelText('视频生成描述')).toBeVisible()
+    expect(await screen.findByLabelText('视频生成描述')).toBeVisible()
     expect(screen.queryByRole('button', { name: '截取当前帧' })).toBeNull()
   })
 
@@ -84,7 +85,7 @@ describe('VideoNode', () => {
     expect(screen.getByText('00:07 / 00:15')).toBeInTheDocument()
   })
 
-  it('remembers playback position and resumes when node is unmounted and remounted', () => {
+  it.each([0.2, 12])('remembers playback position %s and resumes when node is unmounted and remounted', (savedTime) => {
     const props = {
       id: 'video-resume-node', selected: true, isConnectable: true,
       data: {
@@ -108,22 +109,22 @@ describe('VideoNode', () => {
     fireEvent.loadedMetadata(video)
 
     const slider = screen.getByRole('slider', { name: '播放进度' }) as HTMLInputElement
-    // Seek to 12 seconds
-    fireEvent.change(slider, { target: { value: '12' } })
-    expect(video.currentTime).toBe(12)
+    fireEvent.change(slider, { target: { value: String(savedTime) } })
+    expect(video.currentTime).toBe(savedTime)
 
     // User navigates away / unmounts the node
     unmount()
 
     // User returns / remounts the node
     const view2 = render(
-      <ReactFlowProvider>
+      <StrictMode><ReactFlowProvider>
         <VideoNode {...props} />
-      </ReactFlowProvider>,
+      </ReactFlowProvider></StrictMode>,
     )
 
     // Should retain the 12s time display
-    expect(screen.getByText('00:12 / 00:00')).toBeInTheDocument()
+    const displayTime = '00:' + String(Math.floor(savedTime)).padStart(2, '0')
+    expect(screen.getByText(displayTime + ' / 00:00')).toBeInTheDocument()
 
     // When playing is started, the video element is mounted and restored to 12s
     fireEvent.click(screen.getByRole('button', { name: '播放' }))
@@ -134,8 +135,8 @@ describe('VideoNode', () => {
     Object.defineProperty(video2, 'currentTime', { value: 0, writable: true, configurable: true })
     fireEvent.loadedMetadata(video2)
 
-    expect(video2.currentTime).toBe(12)
-    expect(screen.getByText('00:12 / 00:30')).toBeInTheDocument()
+    expect(video2.currentTime).toBe(savedTime)
+    expect(screen.getByText(displayTime + ' / 00:30')).toBeInTheDocument()
   })
 })
 

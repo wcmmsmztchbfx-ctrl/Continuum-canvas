@@ -3,6 +3,7 @@ import type { StoreApi } from 'zustand/vanilla'
 import type { ReactFlowInstance } from '@xyflow/react'
 
 import type { CanvasNode, Point } from '../../model/project'
+import { createCanvasContentIndex } from '../../model/canvasContentIndex'
 import type { CanvasStoreState } from '../../store/canvas-store'
 import {
   rotatedBounds,
@@ -36,7 +37,7 @@ export function useCanvasSnapping({
     const excluded = new Set(excludedIds)
     const result: SnapRect[] = []
     const snapshot = store.getState().snapshot
-    const modelById = new Map(snapshot.nodes.map((candidate) => [candidate.id, candidate]))
+    const modelById = createCanvasContentIndex(snapshot.nodes, snapshot.edges).nodeById
     const liveNodes = typeof flowInstance?.getNodes === 'function'
       ? flowInstance.getNodes()
       : mapProjectSnapshotToReactFlow(snapshot).nodes
@@ -71,11 +72,12 @@ export function useCanvasSnapping({
     return result
   }, [flowInstance, store])
 
-  const deepestFrameAt = useCallback((center: Point, excludedIds: readonly string[]) => {
+  const deepestFrameAt = useCallback((center: Point, excludedIds: readonly string[], capturedCandidates?: readonly SnapRect[]) => {
     const excluded = new Set(excludedIds)
     const snapshotNow = store.getState().snapshot
-    const byId = new Map(snapshotNow.nodes.map((node) => [node.id, node]))
-    const indexById = new Map(snapshotNow.nodes.map((node, idx) => [node.id, idx]))
+    const index = createCanvasContentIndex(snapshotNow.nodes, snapshotNow.edges)
+    const byId = index.nodeById
+    const indexById = index.orderById
     const depthCache = new Map<string, number>()
     const getDepth = (node: CanvasNode | undefined): number => {
       if (!node) return 0
@@ -91,7 +93,7 @@ export function useCanvasSnapping({
       return value
     }
 
-    const candidates = snapCandidates(excludedIds)
+    const candidates = capturedCandidates ?? snapCandidates(excludedIds)
     let bestFrameId: string | undefined
     let bestDepth = -1
     let bestIndex = -1

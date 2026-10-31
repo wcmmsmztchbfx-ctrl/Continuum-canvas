@@ -29,8 +29,7 @@ export async function createCollaborativePair(createTestContext: ContextFactory)
 
   await owner.goto('/')
   await owner.getByRole('button', { name: '新建画布' }).click()
-  await owner.getByRole('textbox', { name: '名称' }).fill(`协作门禁-${Date.now()}`)
-  await owner.getByRole('textbox', { name: '名称' }).press('Enter')
+  await owner.getByRole('button', { name: '未命名画布，0 个节点', exact: true }).dblclick()
   await expect(owner.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'true')
   const nodeIds = [
     await addTextNode(owner, { x: 420, y: 310 }),

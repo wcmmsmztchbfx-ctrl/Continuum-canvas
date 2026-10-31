@@ -21,7 +21,7 @@ test.describe("14 - Media Import & Upload", () => {
     await expect.poll(() => image.evaluate((element) => ({
       width: (element as HTMLImageElement).naturalWidth,
       height: (element as HTMLImageElement).naturalHeight,
-      local: new URL((element as HTMLImageElement).src).pathname.startsWith("/api/assets/"),
-    }))).toEqual({ width: 320, height: 180, local: true })
+      local: new URL(element.getAttribute('data-source-url')!, location.href).pathname.startsWith("/api/assets/"),
+    }))).toEqual({ width: 128, height: 72, local: true })
   })
 })

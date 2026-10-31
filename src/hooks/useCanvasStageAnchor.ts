@@ -1,18 +1,32 @@
-import { useLayoutEffect, useRef, type RefObject } from 'react'
+import { useLayoutEffect, type RefObject } from 'react'
 import { flushSync } from 'react-dom'
 
+import { canvasDiagnostics } from '../performance/canvasDiagnostics'
 import { canvasStore } from '../store/canvas-store'
+import type { CanvasViewportRuntime } from '../components/canvas/canvasViewportRuntime'
 
-export function useCanvasStageAnchor(stageRef: RefObject<HTMLElement | null>, enabled: boolean) {
-  const measureRef = useRef<(() => void) | undefined>(undefined)
+export function useCanvasStageAnchor(stageRef: RefObject<HTMLElement | null>, enabled: boolean, camera?: CanvasViewportRuntime) {
 
   useLayoutEffect(() => {
     const stage = stageRef.current
     if (!enabled || !stage) return
     let active = true
+    let commitTimer: ReturnType<typeof setTimeout> | undefined
+    let layoutDirty = false
+    const commit = () => {
+      clearTimeout(commitTimer)
+      if (!layoutDirty || !camera) return
+      layoutDirty = false
+      const local = camera.getLocal(), display = camera.getDisplay()
+      // Following owns a different display camera; layout must not end that follow.
+      if (local.x !== display.x || local.y !== display.y || local.zoom !== display.zoom) return
+      canvasStore.getState().setViewport(local)
+    }
+    const onVisibility = () => { if (document.visibilityState === 'hidden') commit() }
     let previous: { left: number; top: number } | undefined
     const measure = (flush: boolean) => {
       if (!active) return
+      canvasDiagnostics.increment('layout.stageReads')
       const rect = stage.getBoundingClientRect()
       if (rect.width <= 0 || rect.height <= 0) {
         previous = undefined
@@ -25,6 +39,13 @@ export function useCanvasStageAnchor(stageRef: RefObject<HTMLElement | null>, en
       const dy = rect.top - before.top
       if (dx === 0 && dy === 0) return
       const compensate = () => {
+        if (camera) {
+          camera.compensateLayout(dx, dy)
+          layoutDirty = true
+          clearTimeout(commitTimer)
+          commitTimer = setTimeout(commit, 120)
+          return
+        }
         const state = canvasStore.getState()
         const viewport = state.snapshot.viewport
         state.setViewport({ ...viewport, x: viewport.x - dx, y: viewport.y - dy })
@@ -35,7 +56,6 @@ export function useCanvasStageAnchor(stageRef: RefObject<HTMLElement | null>, en
       else compensate()
     }
     measure(false)
-    measureRef.current = () => measure(false)
     const onLayout = () => measure(true)
     const resizeObserver = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(onLayout)
     resizeObserver?.observe(stage)
@@ -44,14 +64,18 @@ export function useCanvasStageAnchor(stageRef: RefObject<HTMLElement | null>, en
     const mutations = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver(onLayout)
     if (parent) mutations?.observe(parent, { attributes: true })
     window.addEventListener('resize', onLayout)
+    document.addEventListener('visibilitychange', onVisibility)
+    parent?.addEventListener('transitionend', commit)
+    window.addEventListener('pointerup', commit)
     return () => {
       active = false
-      measureRef.current = undefined
+      commit()
       resizeObserver?.disconnect()
       mutations?.disconnect()
       window.removeEventListener('resize', onLayout)
+      document.removeEventListener('visibilitychange', onVisibility)
+      parent?.removeEventListener('transitionend', commit)
+      window.removeEventListener('pointerup', commit)
     }
-  }, [enabled, stageRef])
-
-  useLayoutEffect(() => { measureRef.current?.() })
+  }, [enabled, stageRef, camera])
 }

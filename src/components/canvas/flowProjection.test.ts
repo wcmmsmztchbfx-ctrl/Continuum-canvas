@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createElement } from 'react'
 
 import type { CanvasFlowEdge, CanvasFlowNode } from './mapping'
 import { stabilizeProjectedEdges, stabilizeProjectedNodes } from './flowProjection'
@@ -18,6 +19,33 @@ function edge(id: string, linkedToSelected = false): CanvasFlowEdge {
 }
 
 describe('flow projection stability', () => {
+  it('treats editor elements as opaque values without traversing cyclic React owners', () => {
+    const editor = () => {
+      const owner: { current?: unknown } = {}
+      owner.current = owner
+      return { ...createElement('section', null, 'Editor'), _owner: owner }
+    }
+    const previous = [node('a'), node('b')]
+    previous[0]!.data.imageEditorContent = editor()
+    const incoming = [node('a'), node('b')]
+    incoming[0]!.data.imageEditorContent = editor()
+
+    const next = stabilizeProjectedNodes(previous, incoming)
+
+    expect(next[0]).toBe(incoming[0])
+    expect(next[1]).toBe(previous[1])
+    expect(stabilizeProjectedNodes(next, [...next])).toBe(next)
+  })
+
+  it('keeps fresh editor callbacks even when the rendered element shape is unchanged', () => {
+    const previous = [node('a')]
+    previous[0]!.data.imageEditorContent = createElement('button', { onClick: () => 'old-version' }, 'Save')
+    const incoming = [node('a')]
+    incoming[0]!.data.imageEditorContent = createElement('button', { onClick: () => 'new-version' }, 'Save')
+
+    expect(stabilizeProjectedNodes(previous, incoming)[0]).toBe(incoming[0])
+  })
+
   it('keeps unchanged node data and callback identity when model wrappers are recreated', () => {
     const previous = [node('a'), node('b')]
     const incoming = [node('a'), node('b', 20)]
