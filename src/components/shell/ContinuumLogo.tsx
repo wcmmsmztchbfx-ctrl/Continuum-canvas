@@ -1,10 +1,10 @@
-interface LibTvLogoProps {
+interface ContinuumLogoProps {
   size?: number
   className?: string
   variant?: 'color' | 'outline'
 }
 
-export function LibTvLogo({ size = 24, className = '', variant = 'color' }: LibTvLogoProps) {
+export function ContinuumLogo({ size = 24, className = '', variant = 'color' }: ContinuumLogoProps) {
   if (variant === 'outline') {
     return (
       <svg

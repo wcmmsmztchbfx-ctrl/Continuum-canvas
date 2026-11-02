@@ -2,6 +2,7 @@ import {
   Cable,
   Clock3,
   Copy,
+  ExternalLink,
   LayoutDashboard,
   PanelTop,
   Pencil,
@@ -21,7 +22,7 @@ import type {
   WorkspaceProject,
 } from '../../workspace/model'
 import { useActiveCollaboration } from '../../collaboration/activeCollaborationStore'
-import { LibTvLogo } from '../shell/LibTvLogo'
+import { ContinuumLogo } from '../shell/ContinuumLogo'
 import './workspace-home.css'
 
 type WorkspaceFilter = 'all' | 'recent' | 'favorites' | 'trash'
@@ -243,25 +244,6 @@ function CanvasCard({
   )
 }
 
-function GithubIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      height={size}
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      viewBox="0 0 24 24"
-      width={size}
-    >
-      <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
-      <path d="M9 18c-4.51 2-5-2-7-2" />
-    </svg>
-  )
-}
-
 export function WorkspaceHomeView(props: WorkspaceHomeViewProps) {
   const { manifest } = props
   const [filter, setFilter] = useState<WorkspaceFilter>('all')
@@ -304,7 +286,7 @@ export function WorkspaceHomeView(props: WorkspaceHomeViewProps) {
     <main className="workspace-home" data-testid="workspace-home">
       <aside className="workspace-home__rail" aria-label="工作区导航">
         <div className="workspace-home__brand">
-          <span aria-hidden="true"><LibTvLogo /></span>
+          <span aria-hidden="true"><ContinuumLogo /></span>
           <strong>工作区</strong>
           {props.onSyncStatusHost && <div className="workspace-home__save-status" ref={props.onSyncStatusHost} />}
         </div>
@@ -340,7 +322,7 @@ export function WorkspaceHomeView(props: WorkspaceHomeViewProps) {
             rel="noreferrer"
             target="_blank"
           >
-            <GithubIcon size={14} />
+            <ExternalLink aria-hidden="true" size={14} />
             <span>项目主页</span>
             <span className="workspace-home__badge">NEW</span>
           </a>

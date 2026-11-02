@@ -7,7 +7,7 @@ import type { CanvasStoreState } from '../../store/types'
 import { absolutePositions } from '../../store/storeHelpers'
 import { AgentRuntimeClient, AgentRuntimeError, mergeAgentRuns, prepareAgentAttachment, type AgentImageSource, type AgentStatus } from '../../services/agent/agentRuntimeClient'
 import { createBrowserUuid } from '../../utils/id'
-import { LibTvLogo } from '../shell/LibTvLogo'
+import { ContinuumLogo } from '../shell/ContinuumLogo'
 import { ManagedMediaImage } from '../canvas/ManagedMediaImage'
 import { AgentRunCard } from './agent/AgentRunCard'
 import { useAgentConversations, type ConversationSession } from './agent/useAgentConversations'
@@ -218,7 +218,7 @@ function AgentConversationPanel({ onNotify, store = canvasStore, onOpenProviderD
   }, [store, onNotify])
 
   return <div aria-label="Agent 智能助手" className="sidebar-agent-panel agent-runtime-shell">
-    <header className="agent-runtime-header"><div className="agent-runtime-title"><LibTvLogo size={21} variant="outline" /><div><h2>画布 Agent</h2><span>{readOnly ? '仅房主可用' : status?.configured === false ? '未接入大模型' : status?.model || '后台任务'}</span></div></div><div className="agent-runtime-header-actions">{readOnly ? <span className="agent-runtime-muted"><Lock size={12} /> 已锁定</span> : onOpenProviderDrawer && <button type="button" aria-label="管理 API 接入" onClick={onOpenProviderDrawer}><ServerCog size={16} /></button>}</div></header>
+    <header className="agent-runtime-header"><div className="agent-runtime-title"><ContinuumLogo size={21} variant="outline" /><div><h2>画布 Agent</h2><span>{readOnly ? '仅房主可用' : status?.configured === false ? '未接入大模型' : status?.model || '后台任务'}</span></div></div><div className="agent-runtime-header-actions">{readOnly ? <span className="agent-runtime-muted"><Lock size={12} /> 已锁定</span> : onOpenProviderDrawer && <button type="button" aria-label="管理 API 接入" onClick={onOpenProviderDrawer}><ServerCog size={16} /></button>}</div></header>
     <div className="agent-runtime-conversations">
       <select aria-label="选择对话" value={conversationId} disabled={busy} onChange={event => onChooseConversation(event.target.value)}>{conversationOptions.map(option => <option key={option.id} value={option.id}>{option.title}{option.active ? ' · 进行中' : ''}</option>)}</select>
       <button type="button" aria-label="新建对话" title="新建独立对话" disabled={readOnly || busy} onClick={onNewConversation}><Plus size={15} />新对话</button>
@@ -227,7 +227,7 @@ function AgentConversationPanel({ onNotify, store = canvasStore, onOpenProviderD
       {readOnly && <div className="agent-runtime-notice"><Lock size={18} /><h3>多人协作模式已启用</h3><p>当前 Agent 仅限房主操作。任务结果会同步到画布。</p></div>}
       {!readOnly && status?.configured === false && <div className="agent-runtime-notice"><h3>尚未接入 Agent 大模型</h3><p>配置对话大模型后，即可提交画布任务。</p>{onOpenProviderDrawer && <button type="button" onClick={onOpenProviderDrawer}><ServerCog size={14} />前往配置 API</button>}</div>}
       {legacy.length > 0 && <details className="agent-runtime-legacy" open><summary>历史对话 · 只读</summary>{legacy.length > visibleLegacyCount && <button type="button" onClick={() => setVisibleLegacyCount(count => count + 40)}>显示更早对话</button>}{legacy.slice(-visibleLegacyCount).map(message => <p key={message.id} className={message.role === 'user' ? 'agent-runtime-user-message' : ''}>{message.content}</p>)}</details>}
-      {runs.length === 0 && legacy.length === 0 && !readOnly && status?.configured !== false && <div className="agent-runtime-empty"><LibTvLogo size={36} variant="outline" /><h3>下一步做什么？</h3><p>描述目标，Agent 会在画布上执行并记录结果。</p><div className="agent-runtime-suggestions">{['生成一个苹果', '整理选中节点的排版', '只写三组分镜提示词'].map(prompt => <button type="button" key={prompt} onClick={() => saveDraft({ ...draftRef.current, prompt })}>{prompt}</button>)}</div></div>}
+      {runs.length === 0 && legacy.length === 0 && !readOnly && status?.configured !== false && <div className="agent-runtime-empty"><ContinuumLogo size={36} variant="outline" /><h3>下一步做什么？</h3><p>描述目标，Agent 会在画布上执行并记录结果。</p><div className="agent-runtime-suggestions">{['生成一个苹果', '整理选中节点的排版', '只写三组分镜提示词'].map(prompt => <button type="button" key={prompt} onClick={() => saveDraft({ ...draftRef.current, prompt })}>{prompt}</button>)}</div></div>}
       {runs.length > visibleRunCount && <button type="button" className="agent-runtime-more" onClick={() => setVisibleRunCount(count => count + 20)}>显示更早任务</button>}
       {runs.slice(-visibleRunCount).map(run => <AgentRunCard key={run.id} run={run} readOnly={readOnly} busy={busy} onControl={handleControl} onAnswer={handleAnswer} onLocate={handleLocate} animateResponse={!!run.response && historicalResponses.current !== null && historicalResponses.current.get(run.id) !== run.response} onResponseProgress={() => { if (following.current && chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }} />)}
       {connectionError && <p className="agent-runtime-error" role="status">{connectionError}。后台任务不会因侧栏关闭而停止。</p>}

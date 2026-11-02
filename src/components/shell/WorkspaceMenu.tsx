@@ -1,5 +1,5 @@
 import { ChevronDown } from 'lucide-react'
-import { LibTvLogo } from './LibTvLogo'
+import { ContinuumLogo } from './ContinuumLogo'
 
 export interface WorkspaceMenuProps {
   canvasName?: string
@@ -26,7 +26,7 @@ export function WorkspaceMenu({
         data-testid={testId}
         title="正在参与他人发起的协作画布"
       >
-        <LibTvLogo
+        <ContinuumLogo
           className="workspace-menu__mark"
           size={18}
           variant="outline"
@@ -49,7 +49,7 @@ export function WorkspaceMenu({
       title="工作区与画布"
       type="button"
     >
-      <LibTvLogo
+      <ContinuumLogo
         className="workspace-menu__mark"
         size={18}
         variant="outline"

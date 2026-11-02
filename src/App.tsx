@@ -28,7 +28,7 @@ import {
 } from './components/overlays'
 import {
   BottomStatusBar,
-  LibTvLogo,
+  ContinuumLogo,
   ToolDock,
   WorkspaceMenu,
   type ToolDockTool,
@@ -1218,7 +1218,7 @@ export default function App({
             title="工作区与画布"
             type="button"
           >
-            <LibTvLogo size={16} variant="outline" />
+            <ContinuumLogo size={16} variant="outline" />
           </button>
           <div className="app-layer-sidebar__rail-divider" />
           <button

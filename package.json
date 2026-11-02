@@ -1,6 +1,11 @@
 {
   "name": "continuum",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wcmmsmztchbfx-ctrl/Continuum-canvas.git"
+  },
   "version": "0.0.0",
   "description": "Continuum 连点成片 - 基于 React Flow 的无限 AI 影视创作画布与专业矢量设计系统",
   "type": "module",
@@ -17,6 +22,7 @@
     "start": "node server/main.ts --production",
     "build": "tsc -b && vite build",
     "lint": "oxlint --deny-warnings",
+    "licenses:update": "node scripts/third-party-notices.mjs",
     "test": "vitest run src",
     "test:server": "vitest run server --maxWorkers=1",
     "test:watch": "vitest src",

@@ -21,6 +21,7 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_CANVAS_PUBLIC_ORIGIN': JSON.stringify(resolveCanvasPublicOrigin(env)),
     },
     build: {
+      license: { fileName: 'third-party-licenses.md' },
       rolldownOptions: {
         output: {
           codeSplitting: {

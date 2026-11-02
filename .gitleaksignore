@@ -1,0 +1,6 @@
+# Reviewed synthetic test fixtures from commits before inline gitleaks:allow
+# annotations were added. Exact fingerprints only; new findings remain visible.
+20ed7cefb684d5b1ee4db3cd9a39bae6422e9859:server/agent-config-store.test.ts:generic-api-key:34
+6bb007542fad745339769f015f487c2536605b34:server/http-gateway.test.ts:generic-api-key:652
+8c952542362b634e3b7c9de619b67feaedccb8e5:server/http-gateway.test.ts:generic-api-key:96
+8c952542362b634e3b7c9de619b67feaedccb8e5:server/http-gateway.test.ts:generic-api-key:643
