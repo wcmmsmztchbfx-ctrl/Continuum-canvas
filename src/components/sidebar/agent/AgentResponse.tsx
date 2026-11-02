@@ -1,10 +1,20 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 interface Props { text: string; animate?: boolean; onProgress?: () => void }
+const graphemes = (text: string) => typeof Intl.Segmenter === 'function' ? Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text), part => part.segment) : Array.from(text)
+function inheritedCount(previous: { text: string; count: number }, text: string, segments: string[]): number {
+  if (previous.text === text) return Math.min(previous.count, segments.length)
+  if (!text.startsWith(previous.text)) return 0
+  const visibleLength = graphemes(previous.text).slice(0, previous.count).join('').length
+  let length = 0; let count = 0
+  for (const segment of segments) { length += segment.length; if (length > visibleLength) break; count++ }
+  return count
+}
 export function AgentResponse({ text, animate = false, onProgress }: Props) {
-  const segments = useMemo(() => typeof Intl.Segmenter === 'function' ? Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text), part => part.segment) : Array.from(text), [text])
+  const segments = useMemo(() => graphemes(text), [text])
   const [reduced, setReduced] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
   const [frame, setFrame] = useState({ text, count: animate && !reduced ? 0 : segments.length })
+  const previousFrame = useRef(frame); previousFrame.current = frame
   const timer = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const progress = useRef(onProgress); progress.current = onProgress
   useEffect(() => {
@@ -16,8 +26,9 @@ export function AgentResponse({ text, animate = false, onProgress }: Props) {
   }, [])
   useEffect(() => {
     if (!animate || reduced) { setFrame({ text, count: segments.length }); return }
-    let count = 0
+    let count = inheritedCount(previousFrame.current, text, segments)
     setFrame({ text, count })
+    if (count === segments.length) return
     // Short answers advance one grapheme at a time. Long replies catch up in
     // bounded time instead of making a complete answer take minutes to read.
     const step = Math.max(1, Math.ceil(segments.length / 400))
@@ -27,7 +38,7 @@ export function AgentResponse({ text, animate = false, onProgress }: Props) {
     }, 20)
     return () => { clearInterval(timer.current); timer.current = undefined }
   }, [text, animate, reduced, segments])
-  const count = !animate || reduced ? segments.length : frame.text === text ? frame.count : 0
+  const count = !animate || reduced ? segments.length : inheritedCount(frame, text, segments)
   useLayoutEffect(() => { progress.current?.() }, [count, text])
   const typing = count < segments.length
   if (!animate || reduced) return <p className="agent-runtime-response">{text}</p>

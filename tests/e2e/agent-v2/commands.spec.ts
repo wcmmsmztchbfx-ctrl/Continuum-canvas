@@ -13,7 +13,7 @@ test('v2 command discovery, commit receipts, reload and Agent undo preserve manu
   await page.getByRole('button', { name: 'Agent 助手', exact: true }).click()
   await page.getByLabel('Agent 指令输入框').fill('新版画布操作验收：创建标题并设置样式')
   await page.getByRole('button', { name: '发送', exact: true }).click()
-  await expect(page.getByText('已创建标题、设置样式并回读核验', { exact: true })).toBeVisible()
+  await expect(page.locator('[data-agent-visible-text]').last()).toHaveText('已创建标题、设置样式并回读核验')
   await expect(page.getByText(/已提交并核验/)).toHaveCount(2)
   await expect(page.locator('.react-flow__node-text')).toHaveCount(1)
   await page.evaluate(() => window.__canvasStore!.getState().addNode({ id: 'manual-after-v2', type: 'text', name: '人工草稿', position: { x: 450, y: 200 }, size: { width: 150, height: 100 }, data: { text: '保留人工内容' } }))

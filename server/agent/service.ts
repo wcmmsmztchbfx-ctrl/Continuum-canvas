@@ -205,7 +205,14 @@ export class CanvasAgentService {
         this.event(record, 'status', '继续任务')
       } else if (input.action === 'message') {
         if (record.stopped || record.undone || record.run.status === 'complete') throw new AgentError(409, 'run_finished', '任务已结束，请创建新任务。')
-        const message = text(input.message, 8000); record.messages.push({ role: 'user', content: message }); record.intentVersion++
+        const message = text(input.message, 8000)
+        if (record.pendingWrite) {
+          const pendingId = record.pendingWrite.operationId
+          await this.applyPendingWrite(record)
+          const operation = record.operations.find(o => o.id === pendingId)
+          if (operation?.state === 'complete' && record.pendingCalls[0]?.id === operation.call.id) this.finishCall(record, operation)
+        }
+        record.messages.push({ role: 'user', content: message }); record.intentVersion++
         this.skipPending(record, '用户补充了要求，重新规划未执行步骤。', true)
         this.updateGenerationAuthorization(record, message)
         if (planOnly(message)) record.writeAuthorized = false
@@ -255,8 +262,11 @@ export class CanvasAgentService {
     queueMicrotask(() => {
       const blocked = new Set<string>()
       const busyCanvases = new Set([...this.flights.keys()].map(id => this.require(id).run.canvasId))
-      for (const record of this.store.records.values()) {
+      const ordered = [...this.store.records.values()].sort((a, b) => a.run.createdAt.localeCompare(b.run.createdAt) || a.run.id.localeCompare(b.run.id))
+      for (const record of ordered) {
         if (terminal.has(record.run.status)) continue
+        const parent = record.run.previousRunId ? this.store.records.get(record.run.previousRunId) : undefined
+        if (parent && parent.run.canvasId === record.run.canvasId && conversationIdOf(parent.run) === conversationIdOf(record.run) && !terminal.has(parent.run.status)) continue
         const lane = JSON.stringify([record.run.canvasId, conversationIdOf(record.run)])
         if (blocked.has(lane)) continue
         blocked.add(lane)

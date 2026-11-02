@@ -19,7 +19,7 @@ export function budgetFallback(record: StoredRun): string {
 }
 export function publicConversationRun(record: StoredRun): AgentRun {
   const run = structuredClone(record.run)
-  if (!run.response && run.error?.code === 'run_limit') run.response = budgetFallback(record)
+  if (run.status === 'paused' && !run.response && run.error?.code === 'run_limit') run.response = budgetFallback(record)
   return run
 }
 

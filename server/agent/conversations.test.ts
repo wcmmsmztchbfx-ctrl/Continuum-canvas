@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -109,6 +109,40 @@ describe('canvas conversation boundaries and closing answers', () => {
     await f.runtime.agent.answer(parent.id, { requestId: 'answer', questionId: f.runtime.agent.get(parent.id).question!.id, answer: 'A' })
     await vi.waitFor(() => expect(f.runtime.agent.get(child.id).status).toBe('complete'))
     expect(model.mock.calls.at(-1)![0].messages).toContainEqual({ role: 'assistant', content: '上一个任务已经完成' })
+  })
+  it('preserves parent-before-child FIFO after restart even when UUID order and timestamps tie', async () => {
+    const f = await fixture(async () => call('ask_user', { title: '先回答', options: ['A', 'B'] }))
+    const parent = await f.runtime.agent.create({ ...f.input, prompt: 'Parent' }, { kind: 'local-admin' }); await vi.waitFor(() => expect(f.runtime.agent.get(parent.id).status).toBe('waiting_user'))
+    const child = await f.runtime.agent.create({ ...f.input, requestId: 'child', previousRunId: parent.id, prompt: 'Child' }, { kind: 'local-admin' })
+    await f.runtime.close(); opened.splice(opened.indexOf(f.runtime), 1)
+    const ids = { parent: 'ffffffff-ffff-4fff-8fff-ffffffffffff', child: '00000000-0000-4000-8000-000000000000' }
+    for (const [kind, oldId] of [['parent', parent.id], ['child', child.id]] as const) {
+      const path = join(f.dataDir, 'agent-runs', `${oldId}.json`); const saved = JSON.parse(await readFile(path, 'utf8'))
+      saved.run.id = ids[kind]; saved.run.createdAt = '2026-11-02T00:00:00.000Z'
+      if (kind === 'child') saved.run.previousRunId = ids.parent
+      await writeFile(join(f.dataDir, 'agent-runs', `${ids[kind]}.json`), JSON.stringify(saved)); await rm(path)
+    }
+    const model = vi.fn<AgentModel>(async ({ system }) => ({ text: system.includes('"currentPrompt":"Parent"') ? 'Parent finished' : 'Child finished', calls: [] }))
+    const restored = await createGatewayRuntime({ dataDir: f.dataDir, envFile: join(f.dataDir, '.env'), env: {}, agentModel: model }); opened.push(restored)
+    await restored.agent.idle()
+    expect(restored.agent.get(ids.child).status).toBe('queued'); expect(model).not.toHaveBeenCalled()
+    await restored.agent.answer(ids.parent, { requestId: 'answer-parent', questionId: restored.agent.get(ids.parent).question!.id, answer: 'A' })
+    await vi.waitFor(() => expect(restored.agent.get(ids.child).status).toBe('complete'))
+    expect(model.mock.calls.at(-1)![0].messages).toContainEqual({ role: 'assistant', content: 'Parent finished' })
+  })
+  it('reconciles an ambiguous write before a paused message replans, preserving receipts and undo', async () => {
+    let step = 0
+    const f = await fixture(async () => ++step <= 2 ? call('run_canvas_command', { command: 'nodes.create', parameters: { type: 'text', name: `Node${step}` }, expectedRevision: step }) : { text: '两项操作已保存', calls: [] })
+    const apply = f.runtime.workspace.applyWorkspaceMutation.bind(f.runtime.workspace); let lost = false
+    f.runtime.workspace.applyWorkspaceMutation = async mutation => { const receipt = await apply(mutation); if (mutation.operationId.startsWith('agent-op-') && !lost) { lost = true; throw new Error('lost commit response') }; return receipt }
+    const run = await f.runtime.agent.create(f.input, { kind: 'local-admin' }); await vi.waitFor(() => expect(f.runtime.agent.get(run.id).status).toBe('paused'))
+    await f.runtime.agent.control(run.id, { requestId: 'follow-up', action: 'message', message: '继续并回答问题' })
+    await vi.waitFor(() => expect(f.runtime.agent.get(run.id).status).toBe('complete'))
+    const saved = JSON.parse(await readFile(join(f.dataDir, 'agent-runs', `${run.id}.json`), 'utf8'))
+    expect(saved.operations[0]).toMatchObject({ state: 'complete', result: { committed: true } })
+    expect(saved.pendingWrite).toBeUndefined()
+    await f.runtime.agent.control(run.id, { requestId: 'undo', action: 'undo' })
+    expect((await f.runtime.workspace.getCanvasRecord('c1'))!.snapshot!.nodes).toHaveLength(0)
   })
   it('uses exactly one tool-free closing turn at the step limit, without raising media budgets', async () => {
     const model = vi.fn<AgentModel>(async ({ tools }) => tools.length ? call('read_canvas', {}) : { text: '已核对画布，本轮未创建节点。后续操作已暂停，可继续处理。', calls: [] })
