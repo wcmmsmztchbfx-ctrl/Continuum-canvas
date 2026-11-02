@@ -160,8 +160,8 @@ export class CanvasAgentExecutor {
       if (item.id) nodeIdMap.set(item.id, nodeId)
 
       // 联动计算画幅比例与尺寸
-      let width = 384
-      let height = 216
+      let width: number
+      let height: number
       if (item.size && item.size.width > 0 && item.size.height > 0) {
         width = item.size.width
         height = item.size.height

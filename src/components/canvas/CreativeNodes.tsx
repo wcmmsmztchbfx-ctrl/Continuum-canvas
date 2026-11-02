@@ -41,7 +41,7 @@ function SelectionChrome({ id, data, node, selected }: { id: string; data: Canva
   const [previewRotation, setPreviewRotation] = useState(node.data.rotation ?? 0)
   const previewRotationRef = useRef(previewRotation)
   const rotating = useRef(false)
-  let zoom = 1
+  let zoom: number
   try {
     zoom = useReactFlowStore((s) => s.transform[2])
   } catch {
@@ -110,7 +110,7 @@ function resizer(id: string, data: CanvasFlowNode['data'], selected: boolean) {
 
 function FrameNodeContent({ id, data, selected }: NodeProps<CanvasFlowNode>) {
   const node = data.node
-  let zoom = 1
+  let zoom: number
   try {
     zoom = useReactFlowStore((s) => s.transform[2])
   } catch {
@@ -188,7 +188,7 @@ export const FrameNode = memo(FrameNodeContent)
 
 function ShapeNodeContent({ id, data, selected }: NodeProps<CanvasFlowNode>) {
   const node = data.node as ShapeModel | undefined
-  let zoom = 1
+  let zoom: number
   try {
     zoom = useReactFlowStore((s) => s.transform[2])
   } catch {

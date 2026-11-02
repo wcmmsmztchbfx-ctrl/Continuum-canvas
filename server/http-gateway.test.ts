@@ -9,6 +9,7 @@ import type { GenerationRequest, ProviderCatalog } from '../src/contracts/genera
 import { AssetStore } from './asset-store.ts'
 import { defaultInitialCanvas } from './canvas-storage.ts'
 import { DataDirectoryLock } from './data-directory-lock.ts'
+import { LocalAdminService } from './local-admin-service.ts'
 import * as gatewayModule from './http-gateway.ts'
 import { startGateway, type GatewayHandle } from './http-gateway.ts'
 import { resolveMainOptions } from './main.ts'
@@ -416,6 +417,45 @@ describe('HTTP gateway', () => {
       fetch(`${gateway.origin}/api/local-admin/session`, { method: 'POST' }),
     ])
     expect(responses.map((response) => response.status).sort()).toEqual([200, 403])
+  })
+
+  it.each(['configured public origin', 'running tunnel'])('rejects unauthenticated administrator bootstrap through a %s', async (exposure) => {
+    const gateway = await start(exposure === 'configured public origin'
+      ? { publicOrigin: 'https://canvas.example', allowedOrigins: ['https://canvas.example'] }
+      : {}, false)
+    if (exposure === 'running tunnel') {
+      await gateway.runtime.tunnel.setCustomUrl('https://canvas.example')
+      await gateway.runtime.tunnel.startCustomMode()
+    }
+    for (const origin of ['http://127.0.0.1:4173', 'http://192.168.1.4:4173']) {
+      const response = await fetch(`${gateway.origin}/api/local-admin/session`, {
+        method: 'POST', headers: { origin },
+      })
+      expect(response.status).toBe(403)
+      expect(response.headers.get('set-cookie')).toBeNull()
+    }
+  })
+
+  it('preserves the existing administrator credential when a tunnel caller requests recovery with a forged local Origin', async () => {
+    const gateway = await start()
+    const adminCookie = localAdminCookies.get(gateway)!
+    await gateway.runtime.tunnel.setCustomUrl('https://canvas.example')
+    await gateway.runtime.tunnel.startCustomMode()
+    const metadataBefore = await readFile(join(gateway.runtime.dataDir, 'local-admin.json'), 'utf8')
+    for (const cookie of [undefined, 'canvas_local_admin=forged']) {
+      const response = await fetch(`${gateway.origin}/api/local-admin/session`, {
+        method: 'POST', headers: { origin: 'http://127.0.0.1:4173', ...(cookie ? { cookie } : {}) },
+      })
+      expect(response.status).toBe(403)
+      expect(response.headers.get('set-cookie')).toBeNull()
+    }
+    expect(await readFile(join(gateway.runtime.dataDir, 'local-admin.json'), 'utf8')).toBe(metadataBefore)
+    const resumed = await fetch(`${gateway.origin}/api/local-admin/session`, {
+      method: 'POST', headers: { origin: 'http://127.0.0.1:4173', cookie: adminCookie },
+    })
+    expect(resumed.status).toBe(200)
+    expect(await json(resumed)).toEqual({ ok: true, created: false })
+    expect(resumed.headers.get('set-cookie')).toBeNull()
   })
 
   it('accepts projectId on new generation job submissions', async () => {
@@ -1193,13 +1233,15 @@ describe('HTTP gateway', () => {
     expect(registration.status).toBe(403)
   })
 
-  it('allows a loopback browser origin to establish local administration on a LAN-bound gateway', async () => {
+  it('resumes an existing local administrator from a loopback browser origin on a LAN-bound gateway', async () => {
     const dataDir = await tempDirectory()
     const loopbackOrigin = 'http://127.0.0.1:4173'
     const localGateway = await start({ dataDir }, false)
-    expect((await fetch(`${localGateway.origin}/api/local-admin/session`, {
+    const initialized = await fetch(`${localGateway.origin}/api/local-admin/session`, {
       method: 'POST',
-    })).status).toBe(200)
+    })
+    expect(initialized.status).toBe(200)
+    const adminCookie = initialized.headers.get('set-cookie')!.split(';', 1)[0]
     await localGateway.close()
     handles.splice(handles.indexOf(localGateway), 1)
 
@@ -1213,12 +1255,11 @@ describe('HTTP gateway', () => {
 
     const registration = await fetch(`${gateway.origin}/api/local-admin/session`, {
       method: 'POST',
-      headers: { origin: loopbackOrigin },
+      headers: { origin: loopbackOrigin, cookie: adminCookie },
     })
-    const adminCookie = registration.headers.get('set-cookie')?.split(';', 1)[0]
 
     expect(registration.status).toBe(200)
-    expect(adminCookie).toBeTruthy()
+    expect(registration.headers.get('set-cookie')).toBeNull()
     expect((await fetch(`${gateway.origin}/api/providers/aistartlab/test`, {
       method: 'POST',
       headers: {
@@ -1230,8 +1271,11 @@ describe('HTTP gateway', () => {
 
   it.each(['http://127.0.0.1:4173', 'http://192.168.1.4:4173'])(
     'reads Agent progress from %s without an Origin header on a LAN-bound gateway', async (browserOrigin) => {
+      const dataDir = await tempDirectory()
+      const initialized = await (await LocalAdminService.open({ dataDir })).registerOrResume()
+      const cookie = `canvas_local_admin=${initialized.token!}`
       const gateway = await start({
-        host: '0.0.0.0', publicOrigin: 'http://192.168.1.4:4173',
+        dataDir, host: '0.0.0.0', publicOrigin: 'http://192.168.1.4:4173',
         allowedOrigins: ['http://192.168.1.4:4173', 'http://127.0.0.1:4173'],
         allowInsecureLan: true,
         agentModel: async () => ({ text: '你好，任务已完成。', calls: [] }),
@@ -1241,10 +1285,10 @@ describe('HTTP gateway', () => {
         canvas: { ...defaultInitialCanvas('agent-auth', 'agent-project', 'Agent'), nodes: [], edges: [] },
       })
       const session = await fetch(`${gateway.origin}/api/local-admin/session`, {
-        method: 'POST', headers: { origin: browserOrigin },
+        method: 'POST', headers: { origin: browserOrigin, cookie },
       })
       expect(session.status).toBe(200)
-      const cookie = session.headers.get('set-cookie')!.split(';', 1)[0]
+      expect(session.headers.get('set-cookie')).toBeNull()
       const created = await fetch(`${gateway.origin}/api/agent/runs`, {
         method: 'POST', headers: { cookie, origin: browserOrigin, 'content-type': 'application/json' },
         body: JSON.stringify({ requestId: 'greet', canvasId: 'agent-auth', expectedRevision: 1, prompt: '哈喽', attachments: [] }),
@@ -1636,6 +1680,20 @@ describe('HTTP gateway', () => {
     expect(cleanRes.status).toBe(200)
     const cleanData = await json(cleanRes)
     expect(cleanData.ok).toBe(true)
+  })
+
+  it.each([
+    ['https://canvas.example', undefined],
+    ['https://canvas.example', ''],
+    ['http://127.0.0.1:4173', undefined],
+    ['http://127.0.0.1:4173', ''],
+  ])('requires credentials for public Agent chat with Origin %s and room %s', async (origin, room) => {
+    const gateway = await start({ host: '0.0.0.0', publicOrigin: 'https://canvas.example', allowedOrigins: ['https://canvas.example'] }, false)
+    const response = await fetch(`${gateway.origin}/api/agent/chat`, {
+      method: 'POST', headers: { origin, 'content-type': 'application/json', ...(room === undefined ? {} : { 'x-collaboration-room': room }) },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hello' }] }),
+    })
+    expect(response.status).toBe(403)
   })
 
   it('allows agent chat and canvas chat persistence without requiring local admin session cookies', async () => {

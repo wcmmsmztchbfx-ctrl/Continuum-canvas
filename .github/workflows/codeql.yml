@@ -108,10 +108,10 @@ jobs:
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         with:
           output: reports/security/codeql
-      - name: Reject CodeQL findings or incomplete analyses
+      - name: Reject unreviewed CodeQL findings or incomplete analyses
         run: |
           test -s reports/security/codeql/javascript.sarif
-          node scripts/security/check-reports.mjs sarif reports/security/codeql/javascript.sarif
+          node scripts/security/check-reports.mjs codeql reports/security/codeql/javascript.sarif
       - name: Retain CodeQL results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

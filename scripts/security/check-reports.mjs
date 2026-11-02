@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 
 const CORE_FILES = ['src/App.tsx', 'server/http-gateway.ts', 'server/agent/service.ts', 'scripts/launch.mjs', '.github/workflows/codeql.yml']
@@ -20,7 +21,7 @@ export function checkSemgrep(report) {
   return { scanned: scanned.size, findings: 0 }
 }
 
-export function checkSarif(report) {
+function inspectSarif(report) {
   if (report?.version !== '2.1.0' || !Array.isArray(report.runs) || !report.runs.length) throw new Error('Missing/malformed SARIF report')
   let findings = 0
   for (const run of report.runs) {
@@ -29,8 +30,37 @@ export function checkSarif(report) {
     if (run.invocations?.some(invocation => invocation.executionSuccessful === false || invocation.toolExecutionNotifications?.some(n => n.level === 'error'))) throw new Error('SARIF tool reported an analysis failure')
     findings += run.results.length
   }
-  if (findings) throw new Error(`SARIF contains ${findings} findings; review the report`)
   return { runs: report.runs.length, findings }
+}
+
+export function checkSarif(report) {
+  const summary = inspectSarif(report)
+  if (summary.findings) throw new Error(`SARIF contains ${summary.findings} findings; review the report`)
+  return summary
+}
+
+// Exact, source-bound reviews, never a rule exclusion or an automatic baseline.
+// The raw SARIF is retained/uploaded unchanged, including every reviewed finding.
+export function checkCodeql(report, reviews, sourceHashes) {
+  const summary = inspectSarif(report)
+  if (report.runs.some(run => run.tool.driver.name !== 'CodeQL')) throw new Error('Expected CodeQL analysis')
+  if (reviews?.version !== 1 || !reviews.sources || !Object.keys(reviews.sources).length || !Array.isArray(reviews.results)) throw new Error('Missing CodeQL review evidence')
+  for (const [path, digest] of Object.entries(reviews.sources)) {
+    if (!/^[a-f0-9]{64}$/.test(digest) || sourceHashes?.[path] !== digest) throw new Error(`CodeQL review needs renewal: ${path}`)
+  }
+  const remaining = [...reviews.results]
+  for (const result of remaining) {
+    if (!result.ruleId || !result.path || !result.fingerprint || !result.message || !result.reason?.trim() || !reviews.sources[result.path]) throw new Error('Incomplete CodeQL finding review')
+  }
+  let reviewed = 0
+  for (const run of report.runs) for (const result of run.results) {
+    const path = result.locations?.length === 1 && result.locations[0].physicalLocation?.artifactLocation?.uri
+    const index = remaining.findIndex(review => review.ruleId === result.ruleId && review.path === path && review.fingerprint === result.partialFingerprints?.primaryLocationLineHash && review.message === result.message?.text)
+    if (index < 0) throw new Error(`Unreviewed CodeQL finding: ${result.ruleId} ${path}`)
+    remaining.splice(index, 1); reviewed++
+  }
+  if (remaining.length) throw new Error('Stale CodeQL reviews: remove entries for findings no longer reported')
+  return { ...summary, reviewed, unreviewed: summary.findings - reviewed }
 }
 
 async function canary(rules) {
@@ -53,11 +83,19 @@ async function canary(rules) {
 
 async function main() {
   const [mode, path] = process.argv.slice(2)
-  if (!path) throw new Error('Usage: check-reports.mjs semgrep|sarif|self-test <path>')
+  if (!path) throw new Error('Usage: check-reports.mjs semgrep|sarif|codeql|self-test <path>')
   if (mode === 'self-test') return canary(path)
   const report = JSON.parse(await readFile(path, 'utf8'))
   if (mode === 'semgrep') console.log(JSON.stringify(checkSemgrep(report)))
   else if (mode === 'sarif') console.log(JSON.stringify(checkSarif(report)))
+  else if (mode === 'codeql') {
+    const reviews = JSON.parse(await readFile('.github/security/codeql-reviews.json', 'utf8'))
+    const hashes = Object.fromEntries(await Promise.all(Object.keys(reviews.sources).map(async file => {
+      if (!/^(server|src)\/[a-zA-Z0-9_./-]+$/.test(file) || file.split('/').includes('..')) throw new Error('Invalid reviewed source path')
+      return [file, createHash('sha256').update(await readFile(file)).digest('hex')]
+    })))
+    console.log(JSON.stringify(checkCodeql(report, reviews, hashes)))
+  }
   else throw new Error('Unknown security report type')
 }
 

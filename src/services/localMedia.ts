@@ -153,6 +153,12 @@ export async function extractVideoMetadata(file: File): Promise<VideoMetadata> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file)
     const video = document.createElement('video')
+    // Metadata extraction accepts only local object URLs, never executable or remote URLs.
+    if (!/^blob:/i.test(url)) {
+      URL.revokeObjectURL(url)
+      resolve({})
+      return
+    }
     video.preload = 'metadata'
     video.muted = true
     video.playsInline = true

@@ -7,9 +7,48 @@ import { EditableNodeLabel } from './EditableNodeLabel'
 import { NodeHandle } from './NodeHandle'
 import { computeAppearanceStyles } from './effectStyleUtils'
 
-function stripHtmlTags(str: string): string {
-  if (!str || !/<[a-z][\s\S]*>/i.test(str)) return str || ''
-  return str.replace(/<[^>]*>/g, '')
+const TEXT_BLOCK_ELEMENTS = new Set([
+  'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DIV', 'DL', 'DT', 'DD', 'FIGCAPTION',
+  'FIGURE', 'FOOTER', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HEADER', 'HR', 'LI',
+  'MAIN', 'NAV', 'OL', 'P', 'PRE', 'SECTION', 'TABLE', 'TR', 'UL',
+])
+const NON_TEXT_ELEMENTS = new Set(['SCRIPT', 'STYLE', 'TEMPLATE', 'NOSCRIPT'])
+
+function htmlToPlainText(value: string): string {
+  if (!value || !/<[a-z][\s\S]*>/i.test(value)) return value
+  if (typeof DOMParser === 'undefined') return value
+
+  // Preserve legacy entity spelling so saving extracted text cannot turn encoded
+  // literal markup into tags on the next load. Only extracted text reaches React.
+  const parsed = new DOMParser().parseFromString(value.replace(/&/g, '&amp;'), 'text/html')
+  let text = ''
+  let blockBreak = false
+  const append = (value: string) => {
+    if (!value) return
+    if (blockBreak && text && !text.endsWith('\n') && !value.startsWith('\n')) text += '\n'
+    blockBreak = false
+    text += value
+  }
+  const visit = (node: ChildNode) => {
+    if (node.nodeType === 3) {
+      append(node.textContent ?? '')
+      return
+    }
+    if (node.nodeType !== 1) return
+    const element = node as Element
+    if (NON_TEXT_ELEMENTS.has(element.tagName)) return
+    if (element.tagName === 'BR') {
+      if (blockBreak && text && !text.endsWith('\n')) text += '\n'
+      append('\n')
+      return
+    }
+    const block = TEXT_BLOCK_ELEMENTS.has(element.tagName)
+    if (block) blockBreak = true
+    element.childNodes.forEach(visit)
+    if (block) blockBreak = true
+  }
+  parsed.body.childNodes.forEach(visit)
+  return text
 }
 
 let measureCanvas: HTMLCanvasElement | null = null
@@ -108,8 +147,9 @@ function TextNodeContent({
   isConnectable,
 }: NodeProps<CanvasFlowNode>) {
   const [editing, setEditing] = useState(false)
-  const [text, setText] = useState(() => stripHtmlTags(data.text ?? ''))
+  const [text, setText] = useState(() => htmlToPlainText(data.text ?? ''))
   const [lockMessage, setLockMessage] = useState<string>()
+  const lastEditedText = useRef<string | undefined>(undefined)
   const finishingRef = useRef(false)
   const handledLeaseLoss = useRef(data.interactionLeaseLost)
   const resizeGranted = useRef(false)
@@ -122,7 +162,8 @@ function TextNodeContent({
   const { caret, updateCaret } = useCaretPosition(editorRef, text, editing)
 
   useEffect(() => {
-    setText(stripHtmlTags(data.text ?? ''))
+    const incoming = data.text ?? ''
+    setText(incoming === lastEditedText.current ? incoming : htmlToPlainText(incoming))
   }, [data.text])
 
   useEffect(() => {
@@ -133,7 +174,8 @@ function TextNodeContent({
     handledLeaseLoss.current = data.interactionLeaseLost
     if (!editing) return
     setEditing(false)
-    setText(stripHtmlTags(data.text ?? ''))
+    const incoming = data.text ?? ''
+    setText(incoming === lastEditedText.current ? incoming : htmlToPlainText(incoming))
     setLockMessage(data.lockedBy ? `${data.lockedBy.displayName} 正在编辑` : '编辑锁已失效')
   }, [data.interactionLeaseLost, data.lockedBy, data.text, editing])
 
@@ -160,6 +202,7 @@ function TextNodeContent({
       const height = Math.max(42, editor.scrollHeight)
       data.onResize?.(id, { width, height })
     }
+    lastEditedText.current = text
     data.onTextChange?.(id, text, true)
     data.onInteractionEnd?.(id, 'text')
   }
@@ -189,7 +232,7 @@ function TextNodeContent({
     }
   }, [autoWidth, data, editing, id, model?.data.fontFamily, model?.data.fontSize, model?.data.fontWeight, plain, text])
 
-  let zoom = 1
+  let zoom: number
   try {
     zoom = useReactFlowStore((s) => s.transform[2])
   } catch {
@@ -287,6 +330,7 @@ function TextNodeContent({
             onScroll={updateCaret}
             onChange={(event) => {
               const nextText = event.target.value
+              lastEditedText.current = nextText
               setText(nextText)
               data.onTextChange?.(id, nextText, false)
             }}
@@ -298,7 +342,7 @@ function TextNodeContent({
               }
             }}
           />
-          {editing && caret.visible ? (
+          {caret.visible ? (
             <div
               aria-hidden="true"
               className="canvas-text-node__thick-caret"

@@ -17,6 +17,7 @@ import {
 import { createCollaborativeCanvasDocument } from '../src/collaboration/document.ts'
 import { startGateway, type GatewayHandle } from './http-gateway.ts'
 import { atomicWriteJson } from './atomic-json.ts'
+import { LocalAdminService } from './local-admin-service.ts'
 
 const handles: GatewayHandle[] = []
 
@@ -61,9 +62,10 @@ async function createRoom(
     canvasId: 'canvas-alpha', projectId: 'project-alpha',
   },
   requestOrigin: string = gateway.origin,
+  adminCookie?: string,
 ) {
   const response = await fetch(`${gateway.origin}/api/collaboration/rooms`, {
-    method: 'POST', headers: { 'content-type': 'application/json', origin: requestOrigin },
+    method: 'POST', headers: { 'content-type': 'application/json', origin: requestOrigin, ...(adminCookie ? { cookie: adminCookie } : {}) },
     body: JSON.stringify({
       ...scope, snapshot: { ...snapshot(), ...scope },
       deviceId: 'device-owner', displayName: 'Owner',
@@ -441,7 +443,10 @@ describe('collaboration WebSocket gateway', () => {
   })
 
   it('does not derive a public WebSocket origin from an attacker-controlled Host header', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'continuum-public-websocket-'))
+    const initialized = await (await LocalAdminService.open({ dataDir })).registerOrResume()
     const gateway = await start({
+      dataDir,
       host: '0.0.0.0',
       publicOrigin: 'https://canvas.example',
       allowedOrigins: ['https://canvas.example'],
@@ -449,7 +454,8 @@ describe('collaboration WebSocket gateway', () => {
     const owner = await createRoom(
       gateway,
       { canvasId: 'canvas-public', projectId: 'project-public' },
-      'https://canvas.example',
+      'http://127.0.0.1:4173',
+      `canvas_local_admin=${initialized.token!}`,
     )
     await expect(openSocket(
       wsUrl(gateway, owner.payload.room.roomId as string),

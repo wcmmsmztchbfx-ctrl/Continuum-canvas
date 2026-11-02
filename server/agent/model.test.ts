@@ -15,6 +15,8 @@ describe('configured canvas Agent model protocol', () => {
     expect(await configuredModel(config)(input())).toEqual({ text: undefined, calls: [{ id: 'call-real', name: 'create_node', arguments: { type: 'image', name: '苹果' } }] })
     const [url, request] = fetcher.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://model.invalid/v1/chat/completions')
+    expect(request.headers).toEqual({ 'content-type': 'application/json', Authorization: 'Bearer fixture-only' })
+    expect(String(request.body)).not.toContain('fixture-only')
     expect(JSON.parse(String(request.body))).toMatchObject({ stream: false, tools: input().tools,
       messages: [{ role: 'system', content: 'canvas-base@1' }, ...input().messages] })
   })

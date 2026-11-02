@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "sources": {
+    "server/config.ts": "832b1a065740f2d701f91cd342beca5e7c39509f19fedc1f4473a5bfad8808a9",
+    "server/agent-config-store.ts": "dfdd9778718fb6faafbae4287b85edd6ec3ee0ab10a5740dcc4247d285338db2",
+    "server/agent/model.ts": "e77294e0ffdf285aa704b5b8b36fa93a39647bc07daf748db19af575853c40d1",
+    "server/http-gateway.ts": "fd435004b5ffb9a1d1ed29461185f27d42c268600aced9b15b352d4f11dac7b0",
+    "server/local-admin-service.ts": "34b1ef5f689ac2f570660eb7d0046211ba57b31172e19816212032d3811ff920",
+    "server/collaboration-service.ts": "e76d9b96ec613130d5740f1edabad02e80c3d41d5b7253ba140d2bd2172d22d1",
+    "server/collaboration-cookie.ts": "4aba89247dd16067c409a115f8e4f4dedc9ac76c9d2f73cb2fec4f85978dc3b2"
+  },
+  "results": [
+    {
+      "ruleId": "js/file-access-to-http",
+      "path": "server/agent/model.ts",
+      "fingerprint": "4b621e0f87651efe:1",
+      "message": "Outbound network request depends on [file data](1).",
+      "reason": "Reviewed intended authentication: .env is parsed as configuration, getSecret selects only the enabled configured provider API credential, and model.ts sends that credential solely in its Authorization Bearer header to that provider. No arbitrary file contents enter the request body. Protected configuration writes establish the destination and credential. See server/agent/model.test.ts and server/collaboration-http.test.ts."
+    },
+    {
+      "ruleId": "js/user-controlled-bypass",
+      "path": "server/http-gateway.ts",
+      "fingerprint": "dca2e9baffc300fd:1",
+      "message": "This condition guards a sensitive [action](1), but a [user-provided value](2) controls it.",
+      "reason": "Reviewed false positive at authorizeSensitiveRequest: absent room header requires a loopback socket, localAdminAllowed and a validated local-admin session cookie. A present room header requires valid room ID, matching room cookie, server-side authorizeSession and required role. Neither branch bypasses authentication. The distinct legacy-chat bypass is fixed, not reviewed away. See server/http-gateway.test.ts and server/collaboration-http.test.ts."
+    }
+  ]
+}

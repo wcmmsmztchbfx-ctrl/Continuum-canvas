@@ -120,7 +120,9 @@ describe('OpenAICompatibleAdapter', () => {
       openStream: () => Readable.from(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
     })
     expect(grant.fileKey).toMatch(/^ref-[0-9a-f-]{36}$/)
-    expect(grant.uploadUrl.startsWith('https://local.invalid')).toBe(true)
+    const uploadUrl = new URL(grant.uploadUrl)
+    expect(uploadUrl.origin).toBe('https://local.invalid')
+    expect(uploadUrl.pathname).toBe('/upload')
 
     await adapter.uploadReference(
       { filename: 'ref.png', contentType: 'image/png', size: 8, openStream: () => Readable.from(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) },

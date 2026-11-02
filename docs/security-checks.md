@@ -9,7 +9,7 @@ The `Security analysis` workflow runs real source and history scans in private r
 | Semgrep CE | Runtime source under `src/` and `server/`, startup/build scripts, GitHub workflows and Vite configuration. Findings, analysis errors, unexpected engine versions and missing core-file coverage fail the job. |
 | Scanner self-test | A synthetic HTTP-input-to-eval example must be blocked; a corresponding JSON-parsing example must pass. Neither snippet is executed. A broken or empty scanner cannot silently pass. |
 | Gitleaks | All reachable Git history, including test files. New leaks fail the job. Reports redact values. `.gitleaksignore` contains only four reviewed historical synthetic-fixture fingerprints. |
-| CodeQL | Runs only after the repository is public. Its SARIF upload remains enabled; findings or incomplete local reports fail the job. |
+| CodeQL | Runs only after the repository is public. Its SARIF upload remains enabled; unreviewed findings, changed reviewed source, or incomplete local reports fail the job. |
 | PR quality gate | Lint, frontend/server tests, performance checks, build, browser smoke, dependency audit and launcher tests on Windows/macOS/Linux. |
 | Nightly acceptance | Collaboration, recovery, stress and undo checks, followed by five reviewed Linux visual comparisons. |
 
@@ -55,3 +55,15 @@ node scripts/security/check-reports.mjs semgrep .runtime/semgrep.json
 For Gitleaks use the pinned version, verify the release checksum, then run `gitleaks git . --log-opts=--all --redact --report-format sarif --report-path .runtime/gitleaks.sarif` and validate it with `node scripts/security/check-reports.mjs sarif .runtime/gitleaks.sarif`.
 
 Visual baselines use canonical Linux CI; see [visual baseline maintenance](../tests/e2e/visual/README.md). Never replace them with screenshots from a different OS or enable update mode in routine verification.
+
+## Reviewed CodeQL results
+
+The first public CodeQL run reported 18 results. Corrections address URL hostname boundaries, legacy rich-text handling, an anonymous legacy Agent chat bypass in public/LAN deployments, local-video URL invariants and redundant assignments. The legacy chat exemption is limited to a loopback-only listener with no public/tunnel origin; public/LAN callers use the existing validated editor/local-admin authorization.
+
+Initialize the local administrator cookie before configuring a public/LAN origin or enabling a tunnel. While exposed, `/api/local-admin/session` only resumes an existing valid credential; a local-looking Origin and loopback socket cannot bootstrap or recover an administrator. For a lost cookie, stop public exposure and restart in local-only mode before using local recovery, then restore the public/LAN configuration.
+
+Exposed room creation also requires an existing administrator or collaboration owner: creating a room issues an owner credential and cannot serve as an anonymous path around provider or chat permissions. Anonymous room creation remains available in local-only mode; invite exchange and existing editor/viewer permissions keep their existing rules.
+
+Two results describe audited, intended behavior: sending a selected provider API key in its Authorization header (`js/file-access-to-http`), and selecting between fully authenticated local-admin and collaboration paths (`js/user-controlled-bypass`). The [official file-data query guidance](https://codeql.github.com/codeql-query-help/javascript/js-file-access-to-http/) calls for reviewing whether the highlighted flow is intended; the [authorization query guidance](https://codeql.github.com/codeql-query-help/javascript/js-user-controlled-bypass/) requires checking the actual authorization boundary.
+
+`.github/security/codeql-reviews.json` records their exact rule, source file, primary fingerprint, message and review rationale, together with SHA-256 hashes of the audited configuration, model and authorization implementations. The gate rejects unknown results, duplicate results, stale reviews, changed audited sources and unsuccessful analyses. Editing those implementations requires renewing the review rather than silently carrying it forward. No query is disabled. Raw CodeQL SARIF is uploaded and retained unchanged; gate output reports total, reviewed and unreviewed counts separately. A passing gate with reviewed findings does not mean the raw scanner reported zero results.

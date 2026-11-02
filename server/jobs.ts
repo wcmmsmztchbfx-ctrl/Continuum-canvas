@@ -934,11 +934,12 @@ export class GenerationRunner {
       return existing.operation
     }
     const operation = this.submitOnce(normalizedRequest, collaboration)
-    this.submitFlights.set(normalizedRequest.clientRequestId, { digest, operation })
+    const flight = { digest, operation }
+    this.submitFlights.set(normalizedRequest.clientRequestId, flight)
     try {
       return await operation
     } finally {
-      if (this.submitFlights.get(normalizedRequest.clientRequestId)?.operation === operation) {
+      if (this.submitFlights.get(normalizedRequest.clientRequestId) === flight) {
         this.submitFlights.delete(normalizedRequest.clientRequestId)
       }
     }

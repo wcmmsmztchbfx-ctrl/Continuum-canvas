@@ -5,7 +5,7 @@ import { EditableNodeLabel } from './EditableNodeLabel'
 import type { CanvasFlowNode } from './mapping'
 
 function GroupNodeContent({ id, data }: NodeProps<CanvasFlowNode>) {
-  let zoom = 1
+  let zoom: number
   try {
     zoom = useReactFlowStore((s) => s.transform[2])
   } catch {

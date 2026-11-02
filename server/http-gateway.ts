@@ -705,7 +705,9 @@ interface ApiRouteContext {
   signal: AbortSignal
   secureCollaborationCookies: boolean
   localAdminAllowed: boolean
+  localAdminBootstrapAllowed: boolean
   localAdminRecoveryAllowed: boolean
+  anonymousLocalChatAllowed: boolean
   frontendPort?: number
   onReset?: () => Promise<void>
   isE2eMode?: boolean
@@ -721,7 +723,9 @@ async function routeApi({
   signal,
   secureCollaborationCookies,
   localAdminAllowed,
+  localAdminBootstrapAllowed,
   localAdminRecoveryAllowed,
+  anonymousLocalChatAllowed,
   frontendPort = 4173,
   onReset,
   isE2eMode,
@@ -752,9 +756,14 @@ async function routeApi({
       throw new LocalAdminAuthorizationError('Local administrator registration is unavailable')
     }
     await rejectUnexpectedBody(request)
+    // A public tunnel also reaches this listener over loopback, and its client
+    // can forge Origin. Once exposed, only an existing credential may resume.
+    if (!localAdminBootstrapAllowed) {
+      localAdmin.authorize(localAdminTokenFromCookie(request.headers.cookie))
+    }
     const result = await localAdmin.registerOrResume(
       localAdminTokenFromCookie(request.headers.cookie),
-      { allowRecovery: localAdminRecoveryAllowed },
+      { allowRecovery: localAdminBootstrapAllowed && localAdminRecoveryAllowed },
     )
     if (result.token) {
       response.setHeader('set-cookie', [
@@ -767,6 +776,11 @@ async function routeApi({
     return true
   }
   if (method === 'POST' && path === '/api/collaboration/rooms') {
+    // Creating a room mints an owner credential, so exposed deployments must
+    // establish administrator/owner authority before issuing that credential.
+    if (!anonymousLocalChatAllowed) {
+      authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'owner')
+    }
     const body = collaborationRoomInput(await readJson(request))
     const enabled = await runtime.collaboration.enableRoom(body)
     setCollaborationCookie(
@@ -1202,19 +1216,11 @@ async function routeApi({
   }
 
   if (method === 'POST' && path === '/api/agent/chat') {
-    const roomHeader = request.headers['x-collaboration-room']
-    if (typeof roomHeader === 'string' && roomHeader) {
-      const cookieRooms = collaborationRoomIdsFromCookieHeader(request.headers.cookie)
-      if (!COLLABORATION_ROOM_ID.test(roomHeader) || !cookieRooms.includes(roomHeader)) {
-        throw new CollaborationAuthorizationError('A matching collaboration room is required')
-      }
-      const session = runtime.collaboration.authorizeSession({
-        roomId: roomHeader,
-        sessionToken: collaborationSessionToken(request, roomHeader),
-      })
-      if (session.role === 'viewer') {
-        throw new CollaborationAuthorizationError('Viewers cannot use the agent')
-      }
+    // Anonymous legacy chat is confined to a loopback-only deployment. A tunnel
+    // also connects over loopback, so neither socket address nor Origin alone
+    // establishes that this is the owner's local page.
+    if (!anonymousLocalChatAllowed || Object.hasOwn(request.headers, 'x-collaboration-room')) {
+      authorizeSensitiveRequest(request, runtime, localAdmin, localAdminAllowed, 'editor')
     }
     const body = record(await readJson(request))
     const messages = Array.isArray(body.messages) ? body.messages : []
@@ -1759,7 +1765,9 @@ export async function startGateway(options: {
           signal,
           secureCollaborationCookies: Boolean(secureSessionCookies),
           localAdminAllowed: (localHostOnly && isLoopbackHost(host)) || loopbackBrowserOrigin || hasLocalBrowserReadReferer(request),
+          localAdminBootstrapAllowed: !dynamicPublicOrigin,
           localAdminRecoveryAllowed: loopbackBrowserOrigin,
+          anonymousLocalChatAllowed: localHostOnly && isLoopbackHost(host) && !dynamicPublicOrigin && isLoopbackRemoteAddress(request.socket.remoteAddress),
           frontendPort,
           onReset: async () => {
             await runtime.agent.reset()

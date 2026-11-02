@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CanvasSnapshotV2 } from '../src/model/project.ts'
 import type { GenerationRequest, ProviderCatalog } from '../src/contracts/generation.ts'
 import { startGateway, type GatewayHandle } from './http-gateway.ts'
+import { LocalAdminService } from './local-admin-service.ts'
 import type { ProviderAdapter } from './providers/provider-adapter.ts'
 
 const gateways: GatewayHandle[] = []
@@ -42,7 +43,7 @@ function snapshot(): CanvasSnapshotV2 {
 }
 
 async function start(options: Parameters<typeof startGateway>[0] = {}): Promise<GatewayHandle> {
-  const dataDir = await mkdtemp(join(tmpdir(), 'libtv-collaboration-http-'))
+  const dataDir = options.dataDir ?? await mkdtemp(join(tmpdir(), 'libtv-collaboration-http-'))
   for (let attempt = 0; attempt < 20; attempt++) {
     const gateway = await startGateway({
       dataDir,
@@ -92,10 +93,16 @@ function rawGet(origin: string, path: string): Promise<{ status: number; payload
   })
 }
 
-async function enable(gateway: GatewayHandle) {
+async function startWithAdmin(options: Parameters<typeof startGateway>[0]) {
+  const dataDir = await mkdtemp(join(tmpdir(), 'continuum-public-owner-'))
+  const initialized = await (await LocalAdminService.open({ dataDir })).registerOrResume()
+  return { gateway: await start({ ...options, dataDir }), adminCookie: `canvas_local_admin=${initialized.token!}` }
+}
+
+async function enable(gateway: GatewayHandle, adminCookie?: string) {
   const response = await fetch(`${gateway.origin}/api/collaboration/rooms`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', origin: gateway.origin },
+    headers: { 'content-type': 'application/json', origin: gateway.origin, ...(adminCookie ? { cookie: adminCookie } : {}) },
     body: JSON.stringify({
       canvasId: 'canvas-alpha', projectId: 'project-alpha', snapshot: snapshot(),
       deviceId: 'device-owner', displayName: 'Owner',
@@ -130,6 +137,53 @@ afterEach(async () => {
 })
 
 describe('collaboration REST gateway', () => {
+  it.each(['public', 'LAN', 'tunnel'])('cannot mint an owner session anonymously through an exposed %s gateway', async (exposure) => {
+    const publicOrigin = exposure === 'LAN' ? 'http://192.168.1.4:4173' : 'https://canvas.example'
+    const gateway = await start(exposure === 'tunnel' ? {} : {
+      host: '0.0.0.0', publicOrigin, allowedOrigins: [publicOrigin],
+      ...(exposure === 'LAN' ? { allowInsecureLan: true } : {}),
+    })
+    if (exposure === 'tunnel') {
+      await gateway.runtime.tunnel.setCustomUrl(publicOrigin)
+      await gateway.runtime.tunnel.startCustomMode()
+    }
+    for (const origin of [publicOrigin, 'http://127.0.0.1:4173']) {
+      const response = await fetch(`${gateway.origin}/api/collaboration/rooms`, {
+        method: 'POST', headers: { 'content-type': 'application/json', origin },
+        body: JSON.stringify({ canvasId: 'canvas-alpha', projectId: 'project-alpha', snapshot: snapshot(), deviceId: 'anonymous', displayName: 'Anonymous' }),
+      })
+      expect(response.status).toBe(403)
+      expect(response.headers.get('set-cookie')).toBeNull()
+      expect(await body(response)).not.toHaveProperty('recoverySecret')
+      expect((await fetch(`${gateway.origin}/api/agent/chat`, {
+        method: 'POST', headers: { 'content-type': 'application/json', origin }, body: '{}',
+      })).status).toBe(403)
+    }
+  })
+
+  it('allows exposed room creation only for existing administrators or collaboration owners', async () => {
+    const gateway = await start()
+    const adminResponse = await fetch(`${gateway.origin}/api/local-admin/session`, { method: 'POST' })
+    const adminCookie = cookie(adminResponse)
+    const owner = await enable(gateway)
+    const roomId = owner.payload.room.roomId as string
+    const viewerCookie = await inviteCookie(gateway, owner.response, roomId, 'viewer')
+    const editorCookie = await inviteCookie(gateway, owner.response, roomId, 'editor')
+    await gateway.runtime.tunnel.setCustomUrl('https://canvas.example')
+    await gateway.runtime.tunnel.startCustomMode()
+    const create = (sessionCookie: string, collaborationRoom?: string, canvasId = 'canvas-beta') => fetch(`${gateway.origin}/api/collaboration/rooms`, {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1:4173', cookie: sessionCookie, ...(collaborationRoom ? { 'x-collaboration-room': collaborationRoom } : {}) },
+      body: JSON.stringify({ canvasId, projectId: 'project-beta', snapshot: { ...snapshot(), canvasId, projectId: 'project-beta' }, deviceId: 'existing-owner', displayName: 'Owner' }),
+    })
+    expect((await create(viewerCookie, roomId)).status).toBe(403)
+    expect((await create(editorCookie, roomId)).status).toBe(403)
+    const resumed = await fetch(`${gateway.origin}/api/local-admin/session`, { method: 'POST', headers: { origin: 'http://127.0.0.1:4173', cookie: adminCookie } })
+    expect(resumed.status).toBe(200)
+    const created = await create(adminCookie)
+    expect(created.status).toBe(201)
+    expect((await create(cookie(owner.response), roomId, 'canvas-gamma')).status).toBe(201)
+  })
+
   it('enables a saved canvas after camera-only movement without changing its content revision', async () => {
     const gateway = await start()
     const saved = snapshot()
@@ -203,6 +257,25 @@ describe('collaboration REST gateway', () => {
     expect((await gateway.runtime.workspace.getCanvasRecord('canvas-alpha'))?.snapshot?.name)
       .toBe('Recovered name')
     mirror.mockRestore()
+  })
+
+  it('cannot bypass public Agent chat permissions by stripping the room header', async () => {
+    const { gateway, adminCookie } = await startWithAdmin({ publicOrigin: 'https://canvas.example', allowedOrigins: ['https://canvas.example'] })
+    const owner = await enable(gateway, adminCookie)
+    const roomId = owner.payload.room.roomId as string
+    const viewer = await inviteCookie(gateway, owner.response, roomId, 'viewer')
+    const editor = await inviteCookie(gateway, owner.response, roomId, 'editor')
+    const chat = (sessionCookie: string, room: string | undefined = roomId) => fetch(`${gateway.origin}/api/agent/chat`, {
+      method: 'POST', headers: { origin: 'https://canvas.example', cookie: sessionCookie, 'content-type': 'application/json', ...(room === undefined ? {} : { 'x-collaboration-room': room }) },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hello' }] }),
+    })
+    for (const room of [roomId, '', 'invalid-room']) expect((await chat(viewer, room)).status).toBe(403)
+    // Explicitly omit the header rather than using the helper's default.
+    const stripped = await fetch(`${gateway.origin}/api/agent/chat`, { method: 'POST', headers: { origin: 'https://canvas.example', cookie: viewer, 'content-type': 'application/json' }, body: '{}' })
+    expect(stripped.status).toBe(403)
+    const allowed = await chat(editor)
+    expect(allowed.status).toBe(400)
+    expect((await body(allowed)).error.code).toBe('not_configured')
   })
 
   it('requires the collaboration owner and a matching room header for provider writes', async () => {
@@ -409,13 +482,13 @@ describe('collaboration REST gateway', () => {
   })
 
   it('marks cookies Secure when a public HTTPS origin is configured', async () => {
-    const gateway = await start({
+    const { gateway, adminCookie } = await startWithAdmin({
       publicOrigin: 'https://canvas.example',
       allowedOrigins: ['https://canvas.example'],
     })
     const response = await fetch(`${gateway.origin}/api/collaboration/rooms`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://canvas.example' },
+      headers: { 'content-type': 'application/json', origin: 'https://canvas.example', cookie: adminCookie },
       body: JSON.stringify({
         canvasId: 'canvas-alpha', projectId: 'project-alpha', snapshot: snapshot(),
         deviceId: 'device-owner', displayName: 'Owner',
@@ -426,7 +499,12 @@ describe('collaboration REST gateway', () => {
   })
 
   it('keeps local HTTP sessions usable after starting an HTTPS tunnel while securing remote invite sessions', async () => {
+    // Initialize the owner credential locally before exposing the listener.
+    const dataDir = await mkdtemp(join(tmpdir(), 'continuum-tunnel-owner-'))
+    const initialized = await (await LocalAdminService.open({ dataDir })).registerOrResume()
+    const adminCookie = `canvas_local_admin=${initialized.token!}`
     const gateway = await start({
+      dataDir,
       publicOrigin: 'http://192.168.1.4:4173',
       allowedOrigins: ['http://192.168.1.4:4173'],
       allowInsecureLan: true,
@@ -436,12 +514,12 @@ describe('collaboration REST gateway', () => {
     await gateway.runtime.tunnel.setCustomUrl(remoteOrigin)
     await gateway.runtime.tunnel.startCustomMode()
     const admin = await fetch(`${gateway.origin}/api/local-admin/session`, {
-      method: 'POST', headers: { origin: localOrigin },
+      method: 'POST', headers: { origin: localOrigin, cookie: adminCookie },
     })
     expect(admin.status).toBe(200)
-    expect(admin.headers.get('set-cookie')).not.toContain('Secure')
+    expect(admin.headers.get('set-cookie')).toBeNull()
     const owner = await fetch(`${gateway.origin}/api/collaboration/rooms`, {
-      method: 'POST', headers: { 'content-type': 'application/json', origin: localOrigin },
+      method: 'POST', headers: { 'content-type': 'application/json', origin: localOrigin, cookie: adminCookie },
       body: JSON.stringify({
         canvasId: 'canvas-alpha', projectId: 'project-alpha', snapshot: snapshot(),
         deviceId: 'device-owner', displayName: 'Owner',

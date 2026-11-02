@@ -50,6 +50,23 @@ function notifyThumbnailReady(url: string, thumbnailUrl: string) {
 
 export type LodLevel = 'thumbnail' | 'medium' | 'high' | 'original'
 
+function parseOssCdnUrl(url: string): URL | undefined {
+  try {
+    const parsed = new URL(url, globalThis.location?.href ?? 'http://localhost')
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined
+    if (parsed.hostname === 'libtv-res.liblib.art' || parsed.hostname.endsWith('.aliyuncs.com')) return parsed
+  } catch { /* Invalid media URLs cannot use OSS transforms. */ }
+  return undefined
+}
+
+function appendOssProcess(url: string, process: string): string {
+  // Keep existing query bytes (including signatures) intact and leave the fragment last.
+  const fragmentIndex = url.indexOf('#')
+  const resource = fragmentIndex < 0 ? url : url.slice(0, fragmentIndex)
+  const fragment = fragmentIndex < 0 ? '' : url.slice(fragmentIndex)
+  return `${resource}${resource.includes('?') ? '&' : '?'}x-oss-process=${process}${fragment}`
+}
+
 /**
  * Resolves the appropriate image URL purely based on zoom level:
  * - zoom > 1.5: Original full-resolution image
@@ -60,21 +77,21 @@ export function getResponsiveImageUrl(
   zoom: number = 1,
 ): string | undefined {
   if (!url) return undefined
-  if (!url.includes('libtv-res.liblib.art') && !url.includes('.aliyuncs.com')) {
+  const parsed = parseOssCdnUrl(url)
+  if (!parsed) {
     return url
   }
-  if (url.includes('x-oss-process')) {
+  if (parsed.searchParams.has('x-oss-process')) {
     return url
   }
   if (zoom > 1.5) {
     // zoom > 1.5: load original full-resolution image
     return url
   }
-  const separator = url.includes('?') ? '&' : '?'
   if (zoom <= 0.35) {
-    return `${url}${separator}x-oss-process=image/resize,w_360/format,webp`
+    return appendOssProcess(url, 'image/resize,w_360/format,webp')
   }
-  return `${url}${separator}x-oss-process=image/resize,w_960/format,webp`
+  return appendOssProcess(url, 'image/resize,w_960/format,webp')
 }
 
 /**
@@ -116,11 +133,9 @@ export function getFastThumbnailUrl(
   }
 
   // Support cloud OSS webp thumbnail process query directly from CDN
-  if (url.includes('libtv-res.liblib.art') || url.includes('.aliyuncs.com')) {
-    if (!url.includes('x-oss-process')) {
-      const separator = url.includes('?') ? '&' : '?'
-      return `${url}${separator}x-oss-process=image/resize,w_360/format,webp`
-    }
+  const parsed = parseOssCdnUrl(url)
+  if (parsed && !parsed.searchParams.has('x-oss-process')) {
+    return appendOssProcess(url, 'image/resize,w_360/format,webp')
   }
 
   return undefined
@@ -229,18 +244,16 @@ export function getVideoPosterUrl(
   if (!videoUrl) return undefined
 
   // Cloud OSS video snapshot processing directly from CDN
-  if (videoUrl.includes('libtv-res.liblib.art') || videoUrl.includes('.aliyuncs.com')) {
-    if (!videoUrl.includes('x-oss-process')) {
-      const separator = videoUrl.includes('?') ? '&' : '?'
-      if (zoom > 1.5) {
-        // zoom > 1.5: load high-res original-dimension frame snapshot
-        return `${videoUrl}${separator}x-oss-process=video/snapshot,t_500,f_jpg`
-      }
-      if (zoom <= 0.35) {
-        return `${videoUrl}${separator}x-oss-process=video/snapshot,t_500,f_jpg,w_360,m_fast`
-      }
-      return `${videoUrl}${separator}x-oss-process=video/snapshot,t_500,f_jpg,w_960,m_fast`
+  const parsed = parseOssCdnUrl(videoUrl)
+  if (parsed && !parsed.searchParams.has('x-oss-process')) {
+    if (zoom > 1.5) {
+      // zoom > 1.5: load high-res original-dimension frame snapshot
+      return appendOssProcess(videoUrl, 'video/snapshot,t_500,f_jpg')
     }
+    if (zoom <= 0.35) {
+      return appendOssProcess(videoUrl, 'video/snapshot,t_500,f_jpg,w_360,m_fast')
+    }
+    return appendOssProcess(videoUrl, 'video/snapshot,t_500,f_jpg,w_960,m_fast')
   }
 
   return undefined
