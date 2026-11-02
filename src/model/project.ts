@@ -411,7 +411,7 @@ export type ShapeNode = BaseNode<'shape', ShapeNodeData>
 export interface PathAnchor {
   x: number
   y: number
-  in?: Point
+  'in'?: Point
   out?: Point
 }
 

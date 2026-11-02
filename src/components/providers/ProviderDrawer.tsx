@@ -964,8 +964,8 @@ export function ProviderDrawer({
                     value={draft.adapterType}
                   >
                     <option value="aistartlab-openapi">AIStartLab 官方 OpenAPI</option>
-                    <option value="runninghub-api">RunningHub 官方 (云端 ComfyUI & AI 应用)</option>
-                    <option value="volcengine-ark">火山引擎 / 字节方舟 (Doubao & Seedance)</option>
+                    <option value="runninghub-api">RunningHub 官方 (云端 ComfyUI &amp; AI 应用)</option>
+                    <option value="volcengine-ark">火山引擎 / 字节方舟 (Doubao &amp; Seedance)</option>
                     <option value="dashscope-api">通义万相 2.1 (阿里 DashScope)</option>
                     <option value="kling-api">快手可灵 (Kling AI 官方)</option>
                     <option value="modelscope-api">ModelScope (魔搭社区免费生图)</option>

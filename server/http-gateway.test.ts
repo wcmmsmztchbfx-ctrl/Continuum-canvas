@@ -220,6 +220,26 @@ afterEach(async () => {
 })
 
 describe('HTTP gateway', () => {
+  it.each([
+    { name: 'regular Host', path: '/', host: 'canvas.example', target: 'http://canvas.example:4173/' },
+    { name: 'Host with HTML', path: '/', host: 'canvas.example?"><img src=x onerror=alert(1)>', target: 'http://canvas.example:4173/' },
+    { name: 'absolute request target', path: 'http://wrong.example/', host: 'canvas.example', target: 'http://canvas.example:4173/' },
+    { name: 'IPv6 Host', path: '/', host: '[::1]:1234', target: 'http://[::1]:4173/' },
+  ])('redirects development browser visits safely: $name', async ({ path, host, target }) => {
+    const gateway = await start({ localHostOnly: false, publicOrigin: 'https://canvas.example', allowedOrigins: ['https://canvas.example'] }, false)
+    const response = await new Promise<{ status: number; location?: string; contentType?: string; body: string }>((resolve, reject) => {
+      const request = nodeRequest(`${gateway.origin}/`, { path, headers: { accept: 'text/html', host } }, response => {
+        let body = ''; response.setEncoding('utf8'); response.on('data', chunk => { body += chunk })
+        response.on('end', () => resolve({ status: response.statusCode ?? 0, location: response.headers.location, contentType: response.headers['content-type'], body }))
+      })
+      request.on('error', reject); request.end()
+    })
+    expect(response.status).toBe(302)
+    expect(response.location).toBe(target)
+    expect(response.contentType).toBe('text/plain; charset=utf-8')
+    expect(response.body).not.toContain('<img')
+  })
+
   it('reassigns only the requested canvas history and keeps the operation idempotent', async () => {
     const gateway = await start()
     for (const [clientRequestId, canvasId] of [

@@ -17,6 +17,8 @@ dist-ssr
 data/
 secrets/
 .runtime/
+/scripts/security/__pycache__/
+/reports/security/
 test-results/
 .codex-backups/
 playwright-report/

@@ -26,6 +26,8 @@ Build tools include MPL-2.0-licensed Lightning CSS and Apache-2.0-licensed tools
 
 ## Optional tools and external services
 
+Security CI uses [Semgrep Community Edition](https://github.com/semgrep/semgrep) (LGPL-2.1) and [Gitleaks](https://github.com/gitleaks/gitleaks) (MIT). These are CI tools, not application dependencies or bundled runtime binaries. Semgrep-maintained rule definitions are fetched temporarily at a pinned commit for internal analysis under the separate [Semgrep Rules License](https://semgrep.dev/legal/rules-license/); their text is not redistributed here. Public-repository CodeQL runs follow [GitHub's CodeQL terms](https://github.com/github/codeql-cli-binaries/blob/main/LICENSE.md). See [security checks](./docs/security-checks.md) for scope and limits.
+
 Remote sharing can download [Cloudflare cloudflared](https://github.com/cloudflare/cloudflared), a separately distributed Apache-2.0-licensed tool. It is not checked into this repository. Its upstream licenses and notices apply if it is included in a separate distribution.
 
 Provider/model names identify compatible services and do not imply sponsorship or endorsement. Continuum does not distribute model weights, service subscriptions or API credentials. Uploads and generated media are user data, outside this repository's MIT grant; users must have the relevant rights to their inputs and outputs under the applicable provider terms.

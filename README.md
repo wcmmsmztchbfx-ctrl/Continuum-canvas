@@ -308,6 +308,7 @@ npm run test:e2e:smoke
 | [模型验收说明](./docs/agent-evaluation.md) | 机制测试与真实模型验收的区别。 |
 | [环境配置示例](./.env.example) | 端口、数据目录、网络与供应商配置。 |
 | [第三方声明](./THIRD_PARTY_NOTICES.md) | 依赖、图标、原生组件与外部工具的许可。 |
+| [安全与发布检查](./docs/security-checks.md) | 私有阶段源码／凭证扫描、公开后的 CodeQL，以及报告与截图基线维护。 |
 
 ## 许可证与第三方权利
 

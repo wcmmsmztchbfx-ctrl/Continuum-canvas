@@ -1778,13 +1778,16 @@ export async function startGateway(options: {
       }
       if (await serveStatic(options.distDir, request, response, url.pathname)) return
       if (!options.distDir && url.pathname === '/' && request.headers.accept?.includes('text/html')) {
-        const frontendPort = Number(process.env.CANVAS_VITE_PORT) || 4173
-        const targetHost = request.headers.host?.split(':')[0] || '127.0.0.1'
+        const configuredPort = Number(process.env.CANVAS_VITE_PORT)
+        const frontendPort = Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535 ? configuredPort : 4173
+        const frontendUrl = new URL('http://127.0.0.1/')
+        frontendUrl.hostname = new URL(`http://${request.headers.host || '127.0.0.1'}`).hostname
+        frontendUrl.port = String(frontendPort)
         response.writeHead(302, {
-          Location: `http://${targetHost}:${frontendPort}/`,
-          'Content-Type': 'text/html; charset=utf-8',
+          Location: frontendUrl.href,
+          'Content-Type': 'text/plain; charset=utf-8',
         })
-        response.end(`<!doctype html><p>正在跳转至前端界面 <a href="http://${targetHost}:${frontendPort}/">http://${targetHost}:${frontendPort}/</a>...</p>`)
+        response.end('正在跳转至前端界面。')
         return
       }
       sendJson(response, 404, { error: { code: 'not_found', message: 'Resource not found' } })

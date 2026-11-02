@@ -1,23 +1,122 @@
-name: CodeQL
+name: Security analysis
 
 on:
   pull_request:
   push:
     branches: [main]
+  public:
+  workflow_dispatch:
   schedule:
     - cron: '15 19 * * 1'
 
 permissions:
   contents: read
-  actions: read
-  security-events: write
 
 jobs:
-  analyze:
+  semgrep:
+    name: Semgrep CE (source analysis)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SEMGREP_SEND_METRICS: 'off'
     steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Install pinned Community Edition engine
+        run: python -m pip install --disable-pip-version-check semgrep==1.183.0
+      - name: Test verified rule fetching
+        run: python -m unittest discover -s scripts/security -p 'test_*.py'
+      - name: Fetch immutable upstream rules for internal analysis
+        run: python scripts/security/fetch_rules.py .github/security/semgrep-rules.lock.json "$RUNNER_TEMP/semgrep-rules"
+      - name: Prove that unsafe code is blocked and safe code passes
+        run: node scripts/security/check-reports.mjs self-test "$RUNNER_TEMP/semgrep-rules"
+      - name: Scan application source, scripts and workflows
+        run: |
+          mkdir -p reports/security
+          semgrep scan --oss-only --metrics off --disable-version-check --strict --error --jobs 2 --timeout 30 \
+            --config "$RUNNER_TEMP/semgrep-rules" \
+            --exclude '*.test.ts' --exclude '*.test.tsx' \
+            --json-output reports/security/semgrep.json \
+            --sarif-output reports/security/semgrep.sarif \
+            src server scripts .github vite.config.ts
+          node scripts/security/check-reports.mjs semgrep reports/security/semgrep.json
+      - name: Retain analysis reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: semgrep-reports
+          path: reports/security/
+          if-no-files-found: error
+          retention-days: 14
+
+  secrets:
+    name: Gitleaks (full Git history)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Install checksum-verified Gitleaks
+        run: |
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            -o "$RUNNER_TEMP/gitleaks.tar.gz"
+          printf '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  %s\n' "$RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+      - name: Scan all reachable commits and validate the report
+        run: |
+          mkdir -p reports/security
+          "$RUNNER_TEMP/gitleaks" git . --log-opts=--all --redact --no-banner \
+            --report-format sarif --report-path reports/security/gitleaks.sarif
+          node scripts/security/check-reports.mjs sarif reports/security/gitleaks.sarif
+      - name: Retain redacted history report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gitleaks-report
+          path: reports/security/gitleaks.sarif
+          if-no-files-found: error
+          retention-days: 14
+
+  codeql:
+    name: CodeQL (public repositories)
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         with:
           languages: javascript-typescript
-      - uses: github/codeql-action/analyze@v3
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          output: reports/security/codeql
+      - name: Reject CodeQL findings or incomplete analyses
+        run: |
+          test -s reports/security/codeql/javascript.sarif
+          node scripts/security/check-reports.mjs sarif reports/security/codeql/javascript.sarif
+      - name: Retain CodeQL results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: codeql-results
+          path: reports/security/codeql/
+          if-no-files-found: error
+          retention-days: 14
