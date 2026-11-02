@@ -403,8 +403,12 @@ export class CanvasAgentService {
   private finishCall(record: StoredRun, operation: StoredOperation) {
     if (record.pendingCalls[0]?.id === operation.call.id) record.pendingCalls.shift()
     record.messages.push({ role: 'tool', tool_call_id: operation.call.id, content: JSON.stringify(operation.result ?? {}) })
-    const detail = operation.call.name === 'run_canvas_command' && operation.result && !(operation.result as { error?: unknown }).error
-      ? Object.fromEntries(Object.entries(operation.result as Record<string, unknown>).filter(([key]) => key !== 'actual' && key !== 'result')) : operation.result
+    let detail = operation.result
+    if (operation.call.name === 'run_canvas_command' && operation.result && !(operation.result as { error?: unknown }).error) {
+      const receipt = operation.result as { affectedNodeIds: string[]; affectedEdgeIds: string[] }
+      detail = { ...Object.fromEntries(Object.entries(receipt).filter(([key]) => !['actual', 'result', 'affectedNodeIds', 'affectedEdgeIds'].includes(key))),
+        affectedNodeCount: receipt.affectedNodeIds.length, affectedEdgeCount: receipt.affectedEdgeIds.length }
+    }
     this.event(record, 'tool', operation.call.name, (operation.result as { error?: unknown })?.error ? 'failed' : 'complete',
       { toolName: operation.call.name, operationId: operation.id, detail: JSON.stringify(detail ?? {}).slice(0, 2000) })
     if (operation.call.name === 'ask_user' && record.run.status === 'waiting_user') this.skipPending(record, '先等待用户回答，再规划后续操作。')

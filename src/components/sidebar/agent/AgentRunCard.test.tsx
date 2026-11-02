@@ -20,7 +20,7 @@ function card(current: AgentRun, overrides: { readOnly?: boolean; busy?: boolean
 describe('AgentRunCard persisted lifecycle', () => {
   it('distinguishes preview and committed command receipts with verification and affected counts', () => {
     card(run({ events: [
-      event(1, { toolName: 'run_canvas_command', title: 'run_canvas_command', status: 'complete', detail: JSON.stringify({ command: 'geometry.layout', status: 'preview', committed: false, verified: true, revision: 3, affectedNodeIds: ['a', 'b'] }) }),
+      event(1, { toolName: 'run_canvas_command', title: 'run_canvas_command', status: 'complete', detail: JSON.stringify({ command: 'geometry.layout', status: 'preview', committed: false, verified: true, revision: 3, affectedNodeCount: 2 }) }),
       event(2, { toolName: 'run_canvas_command', title: 'run_canvas_command', status: 'complete', detail: JSON.stringify({ command: 'styles.text', status: 'committed', committed: true, verified: true, revision: 4, affectedNodeIds: ['a'] }) }),
     ] }))
     expect(screen.getByText(/预演完成，尚未提交/)).toBeInTheDocument()

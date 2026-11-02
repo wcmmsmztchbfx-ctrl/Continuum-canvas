@@ -42,6 +42,16 @@ describe('v2 durable execution', () => {
     expect(receipt).toMatchObject({ committed: true, verified: true, revision: 2, affectedNodeIds: ['a'] })
     expect(receipt.operationId).toBeTruthy()
   })
+  it('keeps UI receipts valid for a full 100-node authorized scope', async () => {
+    const f = await fixture([...[0, 30, 60, 90].map(offset => call('read_canvas', { offset, limit: 30 })), runCommand('nodes.rename_canvas', { name: 'Large scope' }, 2)])
+    const current = await f.read(); const nodes = Array.from({ length: 100 }, (_, i) => node(`long-node-${String(i).padStart(3, '0')}-${'x'.repeat(70)}`))
+    await f.runtime.workspace.applyWorkspaceMutation({ protocolVersion: 1, operationId: 'large-scope', kind: 'save-canvas', expectedRevision: 1, canvas: { ...current.snapshot!, nodes } })
+    const run = await f.runtime.agent.create({ ...f.input, expectedRevision: 2, selectedNodeIds: nodes.map(n => n.id) }, { kind: 'local-admin' })
+    await vi.waitFor(() => expect(f.runtime.agent.get(run.id).status).toBe('complete'))
+    const receipt = f.runtime.agent.get(run.id).events.find(e => e.toolName === 'run_canvas_command' && e.status === 'complete')!
+    expect(() => JSON.parse(receipt.detail!)).not.toThrow()
+    expect(JSON.parse(receipt.detail!)).toMatchObject({ committed: true, verified: true, affectedNodeCount: 100 })
+  })
   it('reads typed data and bounded edge pages with layer positions', async () => {
     const f = await fixture([call('read_nodes', { nodeIds: ['a', 'b'], edgeOffset: 0, edgeLimit: 1 })])
     const run = await f.runtime.agent.create(f.input, { kind: 'local-admin' }); await vi.waitFor(() => expect(f.runtime.agent.get(run.id).status).toBe('complete'))

@@ -25,8 +25,10 @@ function readableDetail(detail: string | undefined) {
     if (record.committed === true) lines.push(record.verified === true ? '已提交并核验' : '已提交，请回读核对最新修改')
     if (record.status === 'unchanged') lines.push('内容已符合要求，无需修改')
     if (typeof record.revision === 'number') lines.push(`画布版本：${record.revision}`)
-    if (Array.isArray(record.affectedNodeIds)) lines.push(`影响节点：${record.affectedNodeIds.length}`)
-    if (Array.isArray(record.affectedEdgeIds)) lines.push(`影响连线：${record.affectedEdgeIds.length}`)
+    if (typeof record.affectedNodeCount === 'number') lines.push(`影响节点：${record.affectedNodeCount}`)
+    else if (Array.isArray(record.affectedNodeIds)) lines.push(`影响节点：${record.affectedNodeIds.length}`)
+    if (typeof record.affectedEdgeCount === 'number') lines.push(`影响连线：${record.affectedEdgeCount}`)
+    else if (Array.isArray(record.affectedEdgeIds)) lines.push(`影响连线：${record.affectedEdgeIds.length}`)
     for (const [key, label] of Object.entries(DETAIL_LABELS)) {
       const value = record[key]
       if (typeof value === 'string' || typeof value === 'number') lines.push(`${label}：${String(value).slice(0, 240)}`)
