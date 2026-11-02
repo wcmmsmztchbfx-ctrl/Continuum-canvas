@@ -24,7 +24,7 @@ beforeEach(() => {
   fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === 'POST') {
       const body = JSON.parse(init.body as string); posted.push({ url, body })
-      const result = makeRun({ prompt: body.prompt ?? runs[0]?.prompt ?? '生成苹果', requestId: body.requestId, attachments: body.attachments ?? [], status: body.action === 'pause' ? 'paused' : body.action === 'stop' ? 'stopped' : 'running', sequence: (runs[0]?.sequence ?? 0) + 1 })
+      const result = makeRun({ prompt: body.prompt ?? runs[0]?.prompt ?? '生成苹果', conversationId: body.conversationId ?? runs[0]?.conversationId, previousRunId: body.previousRunId, requestId: body.requestId, attachments: body.attachments ?? [], status: body.action === 'pause' ? 'paused' : body.action === 'stop' ? 'stopped' : 'running', sequence: (runs[0]?.sequence ?? 0) + 1 })
       runs = [result]; return Response.json({ run: result })
     }
     if (url === '/api/agent/status') return Response.json({ configured, model: '测试模型' })
@@ -37,6 +37,35 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
 describe('AgentSidebarPanel backend runs', () => {
+  it('always offers independent new conversations and restores the selected conversation', async () => {
+    runs = [makeRun({ id: 'old', conversationId: 'chat-old', status: 'complete', prompt: '旧对话问题', response: '旧对话回答' })]
+    const view = render(<AgentSidebarPanel canvasId="c1" />)
+    await screen.findByText('旧对话回答')
+    fireEvent.click(screen.getByRole('button', { name: '新建对话' }))
+    expect(screen.queryByText('旧对话回答')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Agent 指令输入框')).toHaveValue('')
+    fireEvent.change(screen.getByLabelText('Agent 指令输入框'), { target: { value: '新对话草稿' } })
+    const current = (screen.getByRole('combobox', { name: '选择对话' }) as HTMLSelectElement).value
+    fireEvent.change(screen.getByRole('combobox', { name: '选择对话' }), { target: { value: 'chat-old' } })
+    expect(await screen.findByText('旧对话回答')).toBeInTheDocument()
+    expect(screen.getByLabelText('Agent 指令输入框')).toHaveValue('')
+    fireEvent.change(screen.getByRole('combobox', { name: '选择对话' }), { target: { value: current } })
+    expect(screen.getByLabelText('Agent 指令输入框')).toHaveValue('新对话草稿')
+    view.unmount(); render(<AgentSidebarPanel canvasId="c1" />)
+    expect(screen.getByRole('combobox', { name: '选择对话' })).toHaveValue(current)
+    expect(screen.getByLabelText('Agent 指令输入框')).toHaveValue('新对话草稿')
+  })
+  it('links completed follow-up turns to their own conversation rather than another active one', async () => {
+    runs = [makeRun({ id: 'first', conversationId: 'chat-one', status: 'complete', prompt: '记住角色', response: '角色叫小林' }), makeRun({ id: 'busy-other', conversationId: 'chat-other', status: 'paused', prompt: '另一个任务' })]
+    render(<AgentSidebarPanel canvasId="c1" />)
+    await screen.findByRole('combobox', { name: '选择对话' })
+    await screen.findByText('另一个任务')
+    fireEvent.change(screen.getByRole('combobox', { name: '选择对话' }), { target: { value: 'chat-one' } })
+    fireEvent.change(screen.getByLabelText('Agent 指令输入框'), { target: { value: '角色叫什么？' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ url: '/api/agent/runs', body: { conversationId: 'chat-one', previousRunId: 'first', prompt: '角色叫什么？' } })
+  })
   it('retains configuration entry and disables writes for collaborators', async () => {
     configured = false
     const open = vi.fn()

@@ -2,7 +2,7 @@ import type { AgentConfigStore } from '../agent-config-store.ts'
 import { AgentError } from './types.ts'
 
 export interface ToolCall { id: string; name: string; arguments: Record<string, unknown> }
-export interface ModelTurn { text?: string; calls: ToolCall[] }
+export interface ModelTurn { text?: string; calls: ToolCall[]; incomplete?: boolean }
 export interface ModelMessage { role: 'user' | 'assistant' | 'tool'; content: unknown; tool_call_id?: string; tool_calls?: unknown[] }
 export interface AgentModelInput { system: string; messages: ModelMessage[]; tools: unknown[]; signal: AbortSignal; hasImages: boolean }
 export type AgentModel = (input: AgentModelInput) => Promise<ModelTurn>
@@ -21,7 +21,7 @@ export function configuredModel(config: AgentConfigStore): AgentModel {
         method: 'POST', signal: AbortSignal.any([input.signal, AbortSignal.timeout(60_000)]),
         headers: { 'content-type': 'application/json', Authorization: `Bearer ${config.getSecret(provider.id)}` },
         body: JSON.stringify({ model: provider.model, stream: false, max_tokens: 4096,
-          messages: [{ role: 'system', content: input.system }, ...input.messages], tools: input.tools, tool_choice: 'auto' }),
+          messages: [{ role: 'system', content: input.system }, ...input.messages], ...(input.tools.length ? { tools: input.tools, tool_choice: 'auto' } : {}) }),
       })
     } catch { throw new AgentError(502, 'model_unavailable', 'Agent 模型请求失败；任务已保留，可稍后继续。') }
     if (!response.ok) throw new AgentError(502, 'model_rejected', `Agent 模型返回错误（${response.status}）；请核对模型配置与图片能力。`)
@@ -34,10 +34,11 @@ export function configuredModel(config: AgentConfigStore): AgentModel {
     let payload: { choices?: Array<{ finish_reason?: string; message?: { content?: unknown; tool_calls?: Array<{ id?: string; type?: string; function?: { name?: string; arguments?: string } }> } }> }
     try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { throw new AgentError(502, 'model_invalid_response', 'Agent 模型响应格式无效。') }
     const choice = payload.choices?.[0]
-    if (choice?.finish_reason === 'length' || !choice?.message) throw new AgentError(502, 'model_incomplete', 'Agent 模型响应未完整结束，请继续重试。')
+    if (!choice?.message || (choice.finish_reason === 'length' && (choice.message.tool_calls?.length || !choice.message.content))) throw new AgentError(502, 'model_incomplete', 'Agent 模型响应未完整结束，请继续重试。')
     const calls = choice.message.tool_calls ?? []
     if (calls.length > 8) throw new AgentError(422, 'tool_limit', '单轮工具调用超过限制。')
-    return { text: typeof choice.message.content === 'string' ? choice.message.content.slice(0, 8000) : undefined,
+    return { text: typeof choice.message.content === 'string' ? choice.message.content : undefined,
+      ...(choice.finish_reason === 'length' ? { incomplete: true } : {}),
       calls: calls.map((call) => {
         if (call.type !== 'function' || !call.id || !call.function?.name) throw new AgentError(502, 'model_invalid_tool', 'Agent 工具调用格式无效。')
         let args: unknown

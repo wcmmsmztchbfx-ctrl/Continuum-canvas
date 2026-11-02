@@ -5,7 +5,9 @@ import { setTimeout as delay } from 'node:timers/promises'
 const origin = 'https://agent-fixture.example'
 const call = (name, args, id = name) => ({ calls: [{ id, name, arguments: args }] })
 export async function agentFixtureModel({ system, messages, signal, hasImages, tools }) {
-  const prompt = messages.find(message => message.role === 'user' && typeof message.content === 'string')?.content ?? ''
+  const marker = 'Actual current context:\n'
+  const context = system.includes(marker) ? JSON.parse(system.split(marker).at(-1)) : undefined
+  const prompt = context?.currentPrompt ?? messages.find(message => message.role === 'user' && typeof message.content === 'string')?.content ?? ''
   const results = messages.filter(message => message.role === 'tool').map(message => ({
     id: message.tool_call_id, value: JSON.parse(String(message.content)),
   }))
@@ -22,6 +24,12 @@ export async function agentFixtureModel({ system, messages, signal, hasImages, t
     if (!results.some(r => r.id === 'fixture-v2-readback')) return call('read_nodes', { nodeIds: created.value.result.nodeIds }, 'fixture-v2-readback')
     return { text: '已创建标题、设置样式并回读核验', calls: [] }
   }
+  if (prompt.includes('对话验收')) {
+    if (prompt.includes('记住')) return { text: '角色叫小林。' + '这是新回复逐字显示的验收内容。'.repeat(25), calls: [] }
+    const remembered = messages.some(message => message.role === 'assistant' && typeof message.content === 'string' && message.content.includes('角色叫小林'))
+    return { text: remembered ? '角色叫小林，我保留了本对话的上下文。' : '这个新对话没有之前的角色记忆。', calls: [] }
+  }
+  if (prompt.includes('预算验收')) return tools.length ? call('read_canvas', {}) : { text: '本轮已核对画布，操作预算结束后已暂停。已提交的内容已保留，可以继续处理剩余步骤。', calls: [] }
   if (prompt.includes('检查引用')) {
     const count = messages.flatMap(message => Array.isArray(message.content) ? message.content : []).filter(part => part.type === 'image_url').length
     if (hasImages !== (count > 0)) throw new Error('Fixture image metadata did not match actual image inputs')

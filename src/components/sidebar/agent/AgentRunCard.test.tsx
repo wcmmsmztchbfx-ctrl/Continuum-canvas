@@ -18,6 +18,14 @@ function card(current: AgentRun, overrides: { readOnly?: boolean; busy?: boolean
 }
 
 describe('AgentRunCard persisted lifecycle', () => {
+  it('collapses long operation traces and shows the closing answer with a single budget notice', () => {
+    const events = Array.from({ length: 12 }, (_, i) => event(i + 1, { operationId: `op${i}`, toolName: 'run_canvas_command', title: 'run_canvas_command', status: 'complete' }))
+    events.push(event(13, { type: 'status', title: '本轮操作已暂停', status: 'waiting' }))
+    const view = card(run({ status: 'paused', response: '已创建十个节点并填写提示词，接下来可继续核验。', error: { code: 'run_limit', message: '本轮操作已暂停' }, events }))
+    expect(screen.getByText('已创建十个节点并填写提示词，接下来可继续核验。')).toBeInTheDocument()
+    expect(screen.getAllByText('本轮操作已暂停')).toHaveLength(1)
+    expect(view.container.querySelector('details.agent-runtime-activity')).not.toHaveAttribute('open')
+  })
   it('distinguishes preview and committed command receipts with verification and affected counts', () => {
     card(run({ events: [
       event(1, { toolName: 'run_canvas_command', title: 'run_canvas_command', status: 'complete', detail: JSON.stringify({ command: 'geometry.layout', status: 'preview', committed: false, verified: true, revision: 3, affectedNodeCount: 2 }) }),

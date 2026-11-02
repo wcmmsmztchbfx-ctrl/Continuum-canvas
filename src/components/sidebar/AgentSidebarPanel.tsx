@@ -10,6 +10,7 @@ import { createBrowserUuid } from '../../utils/id'
 import { LibTvLogo } from '../shell/LibTvLogo'
 import { ManagedMediaImage } from '../canvas/ManagedMediaImage'
 import { AgentRunCard } from './agent/AgentRunCard'
+import { useAgentConversations, type ConversationSession } from './agent/useAgentConversations'
 import { useSelectedAgentImages } from './agent/useSelectedAgentImages'
 import '../../styles/agent-runtime.css'
 
@@ -23,10 +24,10 @@ export interface AgentSidebarPanelProps {
 }
 interface Draft { prompt: string; attachments: AgentAttachment[]; pending?: AgentCreateRunInput }
 const EMPTY_DRAFT: Draft = { prompt: '', attachments: [] }
-const keyFor = (canvasId?: string) => `continuum_agent_draft_v1_${canvasId || 'default'}`
-function loadDraft(canvasId?: string): Draft {
+const keyFor = (canvasId?: string, conversationId = 'legacy') => `continuum_agent_draft_v1_${canvasId || 'default'}${conversationId === 'legacy' ? '' : `_${conversationId}`}`
+function loadDraft(canvasId?: string, conversationId = 'legacy'): Draft {
   try {
-    const value = JSON.parse(localStorage.getItem(keyFor(canvasId)) ?? 'null')
+    const value = JSON.parse(localStorage.getItem(keyFor(canvasId, conversationId)) ?? 'null')
     if (value && typeof value.prompt === 'string' && Array.isArray(value.attachments)) return { prompt: value.prompt, attachments: value.attachments.filter((item: AgentAttachment) => item && typeof item.assetId === 'string' && typeof item.nodeId === 'string'), ...(value.pending?.canvasId === canvasId ? { pending: value.pending } : {}) }
   } catch { /* storage unavailable */ }
   return EMPTY_DRAFT
@@ -37,11 +38,18 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 export function AgentSidebarPanel(props: AgentSidebarPanelProps) {
   return <AgentCanvasPanel key={props.canvasId || 'unscoped'} {...props} />
 }
-function AgentCanvasPanel({ onNotify, store = canvasStore, onOpenProviderDrawer, readOnly = false, canvasId, onBeforeRun }: AgentSidebarPanelProps) {
+function AgentCanvasPanel(props: AgentSidebarPanelProps) {
+  const conversations = useAgentConversations(props.canvasId)
+  return <AgentConversationPanel key={conversations.conversationId} {...props} {...conversations} />
+}
+function AgentConversationPanel({ onNotify, store = canvasStore, onOpenProviderDrawer, readOnly = false, canvasId, onBeforeRun, conversationRuns, conversationId, conversationOptions, onConversationRuns, onChooseConversation, onNewConversation }: AgentSidebarPanelProps & ConversationSession) {
   const client = useMemo(() => new AgentRuntimeClient(), [])
-  const [runs, setRuns] = useState<AgentRun[]>([])
+  const [allRuns, setRuns] = useState<AgentRun[]>(conversationRuns)
+  const runs = allRuns.filter(run => (run.conversationId ?? 'legacy') === conversationId)
+  const historicalResponses = useRef<Map<string, string> | null>(conversationRuns.length ? new Map(conversationRuns.filter(run => run.response).map(run => [run.id, run.response!])) : null)
+  const createdHere = useRef(new Set<string>())
   const [legacy, setLegacy] = useState<Array<{ id: string; role: string; content: string }>>([])
-  const [draft, setDraft] = useState<Draft>(() => loadDraft(canvasId))
+  const [draft, setDraft] = useState<Draft>(() => loadDraft(canvasId, conversationId))
   const draftRef = useRef(draft)
   const [status, setStatus] = useState<AgentStatus | null>(null)
   const [skills, setSkills] = useState<AgentSkillInfo[]>([])
@@ -74,19 +82,21 @@ function AgentCanvasPanel({ onNotify, store = canvasStore, onOpenProviderDrawer,
 
   const saveDraft = useCallback((next: Draft) => {
     draftRef.current = next
-    try { localStorage.setItem(keyFor(canvasId), JSON.stringify(next)) } catch { /* editing remains usable */ }
+    try { localStorage.setItem(keyFor(canvasId, conversationId), JSON.stringify(next)) } catch { /* editing remains usable */ }
     if (alive.current) setDraft(next)
-  }, [canvasId])
+  }, [canvasId, conversationId])
   const reportError = useCallback((failure: unknown) => {
     if (!alive.current) return
     const message = errorMessage(failure); setError(message); onNotify?.(message, 'error')
   }, [onNotify])
-  const acceptRuns = useCallback((incoming: AgentRun[]) => {
+  const acceptRuns = useCallback((incoming: AgentRun[], fromPoll = false) => {
     if (!alive.current || !canvasId) return
+    if (fromPoll && historicalResponses.current === null) historicalResponses.current = new Map(incoming.filter(run => run.response && !createdHere.current.has(run.id)).map(run => [run.id, run.response!]))
     setRuns(previous => mergeAgentRuns(previous, incoming, canvasId))
+    onConversationRuns(incoming)
     const pending = draftRef.current.pending
     if (pending && incoming.some(run => run.canvasId === canvasId && run.requestId === pending.requestId)) { saveDraft(EMPTY_DRAFT); setError('') }
-  }, [canvasId, saveDraft])
+  }, [canvasId, saveDraft, onConversationRuns])
 
   useEffect(() => {
     alive.current = true
@@ -99,14 +109,14 @@ function AgentCanvasPanel({ onNotify, store = canvasStore, onOpenProviderDrawer,
     let failureCount = 0
     const poll = async () => {
       if (!canvasId) return
-      try { const incoming = await client.listRuns(canvasId, controller.signal); if (!active) return; acceptRuns(incoming); setConnectionError(''); failureCount = 0 }
+      try { const incoming = await client.listRuns(canvasId, controller.signal); if (!active) return; acceptRuns(incoming, true); setConnectionError(''); failureCount = 0 }
       catch (failure) { if (!active) return; failureCount++; setConnectionError(`暂时无法更新任务状态：${errorMessage(failure)}`) }
       if (active) timer = setTimeout(poll, Math.min(15_000, 2000 * 2 ** Math.min(failureCount, 3)))
     }
     void poll()
-    void client.legacyHistory(canvasId, controller.signal).then(messages => { if (active) setLegacy(messages) })
+    if (conversationId === 'legacy') void client.legacyHistory(canvasId, controller.signal).then(messages => { if (active) setLegacy(messages) })
     return () => { active = false; controller.abort(); clearTimeout(timer) }
-  }, [client, canvasId, acceptRuns])
+  }, [client, canvasId, acceptRuns, conversationId])
   useEffect(() => {
     const controller = new AbortController()
     let version = 0
@@ -176,12 +186,13 @@ function AgentCanvasPanel({ onNotify, store = canvasStore, onOpenProviderDrawer,
           const { expectedRevision } = await (onBeforeRun ? onBeforeRun() : client.canvasRevision(canvasId))
           if (!alive.current || !canWrite.current) return
           const state = store.getState()
-          input = { requestId: createBrowserUuid(), canvasId, expectedRevision, prompt: text, attachments: [...draftRef.current.attachments], selectedNodeIds: [...state.selectedNodeIds], viewport: { ...state.snapshot.viewport } }
+          input = { requestId: createBrowserUuid(), canvasId, expectedRevision, conversationId, ...(runs.at(-1) ? { previousRunId: runs.at(-1)!.id } : {}), prompt: text, attachments: [...draftRef.current.attachments], selectedNodeIds: [...state.selectedNodeIds], viewport: { ...state.snapshot.viewport } }
           saveDraft({ ...draftRef.current, pending: input })
         }
         setBusyLabel('正在提交任务…')
         const created = await client.createRun(input)
         if (!alive.current) return
+        createdHere.current.add(created.id)
         acceptRuns([created]); saveDraft(EMPTY_DRAFT); setNewTask(false)
       }
     } catch (failure) {
@@ -208,13 +219,17 @@ function AgentCanvasPanel({ onNotify, store = canvasStore, onOpenProviderDrawer,
 
   return <div aria-label="Agent 智能助手" className="sidebar-agent-panel agent-runtime-shell">
     <header className="agent-runtime-header"><div className="agent-runtime-title"><LibTvLogo size={21} variant="outline" /><div><h2>画布 Agent</h2><span>{readOnly ? '仅房主可用' : status?.configured === false ? '未接入大模型' : status?.model || '后台任务'}</span></div></div><div className="agent-runtime-header-actions">{readOnly ? <span className="agent-runtime-muted"><Lock size={12} /> 已锁定</span> : onOpenProviderDrawer && <button type="button" aria-label="管理 API 接入" onClick={onOpenProviderDrawer}><ServerCog size={16} /></button>}</div></header>
+    <div className="agent-runtime-conversations">
+      <select aria-label="选择对话" value={conversationId} disabled={busy} onChange={event => onChooseConversation(event.target.value)}>{conversationOptions.map(option => <option key={option.id} value={option.id}>{option.title}{option.active ? ' · 进行中' : ''}</option>)}</select>
+      <button type="button" aria-label="新建对话" title="新建独立对话" disabled={readOnly || busy} onClick={onNewConversation}><Plus size={15} />新对话</button>
+    </div>
     <div className="agent-runtime-body" ref={chatRef} onScroll={() => { const body = chatRef.current; if (body) { following.current = body.scrollHeight - body.scrollTop - body.clientHeight < 48; if (following.current) setNewContent(false) } }}>
       {readOnly && <div className="agent-runtime-notice"><Lock size={18} /><h3>多人协作模式已启用</h3><p>当前 Agent 仅限房主操作。任务结果会同步到画布。</p></div>}
       {!readOnly && status?.configured === false && <div className="agent-runtime-notice"><h3>尚未接入 Agent 大模型</h3><p>配置对话大模型后，即可提交画布任务。</p>{onOpenProviderDrawer && <button type="button" onClick={onOpenProviderDrawer}><ServerCog size={14} />前往配置 API</button>}</div>}
       {legacy.length > 0 && <details className="agent-runtime-legacy" open><summary>历史对话 · 只读</summary>{legacy.length > visibleLegacyCount && <button type="button" onClick={() => setVisibleLegacyCount(count => count + 40)}>显示更早对话</button>}{legacy.slice(-visibleLegacyCount).map(message => <p key={message.id} className={message.role === 'user' ? 'agent-runtime-user-message' : ''}>{message.content}</p>)}</details>}
       {runs.length === 0 && legacy.length === 0 && !readOnly && status?.configured !== false && <div className="agent-runtime-empty"><LibTvLogo size={36} variant="outline" /><h3>下一步做什么？</h3><p>描述目标，Agent 会在画布上执行并记录结果。</p><div className="agent-runtime-suggestions">{['生成一个苹果', '整理选中节点的排版', '只写三组分镜提示词'].map(prompt => <button type="button" key={prompt} onClick={() => saveDraft({ ...draftRef.current, prompt })}>{prompt}</button>)}</div></div>}
       {runs.length > visibleRunCount && <button type="button" className="agent-runtime-more" onClick={() => setVisibleRunCount(count => count + 20)}>显示更早任务</button>}
-      {runs.slice(-visibleRunCount).map(run => <AgentRunCard key={run.id} run={run} readOnly={readOnly} busy={busy} onControl={handleControl} onAnswer={handleAnswer} onLocate={handleLocate} />)}
+      {runs.slice(-visibleRunCount).map(run => <AgentRunCard key={run.id} run={run} readOnly={readOnly} busy={busy} onControl={handleControl} onAnswer={handleAnswer} onLocate={handleLocate} animateResponse={!!run.response && historicalResponses.current !== null && historicalResponses.current.get(run.id) !== run.response} onResponseProgress={() => { if (following.current && chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }} />)}
       {connectionError && <p className="agent-runtime-error" role="status">{connectionError}。后台任务不会因侧栏关闭而停止。</p>}
     </div>
     {newContent && <button type="button" className="agent-runtime-new-content" onClick={() => { following.current = true; setNewContent(false); if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }}><ChevronDown size={13} />有新内容</button>}

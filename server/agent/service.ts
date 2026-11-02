@@ -16,6 +16,7 @@ import { configuredModel, type AgentModel, type ModelMessage, type ToolCall } fr
 import { AgentError, type AgentGrant, type GenerationBinding, type StoredOperation, type StoredRun } from './types.ts'
 import { applyChanges, changesBetween, changesMatch, readCanvas } from './canvas.ts'
 import { computeCanvasCommand, describeCanvasCommand, listCanvasCommands } from './commands.ts'
+import { budgetFallback, conversationIdOf, previousConversationMessages, publicConversationRun } from './conversations.ts'
 import { compactConversation, normalizedConversation } from './context.ts'
 
 const terminal = new Set(['complete', 'partial', 'failed', 'stopped'])
@@ -99,8 +100,8 @@ export class CanvasAgentService {
     const active = this.queue.catch(() => {}).then(operation); this.queue = active.catch(() => {}); return active
   }
   private require(id: string) { const r = this.store.records.get(id); if (!r) throw new AgentError(404, 'run_not_found', '任务不存在。'); return r }
-  get(id: string): AgentRun { return structuredClone(this.require(id).run) }
-  list(canvasId: string): AgentRun[] { return [...this.store.records.values()].filter(r => r.run.canvasId === canvasId).sort((a, b) => a.run.createdAt.localeCompare(b.run.createdAt)).map(r => structuredClone(r.run)) }
+  get(id: string): AgentRun { return publicConversationRun(this.require(id)) }
+  list(canvasId: string): AgentRun[] { return [...this.store.records.values()].filter(r => r.run.canvasId === canvasId).sort((a, b) => a.run.createdAt.localeCompare(b.run.createdAt)).map(r => publicConversationRun(r)) }
   authorize(id: string, actor: AgentGrant) {
     const record = this.require(id)
     if (actor.kind === 'local-admin') return
@@ -132,6 +133,12 @@ export class CanvasAgentService {
       const authority = this.runtime.collaboration.agentAuthority(canvas.projectId, input.canvasId)
       if (grant.kind === 'collaboration') this.runtime.collaboration.authorizeAgentGrant(grant, input.canvasId)
       else if (authority !== 'local') throw new AgentError(403, 'collaboration_grant_required', '请使用当前协作会话发起任务。')
+      if (input.conversationId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(text(input.conversationId, 128))) throw new AgentError(400, 'invalid_conversation', '对话编号无效。')
+      if (input.previousRunId !== undefined) {
+        const previous = this.require(text(input.previousRunId, 128))
+        this.authorize(previous.run.id, grant)
+        if (previous.run.canvasId !== input.canvasId || previous.run.projectId !== canvas.projectId || conversationIdOf(previous.run) !== (input.conversationId ?? 'legacy')) throw new AgentError(409, 'conversation_mismatch', '只能在同一画布的同一对话中接续历史。')
+      }
       const attachments = input.attachments.map(a => {
         text(a.id, 128); text(a.nodeId, 256); text(a.name, 256)
         const asset = this.runtime.assets.get(a.assetId)
@@ -143,9 +150,9 @@ export class CanvasAgentService {
       const skillPackage = this.newTaskVersion === 2 ? await this.skills.snapshotV2() : undefined
       const base = skillPackage ? this.skills.readResource(skillPackage, 'canvas-base') : await this.skills.read('canvas-base')
       const record: StoredRun = { version: skillPackage ? 2 : 1, ...(skillPackage ? { executionVersion: 2 as const, skillPackage } : {}), run: { id, requestId: input.requestId, canvasId: input.canvasId, projectId: canvas.projectId,
-        prompt: input.prompt, attachments, status: 'queued', createdAt: now, updatedAt: now, sequence: 0, events: [], plan: [], outputs: [], canUndo: false },
+        prompt: input.prompt, attachments, ...(input.conversationId ? { conversationId: input.conversationId } : {}), ...(input.previousRunId ? { previousRunId: input.previousRunId } : {}), status: 'queued', createdAt: now, updatedAt: now, sequence: 0, events: [], plan: [], outputs: [], canUndo: false },
         grant, authority, inputDigest: hash(input), selectedNodeIds: ids(input.selectedNodeIds ?? []), viewport: input.viewport,
-        messages: [{ role: 'user', content: input.prompt }], operations: [], changes: [], bindings: [], round: 0,
+        messages: [{ role: 'user', content: input.prompt }], conversationPrepared: !input.previousRunId, operations: [], changes: [], bindings: [], round: 0,
         generationBudget: initialGenerationBudget(input.prompt), generationAttemptsAllowed: initialGenerationBudget(input.prompt), writeAuthorized: !planOnly(input.prompt), stopped: false, undone: false, skills: { 'canvas-base': base },
         handledRequests: {}, pendingCalls: [], intentVersion: 0, observed: {} }
       await readCanvas(this.runtime, record)
@@ -203,7 +210,8 @@ export class CanvasAgentService {
         this.updateGenerationAuthorization(record, message)
         if (planOnly(message)) record.writeAuthorized = false
         else if (approvesExecution(message)) record.writeAuthorized = true
-        if (record.run.status === 'partial' || record.run.status === 'failed') { record.run.status = 'queued'; record.roundLimit = record.round + 24; record.reviewFromOperation = record.operations.length; delete record.run.error }
+        delete record.replyContinuation
+        if (record.run.status === 'partial' || record.run.status === 'failed' || (record.run.status === 'paused' && !record.run.question)) { record.run.status = 'queued'; record.roundLimit = record.round + 24; record.reviewFromOperation = record.operations.length; delete record.run.error }
         this.event(record, 'message', '已收到补充要求', 'complete', { detail: message })
       } else throw new AgentError(400, 'invalid_action', '未知任务操作。')
       record.handledRequests[input.requestId] = hash(input); await this.save(record); this.pump(); return structuredClone(record.run)
@@ -246,11 +254,14 @@ export class CanvasAgentService {
     if (this.closed) return
     queueMicrotask(() => {
       const blocked = new Set<string>()
+      const busyCanvases = new Set([...this.flights.keys()].map(id => this.require(id).run.canvasId))
       for (const record of this.store.records.values()) {
         if (terminal.has(record.run.status)) continue
-        if (blocked.has(record.run.canvasId)) continue
-        blocked.add(record.run.canvasId)
-        if (!['queued', 'running'].includes(record.run.status) || this.flights.has(record.run.id)) continue
+        const lane = JSON.stringify([record.run.canvasId, conversationIdOf(record.run)])
+        if (blocked.has(lane)) continue
+        blocked.add(lane)
+        if (busyCanvases.has(record.run.canvasId) || !['queued', 'running'].includes(record.run.status) || this.flights.has(record.run.id)) continue
+        busyCanvases.add(record.run.canvasId)
         const flight = this.execute(record).catch(async error => { if (!this.closed && !record.stopped) await this.exclusive(() => this.pauseWithError(record, error)) })
         this.flights.set(record.run.id, flight)
         void flight.finally(() => { this.flights.delete(record.run.id); this.pump() }).catch(() => {})
@@ -264,8 +275,45 @@ export class CanvasAgentService {
   }
   private active(record: StoredRun) { return !this.closed && !record.stopped && !record.undone && ['queued', 'running'].includes(record.run.status) }
   private attemptsUsed(record: StoredRun) { return record.bindings.filter(b => !b.notSubmitted).length }
+  private async closeBudget(record: StoredRun) {
+    const controller = new AbortController(); this.controllers.set(record.run.id, controller)
+    let input: Parameters<AgentModel>[0] | undefined; let version = record.intentVersion
+    try {
+      await this.exclusive(async () => {
+        if (!this.active(record)) return
+        if (record.summaryAtRound === record.round) {
+          record.run.response = budgetFallback(record)
+          await this.pauseWithError(record, new AgentError(409, 'run_limit', '本轮操作已暂停，可以检查结果后继续。')); return
+        }
+        const { snapshot } = await readCanvas(this.runtime, record)
+        record.summaryAtRound = record.round; version = record.intentVersion
+        const owned = new Set([...record.selectedNodeIds, ...record.changes.filter(c => c.collection === 'nodes').map(c => c.id)])
+        const actual = snapshot.nodes.filter(n => owned.has(n.id)).slice(0, 30).map(n => ({ id: n.id, type: n.type, name: n.name, ...((n.type === 'image' || n.type === 'video') ? { prompt: n.data.promptDraft?.slice(0, 500), assetId: n.data.assetId } : {}) }))
+        input = { system: `本轮画布操作预算已用完。现在只做最终答复，禁止调用工具、修改画布、提交生成或宣称未完成的工作已经完成。根据已提交回执和当前回读汇总已完成项、剩余项，并说明任务已暂停、可继续处理。不要把内部推理当作答复。\n实际回读：${JSON.stringify(actual)}\n保底进度：${budgetFallback(record)}`,
+          messages: normalizedConversation(record.messages), tools: [], hasImages: false, signal: AbortSignal.any([this.runtime.signal, controller.signal]) }
+        this.event(record, 'status', '正在汇总已完成的操作', 'running'); await this.save(record)
+      })
+      if (!input) return
+      let response = budgetFallback(record)
+      try { const turn = await this.model(input); if (!turn.incomplete && !turn.calls.length && turn.text?.trim()) response = turn.text } catch { /* Durable factual fallback; no extra retry or tool dispatch. */ }
+      await this.exclusive(async () => {
+        if (!this.active(record) || version !== record.intentVersion) return
+        record.run.response = response; record.messages.push({ role: 'assistant', content: response })
+        this.event(record, 'message', response, 'waiting')
+        await this.pauseWithError(record, new AgentError(409, 'run_limit', '本轮操作已暂停，可以检查结果后继续。'))
+      })
+    } finally { this.controllers.delete(record.run.id) }
+  }
   private async execute(record: StoredRun) {
     while (this.active(record)) {
+      if (!record.conversationPrepared && record.run.previousRunId && record.round === 0) await this.exclusive(async () => {
+        if (!this.active(record)) return
+        const previous = this.require(record.run.previousRunId!)
+        this.authorize(previous.run.id, record.grant)
+        record.messages = [...previousConversationMessages(previous), ...record.messages]
+        record.conversationPrepared = true; await this.save(record)
+      })
+      if (!this.active(record)) return
       if (record.pendingCalls.length) {
         const call = record.pendingCalls[0]
         const shouldContinue = await this.perform(record, call)
@@ -279,8 +327,8 @@ export class CanvasAgentService {
           this.event(record, 'status', `已压缩 ${checkpoint.removedRounds} 轮历史；用户要求与实际回执已保留`); await this.save(record)
         })
       }
-      if (record.round >= (record.roundLimit ?? 24)) {
-        await this.exclusive(() => this.pauseWithError(record, new AgentError(409, 'run_limit', '已达到本轮执行预算，请检查进度后继续。'))); return
+      if (record.round >= (record.roundLimit ?? 24) && !record.replyContinuation) {
+        await this.closeBudget(record); return
       }
       let version = 0; let modelInput: { system: string; messages: ModelMessage[]; tools: unknown[]; signal: AbortSignal; hasImages: boolean }
       const controller = new AbortController(); this.controllers.set(record.run.id, controller)
@@ -292,7 +340,7 @@ export class CanvasAgentService {
           const selected = snapshot.nodes.filter(n => record.selectedNodeIds.includes(n.id)).slice(0, 30)
           for (const node of selected) if (!record.observed[node.id]) record.observed[node.id] = structuredClone(node)
           await this.save(record)
-          return { canvasId: record.run.canvasId, ...(record.executionVersion === 2 ? { revision } : {}), nodeCount: snapshot.nodes.length, selectedNodes: selected.map(n => this.summarizeNode(n, record.executionVersion === 2)),
+          return { canvasId: record.run.canvasId, currentPrompt: record.run.prompt, ...(record.executionVersion === 2 ? { revision } : {}), nodeCount: snapshot.nodes.length, selectedNodes: selected.map(n => this.summarizeNode(n, record.executionVersion === 2)),
             attachments: record.run.attachments.map(a => ({ id: a.id, nodeId: a.nodeId, name: a.name })),
             generationBudget: record.generationBudget, generationAttemptsAllowed: record.generationAttemptsAllowed ?? record.generationBudget, writeAuthorized: record.writeAuthorized !== false, maxAttemptsPerRun: 12, attemptsUsed: this.attemptsUsed(record),
             plan: record.run.plan, recentOperations: record.operations.slice(-16).map(o => ({ operationId: o.id, tool: o.call.name, status: o.state, receipt: JSON.stringify(o.result ?? {}).slice(0, 800) })),
@@ -301,19 +349,37 @@ export class CanvasAgentService {
         if (!context) return
         const images = await this.imageMessages(record)
         modelInput = { system: Object.values(record.skills).map(s => s.content).join('\n\n') + '\n\nActual current context:\n' + JSON.stringify(context),
-          messages: [...normalizedConversation(record.messages), ...images], tools: record.executionVersion === 2 ? agentToolsV2 : agentTools, hasImages: images.length > 0,
+          messages: [...normalizedConversation(record.messages), ...images], tools: record.replyContinuation ? [] : record.executionVersion === 2 ? agentToolsV2 : agentTools, hasImages: images.length > 0,
           signal: AbortSignal.any([this.runtime.signal, controller.signal]) }
         const turn = await this.model(modelInput)
         await this.exclusive(async () => {
           if (!this.active(record) || version !== record.intentVersion) return
           if (!Array.isArray(turn.calls) || turn.calls.length > 8) throw new AgentError(502, 'model_invalid_tool', '工具调用超过限制。')
+          if (record.replyContinuation && turn.calls.length) throw new AgentError(502, 'unexpected_continuation_tool', '补全正文时不能执行画布工具。')
+          if (turn.incomplete && turn.calls.length) throw new AgentError(502, 'model_incomplete', '工具调用不完整，未执行。')
           if (turn.calls.length) {
             if (new Set(turn.calls.map(c => c.id)).size !== turn.calls.length) throw new AgentError(502, 'duplicate_tool_id', '模型返回重复工具编号。')
             record.messages.push({ role: 'assistant', content: turn.text ?? null, tool_calls: turn.calls.map(c => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.arguments) } })) })
             record.pendingCalls = turn.calls
             record.pendingRound = record.round
           } else {
-            record.run.response = (turn.text || '任务执行结束。').slice(0, 8000)
+            const prefix = record.replyContinuation?.prefix ?? ''
+            const text = turn.text || '任务执行结束。'
+            record.run.response = prefix && !text.startsWith(prefix) ? `${prefix}${text}` : text
+            if (turn.incomplete) {
+              const attempted = record.replyContinuation?.attempts ?? 0
+              record.replyContinuation = { prefix: record.run.response, attempts: 1 }
+              record.messages.push({ role: 'assistant', content: text })
+              if (attempted) {
+                this.event(record, 'message', record.run.response, 'waiting')
+                await this.pauseWithError(record, new AgentError(409, 'model_incomplete', '回答尚未结束，已保留全部收到的正文，可以继续补全。'))
+              } else {
+                record.messages.push({ role: 'user', content: '请从刚才中断的位置继续完成正文，不重复已有内容。只补全回答，禁止调用工具或提交生成。' })
+                this.event(record, 'status', '正在补全回答', 'running'); await this.save(record)
+              }
+              return
+            }
+            delete record.replyContinuation
             const failed = record.operations.slice(record.reviewFromOperation ?? 0).some(o => o.state === 'complete' && (o.result as { error?: unknown })?.error)
             const applied = record.bindings.filter(b => b.applied).length
             const incomplete = applied < record.generationBudget
@@ -323,6 +389,7 @@ export class CanvasAgentService {
               this.event(record, 'question', record.run.question.title, 'waiting')
             }
             if (incomplete) record.run.response = `已完成并写入 ${applied}/${record.generationBudget} 个生成结果；其余步骤尚未完成。`
+            record.messages.push({ role: 'assistant', content: record.run.response })
             this.event(record, 'message', record.run.response, record.run.status === 'partial' ? 'waiting' : 'complete')
           }
           await this.save(record)

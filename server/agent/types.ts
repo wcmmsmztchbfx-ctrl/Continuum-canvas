@@ -15,6 +15,9 @@ export interface PendingCanvasWrite { operationId: string; changes: FieldChange[
 export interface StoredOperation { id: string; call: ToolCall; state: 'pending' | 'complete'; result?: unknown }
 export interface GenerationBinding { operationId: string; nodeId: string; request: GenerationRequest; jobId?: string; settled?: boolean; applied?: boolean; notSubmitted?: boolean; expectedFields: Record<string, unknown> }
 export interface StoredRun {
+  summaryAtRound?: number
+  conversationPrepared?: boolean
+  replyContinuation?: { prefix: string; attempts: number }
   executionVersion?: 2
   skillPackage?: SkillPackage
   version: 1 | 2; run: AgentRun; grant: AgentGrant; authority: string; inputDigest: string

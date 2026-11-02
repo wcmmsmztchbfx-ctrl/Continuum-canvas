@@ -19,7 +19,7 @@ describe('configured canvas Agent model protocol', () => {
       messages: [{ role: 'system', content: 'canvas-base@1' }, ...input().messages] })
   })
   it.each([
-    [{ finish_reason: 'length', message: { content: 'partial' } }, 'model_incomplete'],
+    [{ finish_reason: 'length', message: { content: 'partial', tool_calls: [{ id: 'x' }] } }, 'model_incomplete'],
     [{ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'bad', type: 'function', function: { name: 'create_node', arguments: '{broken' } }] } }, 'model_invalid_tool'],
     [{ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'bad', type: 'function', function: { name: 'create_node', arguments: '[]' } }] } }, 'model_invalid_tool'],
   ])('rejects incomplete or malformed commands without executing text', async (choice, code) => {
@@ -29,6 +29,12 @@ describe('configured canvas Agent model protocol', () => {
   it('never treats a JSON-looking ordinary reply as a canvas command', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"tool":"delete_nodes"}' } }] })))
     expect(await configuredModel(config)(input())).toEqual({ text: '{"tool":"delete_nodes"}', calls: [] })
+  })
+  it('retains partial plain answers and does not silently cut complete answers at 8000 characters', async () => {
+    const text = '完整回答'.repeat(10000)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({ choices: [{ finish_reason: 'length', message: { content: '未完的正文' } }] })).mockResolvedValueOnce(Response.json({ choices: [{ finish_reason: 'stop', message: { content: text } }] })))
+    expect(await configuredModel(config)(input())).toMatchObject({ text: '未完的正文', calls: [], incomplete: true })
+    expect((await configuredModel(config)(input())).text).toBe(text)
   })
   it('bounds upstream content and reports provider HTTP failure without leaking its body', async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(new Response('upstream private diagnostics', { status: 401 })).mockResolvedValueOnce(new Response('x'.repeat(512_001)))

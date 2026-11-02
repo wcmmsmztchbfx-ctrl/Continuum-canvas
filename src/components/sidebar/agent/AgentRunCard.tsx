@@ -2,6 +2,7 @@ import { Check, Circle, CircleAlert, Loader2, Pause, Play, Square, Undo2, Locate
 import { memo, useMemo, useState } from 'react'
 import { ACTIVE_AGENT_STATUSES, type AgentControlAction, type AgentQuestion, type AgentRun, type AgentRunEvent } from '../../../contracts/agent'
 import { ManagedMediaImage } from '../../canvas/ManagedMediaImage'
+import { AgentResponse } from './AgentResponse'
 
 export const AGENT_STATUS_LABELS: Record<AgentRun['status'], string> = { queued: '排队中', running: '执行中', waiting_user: '等待回答', waiting_generation: '等待生成', paused: '已暂停', complete: '已完成', partial: '部分完成', failed: '失败', stopped: '已停止' }
 const TOOL_LABELS: Record<string, string> = {
@@ -69,6 +70,8 @@ function QuestionCard({ question, disabled, onAnswer }: { question: AgentQuestio
   </section>
 }
 interface Props {
+  animateResponse?: boolean
+  onResponseProgress?: () => void
   run: AgentRun
   readOnly: boolean
   busy: boolean
@@ -76,24 +79,26 @@ interface Props {
   onAnswer: (run: AgentRun, answer: string) => void
   onLocate: (nodeIds: string[]) => void
 }
-export const AgentRunCard = memo(function AgentRunCard({ run, readOnly, busy, onControl, onAnswer, onLocate }: Props) {
+export const AgentRunCard = memo(function AgentRunCard({ run, readOnly, busy, onControl, onAnswer, onLocate, animateResponse, onResponseProgress }: Props) {
   const active = ACTIVE_AGENT_STATUSES.includes(run.status)
   const progressing = active && run.status !== 'paused' && run.status !== 'waiting_user'
   const events = useMemo(() => visibleEvents(run.events), [run.events])
   const lastMessage = events.findLast(event => event.type === 'message')
   const duplicateMessage = run.response && run.response.trim() === lastMessage?.title.trim() ? lastMessage : undefined
+  const activity = <div className="agent-runtime-events">{events.filter(event => event !== duplicateMessage && !(event.type === 'status' && event.title === run.error?.message) && !(event.type === 'message' && event.title === '已收到补充要求' && event.detail)).map(event => {
+      const title = event.toolName && event.title === event.toolName && Object.hasOwn(TOOL_LABELS, event.toolName) ? TOOL_LABELS[event.toolName] : event.title
+      const detail = event.type === 'tool' ? readableDetail(event.detail) : event.detail
+      return <details className={`agent-runtime-event is-${event.status}`} key={event.operationId && (event.type === 'tool' || event.type === 'generation') ? `${event.type}:${event.operationId}` : event.sequence} open={event.status === 'failed' || event.status === 'waiting'}><summary><StatusIcon status={event.status} animate={progressing} /><span>{title}</span></summary>{detail && <p>{detail}</p>}{event.nodeIds?.length ? <button type="button" onClick={() => onLocate(event.nodeIds!)}><LocateFixed size={12} />定位对象</button> : null}</details>
+    })}</div>
   return <article className="agent-runtime-run" aria-label={`任务：${run.prompt}`}>
     <div className="agent-runtime-user-message">{run.prompt}</div>
     {run.attachments.length > 0 && <div className="agent-runtime-sent-images">{run.attachments.map((attachment, index) => <figure key={attachment.id}><ManagedMediaImage src={attachment.url ?? `/api/assets/${attachment.assetId}`} alt={attachment.name} /><figcaption>图 {index + 1} · {attachment.name}</figcaption></figure>)}</div>}
     <div className={`agent-runtime-run-status is-${run.status}`} role="status"><StatusIcon status={run.status} />{AGENT_STATUS_LABELS[run.status]}</div>
     {run.plan.length > 0 && <details className="agent-runtime-plan" open={active || run.status === 'failed'}><summary>任务规划与进度 · {run.plan.filter(step => step.status === 'complete').length}/{run.plan.length}</summary><ol>{run.plan.map(step => <li key={step.id} className={`is-${step.status}`}><StatusIcon status={step.status} animate={progressing} /><span>{step.title}</span></li>)}</ol></details>}
-    <div className="agent-runtime-events">{events.filter(event => event !== duplicateMessage).map(event => {
-      const title = event.toolName && event.title === event.toolName && Object.hasOwn(TOOL_LABELS, event.toolName) ? TOOL_LABELS[event.toolName] : event.title
-      const detail = event.type === 'tool' ? readableDetail(event.detail) : event.detail
-      return <details className={`agent-runtime-event is-${event.status}`} key={event.operationId && (event.type === 'tool' || event.type === 'generation') ? `${event.type}:${event.operationId}` : event.sequence} open={event.status === 'failed' || event.status === 'waiting'}><summary><StatusIcon status={event.status} animate={progressing} /><span>{title}</span></summary>{detail && <p>{detail}</p>}{event.nodeIds?.length ? <button type="button" onClick={() => onLocate(event.nodeIds!)}><LocateFixed size={12} />定位对象</button> : null}</details>
-    })}</div>
+    {events.length > 8 ? <details className="agent-runtime-activity" open={progressing}><summary>操作记录 · {events.filter(event => event.type === 'tool').length} 项</summary>{activity}</details> : activity}
+    {events.filter(event => event.type === 'message' && event.title === '已收到补充要求' && event.detail).map(event => <div key={event.id} className="agent-runtime-user-message">{event.detail}</div>)}
     {run.question && run.status === 'waiting_user' && <QuestionCard key={run.question.id} question={run.question} disabled={readOnly || busy} onAnswer={answer => onAnswer(run, answer)} />}
-    {run.response && <p className="agent-runtime-response">{run.response}</p>}
+    {run.response && <AgentResponse text={run.response} animate={animateResponse} onProgress={onResponseProgress} />}
     {run.error && <p className="agent-runtime-error">{run.error.message}</p>}
     {run.outputs.length > 0 && <div className="agent-runtime-outputs">{run.outputs.map(output => <a href={output.url} target="_blank" rel="noreferrer" key={`${output.nodeId}:${output.assetId}`} aria-label="查看生成结果">{output.mediaType === 'image' ? <ManagedMediaImage src={output.url} alt="生成结果" /> : '查看视频结果'}</a>)}</div>}
     {run.status === 'paused' && <p className="agent-runtime-muted">已暂停新步骤；已提交的生成仍会完成。</p>}

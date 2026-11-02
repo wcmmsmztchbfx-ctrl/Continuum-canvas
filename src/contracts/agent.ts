@@ -40,6 +40,8 @@ export interface AgentOutput {
   mediaType: 'image' | 'video'
 }
 export interface AgentRun {
+  conversationId?: string
+  previousRunId?: string
   id: string
   requestId: string
   canvasId: string
@@ -60,6 +62,8 @@ export interface AgentRun {
   appliedCanvasRevision?: number
 }
 export interface AgentCreateRunInput {
+  conversationId?: string
+  previousRunId?: string
   requestId: string
   canvasId: string
   expectedRevision: number
