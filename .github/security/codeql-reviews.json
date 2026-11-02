@@ -7,7 +7,8 @@
     "server/http-gateway.ts": "fd435004b5ffb9a1d1ed29461185f27d42c268600aced9b15b352d4f11dac7b0",
     "server/local-admin-service.ts": "34b1ef5f689ac2f570660eb7d0046211ba57b31172e19816212032d3811ff920",
     "server/collaboration-service.ts": "e76d9b96ec613130d5740f1edabad02e80c3d41d5b7253ba140d2bd2172d22d1",
-    "server/collaboration-cookie.ts": "4aba89247dd16067c409a115f8e4f4dedc9ac76c9d2f73cb2fec4f85978dc3b2"
+    "server/collaboration-cookie.ts": "4aba89247dd16067c409a115f8e4f4dedc9ac76c9d2f73cb2fec4f85978dc3b2",
+    "src/services/localMedia.ts": "fb5bc84bd572a709cf9ff0f77b37c61181c61035a274b32c19fb4c7af1f35f01"
   },
   "results": [
     {
@@ -23,6 +24,13 @@
       "fingerprint": "dca2e9baffc300fd:1",
       "message": "This condition guards a sensitive [action](1), but a [user-provided value](2) controls it.",
       "reason": "Reviewed false positive at authorizeSensitiveRequest: absent room header requires a loopback socket, localAdminAllowed and a validated local-admin session cookie. A present room header requires valid room ID, matching room cookie, server-side authorizeSession and required role. Neither branch bypasses authentication. The distinct legacy-chat bypass is fixed, not reviewed away. See server/http-gateway.test.ts and server/collaboration-http.test.ts."
+    },
+    {
+      "ruleId": "js/xss-through-dom",
+      "path": "src/services/localMedia.ts",
+      "fingerprint": "ad04bb0000e41f5c:1",
+      "message": "[DOM text](1) is reinterpreted as HTML without escaping meta-characters.\n[DOM text](2) is reinterpreted as HTML without escaping meta-characters.\n[DOM text](3) is reinterpreted as HTML without escaping meta-characters.",
+      "reason": "Reviewed false positive: every reported File-input flow reaches video.src only through native URL.createObjectURL(file), which generates an opaque browser-controlled blob URL; file names and contents cannot inject URL syntax. The detached video element decodes media, never parses HTML. A blob-only invariant and metadata success/error cleanup are tested in src/services/localMedia.browser.test.ts. See File API createObjectURL and HTML media resource loading specifications."
     }
   ]
 }

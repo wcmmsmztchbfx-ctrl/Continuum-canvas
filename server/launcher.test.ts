@@ -7,10 +7,15 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { assertRuntime, prepareApplication, assertPortAvailable, browserAddress, npmCommand } from '../scripts/launch.mjs'
 const directories: string[] = []
-afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))) })
+const startupChecks: Array<() => Promise<void>> = []
+afterEach(async () => {
+  // Vitest timeouts do not cancel in-flight filesystem/process work.
+  await Promise.all(startupChecks.splice(0).map(finish => finish()))
+  await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true })))
+})
 
 describe('source download launcher', () => {
-  it('serializes same-folder startup and releases its lock after success or failure', async () => {
+  it('serializes same-folder startup and releases its lock after success or failure', async ({ signal }) => {
     const { withStartupLock } = await import('../scripts/launch.mjs')
     expect(withStartupLock).toBeTypeOf('function')
     const directory = await mkdtemp(join(tmpdir(), 'continuum-startup-lock-')); directories.push(directory)
@@ -18,13 +23,27 @@ describe('source download launcher', () => {
     const entered = new Promise<void>(resolve => { enter = resolve })
     const gate = new Promise<void>(resolve => { release = resolve })
     const first = withStartupLock(directory, async () => { enter(); await gate; return 'started' })
-    await entered
-    try { await expect(withStartupLock(directory, async () => 'second install')).rejects.toThrow(/另一个启动窗口/) }
-    finally { release() }
-    await expect(first).resolves.toBe('started')
-    await expect(withStartupLock(directory, async () => { throw new Error('build failed') })).rejects.toThrow('build failed')
-    await expect(withStartupLock(directory, async () => 'recovered')).resolves.toBe('recovered')
-  })
+    const checks = (async () => {
+      try {
+        // Propagate acquisition failures instead of waiting forever for callback entry.
+        await Promise.race([entered, first])
+        signal.throwIfAborted()
+        await expect(withStartupLock(directory, async () => 'second install')).rejects.toThrow(/另一个启动窗口/)
+      } finally {
+        release()
+        await first
+      }
+      await expect(first).resolves.toBe('started')
+      signal.throwIfAborted()
+      await expect(withStartupLock(directory, async () => { throw new Error('build failed') })).rejects.toThrow('build failed')
+      signal.throwIfAborted()
+      await expect(withStartupLock(directory, async () => 'recovered')).resolves.toBe('recovered')
+    })()
+    startupChecks.push(async () => { release(); await checks.catch(() => {}) })
+    await checks
+    // Windows identity discovery starts PowerShell with a 5s subprocess bound;
+    // allow that bounded acquisition plus the real lock/release filesystem checks.
+  }, 15_000)
   it('explains unsupported Node and npm versions before installing anything', () => {
     expect(() => assertRuntime('22.17.0', '10.9.0')).toThrow(/Node.js 22.18/)
     expect(() => assertRuntime('20.19.0', '10.9.0')).toThrow(/Node.js 22.18/)
