@@ -12,7 +12,9 @@ export class AgentRunStore {
     for (const name of await readdir(this.directory)) {
       if (!/^[0-9a-f-]{36}\.json$/i.test(name)) continue
       const record = JSON.parse(await readFile(join(this.directory, name), 'utf8')) as StoredRun
-      if (record.version !== 1 || `${record.run.id}.json` !== name || !Array.isArray(record.operations)) throw new Error('Invalid Agent run record; recovery required')
+      if (![1, 2].includes(record.version) || (record.version === 2 && record.executionVersion !== 2) ||
+        (record.executionVersion !== undefined && record.executionVersion !== 2) ||
+        `${record.run.id}.json` !== name || !Array.isArray(record.operations)) throw new Error('Invalid Agent run record; recovery required')
       this.records.set(record.run.id, record)
     }
   }

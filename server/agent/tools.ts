@@ -1,4 +1,5 @@
 import { AgentError } from './types.ts'
+import { describeCanvasCommand } from './commands.ts'
 const str = { type: 'string' }; const num = { type: 'number' }; const strings = { type: 'array', items: str, maxItems: 100 }
 const object = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false })
 const definition = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []) =>
@@ -28,9 +29,20 @@ export const agentTools = [
   definition('focus_nodes', 'Offer a location action; no browser movement is claimed.', { nodeIds: strings }, ['nodeIds']),
 ]
 
+const legacyWrites = new Set(['create_node', 'update_node', 'delete_nodes', 'duplicate_node', 'move_nodes', 'group_nodes', 'connect_nodes', 'remove_edge'])
+export const agentToolsV2 = [
+  ...agentTools.filter(t => !legacyWrites.has(t.function.name) && !['read_skill', 'read_canvas', 'read_nodes'].includes(t.function.name)),
+  definition('read_canvas', 'Read actual node data, layer indexes and bounded adjacent edge pages.', { offset: num, limit: num, edgeOffset: num, edgeLimit: num }),
+  definition('read_nodes', 'Read actual typed data and adjacent edges; use edgeOffset for the next edge page.', { nodeIds: strings, edgeOffset: num, edgeLimit: num }, ['nodeIds']),
+  definition('read_skill', 'Read a resource from this task’s immutable Skill manifest.', { id: str, resource: str }, ['id']),
+  definition('list_canvas_commands', 'Discover actual registered canvas operations and command groups.', {}, []),
+  definition('describe_canvas_command', 'Read exact parameters, units, limitations, examples and verification fields before execution.', { command: str }, ['command']),
+  { type: 'function', function: { name: 'run_canvas_command', description: 'Execute a registered command after discovery and read_nodes. Parameters are validated against its exact contract. dryRun computes on a copy; formal submission revalidates scope and revision.', parameters: { type: 'object', properties: { command: str, parameters: { type: 'object', additionalProperties: true }, dryRun: { type: 'boolean' }, expectedRevision: num }, required: ['command', 'parameters', 'expectedRevision'], additionalProperties: false } } },
+]
+
 /** Validate the same bounded schema that is advertised to the model. */
-export function validateToolArguments(name: string, args: unknown): void {
-  const tool = agentTools.find(t => t.function.name === name)
+export function validateToolArguments(name: string, args: unknown, version = 1): void {
+  const tool = (version === 2 ? agentToolsV2 : agentTools).find(t => t.function.name === name)
   if (!tool) throw new AgentError(400, 'unknown_tool', '工具不存在。')
   const validate = (value: unknown, schema: Record<string, unknown>, path: string) => {
     const fail = () => { throw new AgentError(400, 'invalid_tool_arguments', `工具参数 ${path} 不符合约定格式。`) }
@@ -45,11 +57,18 @@ export function validateToolArguments(name: string, args: unknown): void {
       values.forEach((item, index) => validate(item, schema.items as Record<string, unknown>, `${path}[${index}]`))
     } else if (schema.type === 'object') {
       if (!value || typeof value !== 'object' || Array.isArray(value)) fail()
-      const properties = schema.properties as Record<string, Record<string, unknown>>
+      const properties = schema.properties as Record<string, Record<string, unknown>> | undefined
       const input = value as Record<string, unknown>
-      if ((schema.required as string[]).some(key => !Object.hasOwn(input, key))) fail()
+      if (!properties && schema.additionalProperties === true) return
+      if ((schema.required as string[] ?? []).some(key => !Object.hasOwn(input, key))) fail()
+      if (!properties) return fail()
       for (const [key, item] of Object.entries(input)) { if (!Object.hasOwn(properties, key)) fail(); validate(item, properties[key], `${path}.${key}`) }
     }
   }
   validate(args, tool.function.parameters, name)
+  if (name === 'run_canvas_command') {
+    const input = args as Record<string, unknown>
+    if (!Number.isSafeInteger(input.expectedRevision) || Number(input.expectedRevision) < 0) throw new AgentError(400, 'invalid_revision', '修订号必须为非负整数。')
+    describeCanvasCommand(String(input.command)).validate(input.parameters)
+  }
 }

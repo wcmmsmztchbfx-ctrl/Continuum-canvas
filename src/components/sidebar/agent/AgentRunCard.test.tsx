@@ -18,6 +18,16 @@ function card(current: AgentRun, overrides: { readOnly?: boolean; busy?: boolean
 }
 
 describe('AgentRunCard persisted lifecycle', () => {
+  it('distinguishes preview and committed command receipts with verification and affected counts', () => {
+    card(run({ events: [
+      event(1, { toolName: 'run_canvas_command', title: 'run_canvas_command', status: 'complete', detail: JSON.stringify({ command: 'geometry.layout', status: 'preview', committed: false, verified: true, revision: 3, affectedNodeIds: ['a', 'b'] }) }),
+      event(2, { toolName: 'run_canvas_command', title: 'run_canvas_command', status: 'complete', detail: JSON.stringify({ command: 'styles.text', status: 'committed', committed: true, verified: true, revision: 4, affectedNodeIds: ['a'] }) }),
+    ] }))
+    expect(screen.getByText(/预演完成，尚未提交/)).toBeInTheDocument()
+    expect(screen.getByText(/已提交并核验/)).toBeInTheDocument()
+    expect(screen.getByText(/影响节点：2/)).toBeInTheDocument()
+    expect(screen.getAllByText('执行画布操作')).toHaveLength(2)
+  })
   it('keeps a waiting question answerable without offering pause', () => {
     card(run({ status: 'waiting_user', question: { id: 'q1', title: '继续生成吗？', options: ['继续', '先停止'] } }))
     expect(screen.getByRole('region', { name: '等待你的回答' })).toBeInTheDocument()

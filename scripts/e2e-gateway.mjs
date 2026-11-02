@@ -11,7 +11,7 @@ const gateway = await startGateway({
   dataDir,
   envFile: join(dataDir, '.env.local'),
   processEnv: { CONTINUUM_E2E: '1' },
-  env: { API_PROVIDER_AISTARTLAB_KEY: 'e2e-fixture-only' },
+  env: { API_PROVIDER_AISTARTLAB_KEY: 'e2e-fixture-only', CANVAS_AGENT_RUNTIME_VERSION: process.env.CANVAS_AGENT_RUNTIME_VERSION },
   host: '127.0.0.1',
   port: 4274,
   // Exercise the development gateway's LAN authorization while keeping this

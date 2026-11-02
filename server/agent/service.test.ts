@@ -354,6 +354,7 @@ describe('durable canvas agent', () => {
     const { runtime, input, submit, complete } = await generationFixture()
     const run = await runtime.agent.create(input, { kind: 'local-admin' })
     await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(runtime.jobs.list()).toHaveLength(1))
     const job = runtime.jobs.list()[0]
     await runtime.jobs.update(job.id, { status: 'failed', error: { code: 'PROVIDER_REJECTED', message: 'Unavailable' } })
     await vi.waitFor(() => expect(runtime.agent.get(run.id).status).toBe('partial'))

@@ -4,11 +4,24 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 const origin = 'https://agent-fixture.example'
 const call = (name, args, id = name) => ({ calls: [{ id, name, arguments: args }] })
-export async function agentFixtureModel({ messages, signal, hasImages }) {
+export async function agentFixtureModel({ system, messages, signal, hasImages, tools }) {
   const prompt = messages.find(message => message.role === 'user' && typeof message.content === 'string')?.content ?? ''
   const results = messages.filter(message => message.role === 'tool').map(message => ({
     id: message.tool_call_id, value: JSON.parse(String(message.content)),
   }))
+  const v2 = tools.some(tool => tool.function.name === 'run_canvas_command')
+  if (v2 && prompt.includes('新版画布操作验收')) {
+    const context = JSON.parse(system.split('Actual current context:\n').at(-1))
+    const execute = (command, parameters, id) => call('run_canvas_command', { command, parameters, expectedRevision: context.revision }, id)
+    if (!results.length) return call('list_canvas_commands', {}, 'fixture-discovery')
+    if (!results.some(r => r.id === 'fixture-description')) return call('describe_canvas_command', { command: 'nodes.create' }, 'fixture-description')
+    const created = results.find(r => r.id === 'fixture-v2-create')
+    if (!created) return execute('nodes.create', { type: 'text', name: '新版标题', text: '画布操作验收', position: { x: 120, y: 140 } }, 'fixture-v2-create')
+    if (!created.value.committed || !created.value.verified) throw new Error('V2 creation did not produce a verified receipt')
+    if (!results.some(r => r.id === 'fixture-v2-style')) return execute('styles.text', { nodeId: created.value.result.nodeIds[0], typography: { fontSize: 32, textAlign: 'center' } }, 'fixture-v2-style')
+    if (!results.some(r => r.id === 'fixture-v2-readback')) return call('read_nodes', { nodeIds: created.value.result.nodeIds }, 'fixture-v2-readback')
+    return { text: '已创建标题、设置样式并回读核验', calls: [] }
+  }
   if (prompt.includes('检查引用')) {
     const count = messages.flatMap(message => Array.isArray(message.content) ? message.content : []).filter(part => part.type === 'image_url').length
     if (hasImages !== (count > 0)) throw new Error('Fixture image metadata did not match actual image inputs')

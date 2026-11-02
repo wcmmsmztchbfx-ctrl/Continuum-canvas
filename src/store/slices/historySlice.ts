@@ -1,7 +1,7 @@
-import type { ProjectSnapshot } from '../../model/project'
-import { normalizeCanvasHierarchy, parseProjectSnapshot } from '../../model/project'
-import type { CanvasStoreState, StoreGet, StoreSet } from '../types'
-import { MAX_UNDO_STACK_SIZE, lockedGenerationNodeIds } from '../storeHelpers'
+import type { ProjectSnapshot } from '../../model/project.ts'
+import { normalizeCanvasHierarchy, parseProjectSnapshot } from '../../model/project.ts'
+import type { CanvasStoreState, StoreGet, StoreSet } from '../types.ts'
+import { MAX_UNDO_STACK_SIZE, lockedGenerationNodeIds } from '../storeHelpers.ts'
 
 export interface HistoryContext {
   past: ProjectSnapshot[]

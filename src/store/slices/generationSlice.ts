@@ -1,13 +1,13 @@
-import type { CanvasNode, MediaGeneration } from '../../model/project'
+import type { CanvasNode, MediaGeneration } from '../../model/project.ts'
 import {
   materiallyDifferentRatio,
   parseAspectRatio,
   ratioStringFromDimensions,
   resizeAroundCenter,
   sizeForAspectRatio,
-} from '../../components/canvas/mediaGeometry'
-import type { CanvasStoreState, StoreGet, StoreSet } from '../types'
-import type { HistoryContext } from './historySlice'
+} from '../../components/canvas/mediaGeometry.ts'
+import type { CanvasStoreState, StoreGet, StoreSet } from '../types.ts'
+import type { HistoryContext } from './historySlice.ts'
 
 export function createGenerationActions(
   set: StoreSet,

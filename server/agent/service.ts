@@ -6,17 +6,20 @@ import { parseCanvasSnapshot, DEFAULT_IMAGE_GENERATION_SETTINGS, DEFAULT_VIDEO_G
 import type { GenerationJob, GenerationRequest } from '../../src/contracts/generation.ts'
 import type { GatewayRuntime } from '../runtime.ts'
 import { WorkspaceConflictError } from '../workspace-commit.ts'
+import { CollaborationConflictError } from '../collaboration-service.ts'
 import { GenerationDispatchDeferredError } from '../jobs.ts'
 import { validateGenerationRequest } from '../generation-validation.ts'
 import { AgentRunStore } from './store.ts'
 import { AgentSkills } from './skills.ts'
-import { agentTools, validateToolArguments } from './tools.ts'
+import { agentTools, agentToolsV2, validateToolArguments } from './tools.ts'
 import { configuredModel, type AgentModel, type ModelMessage, type ToolCall } from './model.ts'
 import { AgentError, type AgentGrant, type GenerationBinding, type StoredOperation, type StoredRun } from './types.ts'
-import { applyChanges, changesBetween, readCanvas } from './canvas.ts'
+import { applyChanges, changesBetween, changesMatch, readCanvas } from './canvas.ts'
+import { computeCanvasCommand, describeCanvasCommand, listCanvasCommands } from './commands.ts'
 import { compactConversation, normalizedConversation } from './context.ts'
 
 const terminal = new Set(['complete', 'partial', 'failed', 'stopped'])
+class UncommittedCanvasConflict extends AgentError {}
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const text = (value: unknown, max = 8000): string => {
   if (typeof value !== 'string' || !value.trim() || value.length > max) throw new AgentError(400, 'invalid_input', '文本为空或超出长度限制。')
@@ -53,6 +56,7 @@ export class CanvasAgentService {
   readonly skills = new AgentSkills()
   private readonly runtime: GatewayRuntime
   private readonly store: AgentRunStore
+  private readonly newTaskVersion: 1 | 2
   private model: AgentModel
   private queue: Promise<unknown> = Promise.resolve()
   private flights = new Map<string, Promise<void>>()
@@ -60,14 +64,16 @@ export class CanvasAgentService {
   private closed = false
   private unsubscribe?: () => void
   private timer?: ReturnType<typeof setInterval>
-  private constructor(runtime: GatewayRuntime, model?: AgentModel) {
+  private constructor(runtime: GatewayRuntime, model?: AgentModel, privateRuntimeVersion: 1 | 2 = 1) {
+    this.newTaskVersion = privateRuntimeVersion
     this.runtime = runtime; this.store = new AgentRunStore(runtime.dataDir); this.model = model ?? configuredModel(runtime.agentConfig)
   }
-  static async open(runtime: GatewayRuntime, model?: AgentModel) {
-    const service = new CanvasAgentService(runtime, model)
+  static async open(runtime: GatewayRuntime, model?: AgentModel, version: 1 | 2 = 1) {
+    const service = new CanvasAgentService(runtime, model, version)
     await service.store.open()
     service.unsubscribe = runtime.jobs.onChange(job => { if (job.clientRequestId.startsWith('agent-')) void service.reconcileJob(job).catch(() => {}) })
     for (const record of service.store.records.values()) {
+      if (record.executionVersion === 2 && !record.skillPackage) throw new Error('Version 2 task is missing its pinned Skill package; recovery required')
       // In-flight model turns may be repeated, but persisted tool intents are reconciled first.
       if (record.run.status === 'running') record.run.status = 'queued'
       if (record.pendingWrite && !record.stopped && !record.undone && ['queued', 'running'].includes(record.run.status)) {
@@ -134,8 +140,9 @@ export class CanvasAgentService {
       })
       if (new Set(attachments.map(a => a.id)).size !== attachments.length) throw new AgentError(400, 'invalid_input', '引用编号重复。')
       const now = new Date().toISOString(); const id = randomUUID()
-      const base = await this.skills.read('canvas-base')
-      const record: StoredRun = { version: 1, run: { id, requestId: input.requestId, canvasId: input.canvasId, projectId: canvas.projectId,
+      const skillPackage = this.newTaskVersion === 2 ? await this.skills.snapshotV2() : undefined
+      const base = skillPackage ? this.skills.readResource(skillPackage, 'canvas-base') : await this.skills.read('canvas-base')
+      const record: StoredRun = { version: skillPackage ? 2 : 1, ...(skillPackage ? { executionVersion: 2 as const, skillPackage } : {}), run: { id, requestId: input.requestId, canvasId: input.canvasId, projectId: canvas.projectId,
         prompt: input.prompt, attachments, status: 'queued', createdAt: now, updatedAt: now, sequence: 0, events: [], plan: [], outputs: [], canUndo: false },
         grant, authority, inputDigest: hash(input), selectedNodeIds: ids(input.selectedNodeIds ?? []), viewport: input.viewport,
         messages: [{ role: 'user', content: input.prompt }], operations: [], changes: [], bindings: [], round: 0,
@@ -143,7 +150,7 @@ export class CanvasAgentService {
         handledRequests: {}, pendingCalls: [], intentVersion: 0, observed: {} }
       await readCanvas(this.runtime, record)
       this.event(record, 'skill', `读取技能 · ${base.info.name} v${base.info.version}`)
-      if (attachments.length) { const skill = await this.skills.read('image-reference'); record.skills[skill.info.id] = skill; this.event(record, 'skill', `读取技能 · ${skill.info.name} v${skill.info.version}`) }
+      if (attachments.length) { const skill = await this.taskSkill(record, 'image-reference'); record.skills[skill.info.id] = skill; this.event(record, 'skill', `读取技能 · ${skill.info.name} v${skill.info.version}`) }
       await this.save(record); this.store.records.set(id, record); this.pump()
       return structuredClone(record.run)
     })
@@ -280,21 +287,21 @@ export class CanvasAgentService {
       try {
         const context = await this.exclusive(async () => {
           if (!this.active(record)) return undefined
-          const { snapshot } = await readCanvas(this.runtime, record)
+          const { snapshot, revision } = await readCanvas(this.runtime, record)
           record.run.status = 'running'; record.round++; version = record.intentVersion
           const selected = snapshot.nodes.filter(n => record.selectedNodeIds.includes(n.id)).slice(0, 30)
           for (const node of selected) if (!record.observed[node.id]) record.observed[node.id] = structuredClone(node)
           await this.save(record)
-          return { canvasId: record.run.canvasId, nodeCount: snapshot.nodes.length, selectedNodes: selected.map(n => this.summarizeNode(n)),
+          return { canvasId: record.run.canvasId, ...(record.executionVersion === 2 ? { revision } : {}), nodeCount: snapshot.nodes.length, selectedNodes: selected.map(n => this.summarizeNode(n, record.executionVersion === 2)),
             attachments: record.run.attachments.map(a => ({ id: a.id, nodeId: a.nodeId, name: a.name })),
             generationBudget: record.generationBudget, generationAttemptsAllowed: record.generationAttemptsAllowed ?? record.generationBudget, writeAuthorized: record.writeAuthorized !== false, maxAttemptsPerRun: 12, attemptsUsed: this.attemptsUsed(record),
             plan: record.run.plan, recentOperations: record.operations.slice(-16).map(o => ({ operationId: o.id, tool: o.call.name, status: o.state, receipt: JSON.stringify(o.result ?? {}).slice(0, 800) })),
-            outputs: record.run.outputs, availableSkills: this.skills.list() }
+            outputs: record.run.outputs, availableSkills: this.skills.list().map(s => record.executionVersion === 2 ? { ...s, version: '2' } : s), executionVersion: record.executionVersion ?? 1, skillDigest: record.skillPackage?.digest }
         })
         if (!context) return
         const images = await this.imageMessages(record)
         modelInput = { system: Object.values(record.skills).map(s => s.content).join('\n\n') + '\n\nActual current context:\n' + JSON.stringify(context),
-          messages: [...normalizedConversation(record.messages), ...images], tools: agentTools, hasImages: images.length > 0,
+          messages: [...normalizedConversation(record.messages), ...images], tools: record.executionVersion === 2 ? agentToolsV2 : agentTools, hasImages: images.length > 0,
           signal: AbortSignal.any([this.runtime.signal, controller.signal]) }
         const turn = await this.model(modelInput)
         await this.exclusive(async () => {
@@ -396,8 +403,10 @@ export class CanvasAgentService {
   private finishCall(record: StoredRun, operation: StoredOperation) {
     if (record.pendingCalls[0]?.id === operation.call.id) record.pendingCalls.shift()
     record.messages.push({ role: 'tool', tool_call_id: operation.call.id, content: JSON.stringify(operation.result ?? {}) })
+    const detail = operation.call.name === 'run_canvas_command' && operation.result && !(operation.result as { error?: unknown }).error
+      ? Object.fromEntries(Object.entries(operation.result as Record<string, unknown>).filter(([key]) => key !== 'actual' && key !== 'result')) : operation.result
     this.event(record, 'tool', operation.call.name, (operation.result as { error?: unknown })?.error ? 'failed' : 'complete',
-      { toolName: operation.call.name, operationId: operation.id, detail: JSON.stringify(operation.result ?? {}).slice(0, 2000) })
+      { toolName: operation.call.name, operationId: operation.id, detail: JSON.stringify(detail ?? {}).slice(0, 2000) })
     if (operation.call.name === 'ask_user' && record.run.status === 'waiting_user') this.skipPending(record, '先等待用户回答，再规划后续操作。')
   }
   private skipPending(record: StoredRun, reason: string, preserveGeneration = false) {
@@ -409,23 +418,77 @@ export class CanvasAgentService {
     }
     record.pendingCalls = retained
   }
-  private scope(record: StoredRun, id: string, snapshot: CanvasSnapshotV2): CanvasNode {
+  private scope(record: StoredRun, id: string, snapshot: CanvasSnapshotV2, allowUnlock = false): CanvasNode {
     const node = snapshot.nodes.find(n => n.id === id)
     if (!node) throw new AgentError(409, 'node_missing', '目标节点已删除。')
     const created = record.changes.some(c => c.collection === 'nodes' && c.id === id && !c.path.length && c.before === undefined)
     if (!created && !record.selectedNodeIds.includes(id)) throw new AgentError(403, 'node_out_of_scope', '目标不在本任务授权范围，请先选择该节点并创建新任务。')
-    if (node.locked) throw new AgentError(409, 'node_locked', '目标节点已锁定。')
+    if (node.locked && !allowUnlock) throw new AgentError(409, 'node_locked', '目标节点已锁定。')
     return node
   }
-  private summarizeNode(node: CanvasNode) {
+  private summarizeNode(node: CanvasNode, full = false) {
+    if (full) return structuredClone(node)
     return { id: node.id, type: node.type, name: node.name.slice(0, 256), position: node.position, size: node.size, parentId: node.parentId, locked: node.locked,
       ...(node.type === 'text' ? { text: node.data.text.slice(0, 2000) } : {}),
       ...(node.type === 'image' || node.type === 'video' ? { assetId: node.data.assetId, prompt: node.data.promptDraft?.slice(0, 2000), generationSettings: node.data.generationSettings, generationStatus: node.data.generation?.status } : {}) }
   }
-  private async writeCanvas(record: StoredRun, operationId: string, before: CanvasSnapshotV2, after: CanvasSnapshotV2, track = true) {
-    const changes = changesBetween(before, parseCanvasSnapshot(JSON.stringify(after)))
+  private async taskSkill(record: StoredRun, id: string, resource?: string) {
+    if (record.executionVersion === 2) {
+      if (!record.skillPackage) throw new AgentError(409, 'skill_package_missing', '任务固定的 Skill 包缺失，需恢复后继续。')
+      return this.skills.readResource(record.skillPackage, id, resource)
+    }
+    if (resource) throw new AgentError(400, 'skill_resource_unsupported', '旧任务只支持原 Skill。')
+    return this.skills.read(id)
+  }
+  private async runCommand(record: StoredRun, operation: StoredOperation, snapshot: CanvasSnapshotV2, revision: number) {
+    const args = operation.call.arguments
+    const command = String(args.command); const parameters = args.parameters as Record<string, unknown>
+    if (args.expectedRevision !== revision) throw new AgentError(409, 'revision_conflict', '修订已变化，请重新读取并计算。')
+    if (record.writeAuthorized === false && !args.dryRun) throw new AgentError(403, 'execution_approval_required', '当前任务只允许方案与预演。')
+    const asset = command === 'assets.associate' ? this.runtime.assets.get(String(parameters.assetId)) : undefined
+    const candidate = computeCanvasCommand(snapshot, command, parameters, hash(operation.id).slice(0, 24), {
+      assets: asset ? { [asset.id]: asset } : {}, timestamp: record.run.createdAt,
+    })
+    const changes = changesBetween(snapshot, candidate.snapshot, true)
+    const affected = new Set(changes.filter(c => c.collection === 'nodes').map(c => c.id))
+    const edgeIds = new Set(changes.filter(c => c.collection === 'edges').map(c => c.id))
+    const required = new Set(affected)
+    for (const key of ['nodeId', 'source', 'target', 'parentId', 'targetId']) if (typeof parameters[key] === 'string') required.add(parameters[key] as string)
+    if (Array.isArray(parameters.nodeIds)) for (const id of parameters.nodeIds) required.add(String(id))
+    if (Array.isArray(parameters.moves)) for (const move of parameters.moves as { nodeId: string }[]) required.add(move.nodeId)
+    for (const edge of [...snapshot.edges, ...candidate.snapshot.edges]) if (edgeIds.has(edge.id)) { required.add(edge.source); required.add(edge.target) }
+    if (command === 'nodes.duplicate') {
+      const visit = (parent: string) => { for (const child of snapshot.nodes.filter(n => n.parentId === parent)) { required.add(child.id); visit(child.id) } }
+      for (const id of [...required]) if (snapshot.nodes.find(n => n.id === id)?.type === 'group') visit(id)
+    }
+    if (command === 'nodes.rename_canvas') {
+      const permitted = snapshot.nodes.filter(n => record.selectedNodeIds.includes(n.id) || record.changes.some(c => c.collection === 'nodes' && c.id === n.id && !c.path.length && c.before === undefined))
+      if (!permitted.length) throw new AgentError(403, 'node_out_of_scope', '修改画布名称需要本任务授权节点。')
+      for (const n of permitted) required.add(n.id)
+    }
+    for (const id of required) {
+      if (!snapshot.nodes.some(n => n.id === id)) continue
+      const allowUnlock = command === 'styles.flags' && parameters.nodeId === id && parameters.locked === false
+      const node = this.scope(record, id, snapshot, allowUnlock)
+      const observed = record.observed[id]
+      if (!observed) throw new AgentError(409, 'node_not_read', '请先读取完整影响集再操作。')
+      if (!isDeepStrictEqual(node, observed)) throw new AgentError(409, 'target_changed', '目标已变化，请先重新读取。')
+    }
+    for (const id of required) affected.add(id)
+    const receipt = { operationId: operation.id, command, committed: false, status: args.dryRun ? 'preview' : changes.length ? 'pending' : 'unchanged', revision,
+      affectedNodeIds: [...affected], affectedEdgeIds: [...edgeIds], result: candidate.result,
+      actual: { name: candidate.snapshot.name, nodes: candidate.snapshot.nodes.filter(n => affected.has(n.id)), edges: candidate.snapshot.edges.filter(e => edgeIds.has(e.id)) } }
+    if (args.dryRun || !changes.length) return { ...receipt, verified: true }
+    operation.result = receipt
+    await this.writeCanvas(record, operation.id, snapshot, candidate.snapshot, true, revision)
+    for (const node of candidate.snapshot.nodes) if (affected.has(node.id)) record.observed[node.id] = structuredClone(node)
+    return operation.result
+  }
+  private async writeCanvas(record: StoredRun, operationId: string, before: CanvasSnapshotV2, after: CanvasSnapshotV2, track = true, expectedRevision?: number) {
+    const changes = changesBetween(before, parseCanvasSnapshot(JSON.stringify(after)), record.executionVersion === 2)
     if (!changes.length) return
     const { revision, snapshot: current } = await readCanvas(this.runtime, record)
+    if (expectedRevision !== undefined && revision !== expectedRevision) throw new AgentError(409, 'revision_conflict', '提交前修订已变化，请重新读取。')
     const merged = applyChanges(current, changes)
     if (merged.conflicts.length) throw new AgentError(409, 'canvas_conflict', '目标字段已被修改，已保留人工修改。')
     after = merged.snapshot; before = current
@@ -434,7 +497,7 @@ export class CanvasAgentService {
     await this.save(record)
     try { await this.applyPendingWrite(record, track) }
     catch (error) {
-      if (error instanceof WorkspaceConflictError) { delete record.pendingWrite; await this.save(record); throw new AgentError(409, 'canvas_conflict', '画布刚刚发生更改，请重新读取后继续。') }
+      if (error instanceof WorkspaceConflictError || (record.executionVersion === 2 && error instanceof UncommittedCanvasConflict)) { delete record.pendingWrite; await this.save(record); throw new AgentError(409, 'canvas_conflict', record.executionVersion === 2 ? '画布刚刚发生更改或目标正被编辑，请重新读取后继续。' : '画布刚刚发生更改，请重新读取后继续。') }
       throw error
     }
   }
@@ -448,14 +511,49 @@ export class CanvasAgentService {
     } else if (record.grant.kind === 'collaboration' && pending.before && pending.after) {
       const current = this.runtime.collaboration.exportSnapshot(record.grant.roomId)
       const reapplied = applyChanges(current, pending.changes)
-      if (reapplied.conflicts.length && !isDeepStrictEqual(current, pending.after)) throw new AgentError(409, 'canvas_conflict', '协作画布字段已被修改，已保留双方结果。')
-      if (!isDeepStrictEqual(current, pending.after)) this.runtime.collaboration.applyAgentChange(record.grant, current, reapplied.snapshot)
+      const alreadyApplied = record.executionVersion === 2 ? changesMatch(current, pending.changes) : isDeepStrictEqual(current, pending.after)
+      if (reapplied.conflicts.length && !alreadyApplied) throw new UncommittedCanvasConflict(409, 'canvas_conflict', '协作画布字段已被修改，已保留双方结果。')
+      if (!alreadyApplied) {
+        let protectedIds: string[] | undefined
+        if (record.executionVersion === 2) {
+          const receipt = record.operations.find(o => o.id === pending.operationId)?.result as { affectedNodeIds?: string[] } | undefined
+          const ids = new Set(receipt?.affectedNodeIds ?? pending.changes.filter(c => c.collection === 'nodes').map(c => c.id))
+          const command = record.operations.find(o => o.id === pending.operationId)?.call.arguments.command
+          if (typeof command === 'string' && (command.startsWith('geometry.') || command.startsWith('hierarchy.'))) {
+            for (const id of [...ids]) {
+              let parent = pending.before.nodes.find(n => n.id === id)?.parentId
+              while (parent) { ids.add(parent); parent = pending.before.nodes.find(n => n.id === parent)?.parentId }
+            }
+          }
+          for (const id of ids) {
+            const original = pending.before.nodes.find(n => n.id === id)
+            if (original && !isDeepStrictEqual(original, current.nodes.find(n => n.id === id))) throw new UncommittedCanvasConflict(409, 'target_changed', '提交前目标或计算依赖已变化，请重新读取。')
+          }
+          for (const edge of [...current.edges, ...reapplied.snapshot.edges]) if (pending.changes.some(c => c.collection === 'edges' && c.id === edge.id)) { ids.add(edge.source); ids.add(edge.target) }
+          if (pending.changes.some(c => c.collection === 'canvas' && c.path[0] === 'nodes')) {
+            for (const [i, n] of current.nodes.entries()) if (reapplied.snapshot.nodes[i]?.id !== n.id) ids.add(n.id)
+          }
+          protectedIds = [...ids]
+        }
+        try { this.runtime.collaboration.applyAgentChange(record.grant, current, reapplied.snapshot, protectedIds) }
+        catch (error) {
+          if (record.executionVersion === 2 && error instanceof CollaborationConflictError) throw new UncommittedCanvasConflict(409, 'canvas_conflict', error.message)
+          throw error
+        }
+      }
       await this.runtime.collaboration.checkpointRoom(record.grant.roomId)
       record.run.appliedCanvasRevision = (await this.runtime.workspace.getCanvasRecord(record.run.canvasId))?.revision
     }
+    const operation = record.operations.find(o => o.id === pending.operationId)
+    if (operation?.call.name === 'run_canvas_command' && operation.result) {
+      const actual = await readCanvas(this.runtime, record)
+      const receipt = operation.result as { affectedNodeIds: string[]; affectedEdgeIds: string[] }
+      operation.result = { ...receipt, committed: true, status: 'committed', revision: record.run.appliedCanvasRevision,
+        verified: changesMatch(actual.snapshot, pending.changes), verificationRevision: actual.revision,
+        actual: { name: actual.snapshot.name, nodes: actual.snapshot.nodes.filter(n => receipt.affectedNodeIds.includes(n.id)), edges: actual.snapshot.edges.filter(e => receipt.affectedEdgeIds.includes(e.id)) } }
+    }
     if (pending.trackChanges ?? track) { record.changes.push(...pending.changes); record.run.canUndo = true }
     else if (pending.operationId.startsWith('agent-undo-')) { record.undone = true; record.run.canUndo = false }
-    const operation = record.operations.find(o => o.id === pending.operationId)
     if (operation && operation.call.name !== 'request_generation' && operation.result !== undefined) operation.state = 'complete'
     const appliedBinding = record.bindings.find(b => `${b.operationId}-result` === pending.operationId)
     if (appliedBinding) appliedBinding.applied = true
@@ -474,7 +572,7 @@ export class CanvasAgentService {
       // Yjs writes happen synchronously before checkpointing. Remember only
       // fields still matching the intended write; undo retains later edits.
       const reversed = applyChanges(snapshot, pending.changes, true)
-      const applied = changesBetween(reversed.snapshot, snapshot)
+      const applied = changesBetween(reversed.snapshot, snapshot, record.executionVersion === 2)
       if (applied.length) { record.changes.push(...applied); record.run.canUndo = true }
     }
     delete record.pendingWrite
@@ -495,12 +593,16 @@ export class CanvasAgentService {
 
   private async tool(record: StoredRun, operation: StoredOperation): Promise<unknown> {
     const { name, arguments: args } = operation.call
-    validateToolArguments(name, args)
+    validateToolArguments(name, args, record.executionVersion ?? 1)
     if (name === 'read_skill') {
-      const id = text(args.id, 64); const skill = record.skills[id] ?? await this.skills.read(id)
-      record.skills[id] = skill; this.event(record, 'skill', `读取技能 · ${skill.info.name} v${skill.info.version}`)
+      const id = text(args.id, 64); const resource = args.resource === undefined ? undefined : text(args.resource, 256)
+      const key = resource ? `${id}/${resource}` : id
+      const skill = record.skills[key] ?? await this.taskSkill(record, id, resource)
+      record.skills[key] = skill; this.event(record, 'skill', `读取技能 · ${skill.info.name} v${skill.info.version}`)
       return skill
     }
+    if (name === 'list_canvas_commands') return { executionVersion: 2, commands: listCanvasCommands() }
+    if (name === 'describe_canvas_command') { const { validate: _validate, ...contract } = describeCanvasCommand(text(args.command, 128)); return contract }
     if (name === 'ask_user') {
       const options = ids(args.options, 6)
       if (options.length < 2) throw new AgentError(400, 'invalid_question', '请提供至少两个明确选项。')
@@ -540,9 +642,14 @@ export class CanvasAgentService {
         snapshot.nodes.slice(Math.floor(numeric(args.offset, 0, 0)), Math.floor(numeric(args.offset, 0, 0)) + Math.floor(numeric(args.limit, 20, 1, 30)))
       for (const node of nodes) record.observed[node.id] = structuredClone(node)
       const nodeIds = new Set(nodes.map(n => n.id))
-      return { canvasId: snapshot.canvasId, revision, totalNodes: snapshot.nodes.length, nodes: nodes.map(n => this.summarizeNode(n)),
-        edges: snapshot.edges.filter(e => nodeIds.has(e.source) || nodeIds.has(e.target)).slice(0, 100) }
+      const adjacent = snapshot.edges.filter(e => nodeIds.has(e.source) || nodeIds.has(e.target))
+      const edgeOffset = record.executionVersion === 2 ? Math.floor(numeric(args.edgeOffset, 0, 0)) : 0
+      const edgeLimit = record.executionVersion === 2 ? Math.floor(numeric(args.edgeLimit, 100, 1, 100)) : 100
+      return { canvasId: snapshot.canvasId, name: snapshot.name, revision, totalNodes: snapshot.nodes.length, nodes: nodes.map(n => this.summarizeNode(n, record.executionVersion === 2)),
+        edges: adjacent.slice(edgeOffset, edgeOffset + edgeLimit),
+        ...(record.executionVersion === 2 ? { order: nodes.map(n => ({ nodeId: n.id, index: snapshot.nodes.findIndex(candidate => candidate.id === n.id) })), totalEdges: adjacent.length, edgeOffset, hasMoreEdges: edgeOffset + edgeLimit < adjacent.length } : {}) }
     }
+    if (name === 'run_canvas_command') return this.runCommand(record, operation, snapshot, revision)
     if (name === 'focus_nodes') { const nodeIds = ids(args.nodeIds); this.event(record, 'view', '可定位结果', 'complete', { nodeIds }); return { available: true, browserMoved: false, nodeIds } }
     if (record.writeAuthorized === false) throw new AgentError(403, 'execution_approval_required', '当前只允许方案和读取；请等待用户明确确认执行后再修改画布。')
     if (name === 'request_generation') return this.prepareGeneration(record, operation, snapshot)
@@ -677,7 +784,7 @@ export class CanvasAgentService {
       aspectRatio: aspectRatio ?? '1:1', quality: request.quality ?? 'standard', count: 1, mode: request.mode } :
       { ...DEFAULT_VIDEO_GENERATION_SETTINGS, ...(settings?.kind === 'video' ? settings : {}), providerId: provider.id, catalogVersion: catalog.version, channel: model.channel, model: model.model, aspectRatio: aspectRatio ?? '16:9', durationSec: request.duration ?? 5, generateAudio: request.generateAudio ?? true, count: 1, mode: request.mode }
     const skillId = node.type === 'image' ? 'image-generation' : 'video-generation'
-    if (!record.skills[skillId]) { const skill = await this.skills.read(skillId); record.skills[skillId] = skill; this.event(record, 'skill', `读取技能 · ${skill.info.name} v${skill.info.version}`) }
+    if (!record.skills[skillId]) { const skill = await this.taskSkill(record, skillId); record.skills[skillId] = skill; this.event(record, 'skill', `读取技能 · ${skill.info.name} v${skill.info.version}`) }
     const binding: GenerationBinding = { operationId: operation.id, nodeId: node.id, request,
       expectedFields: { assetId: node.data.assetId, url: node.data.url, generation: target.data.generation,
         ...(node.type === 'image' ? { versions: node.data.versions, activeVersionId: node.data.activeVersionId } : {}) } }

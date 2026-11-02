@@ -1,4 +1,4 @@
-import type { CanvasStoreState, StoreGet, StoreSet } from '../types'
+import type { CanvasStoreState, StoreGet, StoreSet } from '../types.ts'
 
 export function createSelectionActions(
   set: StoreSet,

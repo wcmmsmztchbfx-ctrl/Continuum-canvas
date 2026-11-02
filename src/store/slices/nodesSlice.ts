@@ -3,16 +3,16 @@ import type {
   MediaGenerationSettings,
   Point,
   ProjectSnapshot,
-} from '../../model/project'
-import { normalizeCanvasHierarchy } from '../../model/project'
-import { sizeForAspectRatio } from '../../components/canvas/mediaGeometry'
-import type { CanvasStoreState, StoreGet, StoreSet } from '../types'
-import type { HistoryContext } from './historySlice'
+} from '../../model/project.ts'
+import { normalizeCanvasHierarchy } from '../../model/project.ts'
+import { sizeForAspectRatio } from '../../components/canvas/mediaGeometry.ts'
+import type { CanvasStoreState, StoreGet, StoreSet } from '../types.ts'
+import type { HistoryContext } from './historySlice.ts'
 import {
   applyReferenceRemovals,
   applyReparent,
   lockedGenerationNodeIds,
-} from '../storeHelpers'
+} from '../storeHelpers.ts'
 
 export function createNodesActions(
   set: StoreSet,

@@ -1,15 +1,15 @@
 import { createStore } from 'zustand/vanilla'
 
-import type { ProjectSnapshot } from '../model/project'
-import type { CanvasStoreState } from './types'
-import { createHistoryActions, createHistoryContext } from './slices/historySlice'
-import { createSelectionActions } from './slices/selectionSlice'
-import { createNodesActions } from './slices/nodesSlice'
-import { createEdgesActions } from './slices/edgesSlice'
-import { createGenerationActions } from './slices/generationSlice'
-import { createRemoteSyncActions } from './slices/remoteSyncSlice'
+import type { ProjectSnapshot } from '../model/project.ts'
+import type { CanvasStoreState } from './types.ts'
+import { createHistoryActions, createHistoryContext } from './slices/historySlice.ts'
+import { createSelectionActions } from './slices/selectionSlice.ts'
+import { createNodesActions } from './slices/nodesSlice.ts'
+import { createEdgesActions } from './slices/edgesSlice.ts'
+import { createGenerationActions } from './slices/generationSlice.ts'
+import { createRemoteSyncActions } from './slices/remoteSyncSlice.ts'
 
-export * from './types'
+export * from './types.ts'
 
 export function createCanvasStore(initialSnapshot: ProjectSnapshot) {
   return createStore<CanvasStoreState>((set, get) => {

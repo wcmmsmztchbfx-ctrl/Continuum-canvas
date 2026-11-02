@@ -1,4 +1,4 @@
-import type { GenerationHistoryEntry } from '../contracts/generation'
+import type { GenerationHistoryEntry } from '../contracts/generation.ts'
 import type {
   CanvasEdge,
   CanvasNode,
@@ -10,8 +10,8 @@ import type {
   Point,
   ProjectSnapshot,
   Viewport,
-} from '../model/project'
-import type { CanvasEntityChangeSet } from '../collaboration/entityChanges'
+} from '../model/project.ts'
+import type { CanvasEntityChangeSet } from '../collaboration/entityChanges.ts'
 
 export type CanvasMode = 'select' | 'pan' | 'connect'
 

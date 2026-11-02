@@ -29,6 +29,7 @@ blob-report/
 # Local audits, implementation notes and diagnostic captures
 docs/reference-matrix.md
 docs/superpowers/
+.superpowers/
 docs/*-audit-*.md
 docs/*-review-*.md
 docs/*-results-*.md

@@ -499,7 +499,7 @@ export async function createGatewayRuntime(options: {
     }
 
     await runner.resume()
-    agent = await CanvasAgentService.open(runtime, options.agentModel)
+    agent = await CanvasAgentService.open(runtime, options.agentModel, env.CANVAS_AGENT_RUNTIME_VERSION === '2' ? 2 : 1)
     return runtime
   } catch (error) {
     abortController.abort(new DOMException('Gateway runtime startup failed', 'AbortError'))

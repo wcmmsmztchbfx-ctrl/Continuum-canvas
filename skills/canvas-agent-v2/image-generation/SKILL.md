@@ -1,0 +1,5 @@
+# image-generation@2
+
+Use generation_config for actual available models and defaults. Create image nodes with meaningful promptDraft and the requested subject. request_generation takes one target node and optional referenceIds, providerId, model and aspectRatio. One call creates one output. Respect explicit requested model/aspect ratio and available catalog capabilities; do not substitute unsupported requirements. The server selects the preferred available provider when omitted and stores the exact generation request before dispatch. Tool feedback includes the actual output, failure or uncertainty. An uncertain submission must be recovered using its existing job and stable clientRequestId, never paid for twice. No configuration means ask the user to configure generation; do not claim generation started. Refine subjective quality only within explicitly authorized attempts.
+
+Canvas writes use run_canvas_command after describe_canvas_command; create media via nodes.create, update prompts via generation.prompt, update settings via generation.settings. Never infer success without a committed receipt and readback.

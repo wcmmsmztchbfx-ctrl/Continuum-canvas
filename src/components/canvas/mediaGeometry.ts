@@ -1,4 +1,4 @@
-import type { NodeSize, Point } from '../../model/project'
+import type { NodeSize, Point } from '../../model/project.ts'
 
 const TARGET_AREA = 360 * 360
 const MIN_SIDE = 120

@@ -1,4 +1,4 @@
-import type { CanvasSnapshotV2 } from './project'
+import type { CanvasSnapshotV2 } from './project.ts'
 
 export interface CanvasMergeConflict { path: string; base: unknown; local: unknown; remote: unknown }
 export interface CanvasMergeResult { canvas: CanvasSnapshotV2; conflicts: CanvasMergeConflict[] }

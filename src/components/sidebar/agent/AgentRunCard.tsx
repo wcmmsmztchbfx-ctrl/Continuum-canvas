@@ -9,6 +9,7 @@ const TOOL_LABELS: Record<string, string> = {
   create_node: '创建节点', update_node: '写入节点内容', delete_nodes: '删除节点', duplicate_node: '复制节点', move_nodes: '调整节点位置',
   group_nodes: '创建分组', connect_nodes: '连接节点', remove_edge: '移除连线', request_generation: '提交生成', ask_user: '等待确认',
   update_plan: '更新计划', report: '汇报进度', focus_nodes: '定位节点',
+  list_canvas_commands: '查看画布操作', describe_canvas_command: '读取操作说明', run_canvas_command: '执行画布操作',
 }
 const DETAIL_LABELS: Record<string, string> = { nodeId: '节点', edgeId: '连线', jobId: '生成任务', referenceId: '引用图片', providerId: '服务商', model: '模型', aspectRatio: '画幅', quality: '质量', duration: '时长', moved: '移动节点数', totalNodes: '画布节点数', maxOutputs: '生成数量上限', attemptsUsed: '已提交次数' }
 function readableDetail(detail: string | undefined) {
@@ -20,6 +21,12 @@ function readableDetail(detail: string | undefined) {
     const error = record.error
     const message = typeof error === 'string' ? error : error && typeof error === 'object' && 'message' in error ? error.message : record.message ?? record.reason
     const lines = typeof message === 'string' ? [message] : []
+    if (record.status === 'preview') lines.push('预演完成，尚未提交')
+    if (record.committed === true) lines.push(record.verified === true ? '已提交并核验' : '已提交，请回读核对最新修改')
+    if (record.status === 'unchanged') lines.push('内容已符合要求，无需修改')
+    if (typeof record.revision === 'number') lines.push(`画布版本：${record.revision}`)
+    if (Array.isArray(record.affectedNodeIds)) lines.push(`影响节点：${record.affectedNodeIds.length}`)
+    if (Array.isArray(record.affectedEdgeIds)) lines.push(`影响连线：${record.affectedEdgeIds.length}`)
     for (const [key, label] of Object.entries(DETAIL_LABELS)) {
       const value = record[key]
       if (typeof value === 'string' || typeof value === 'number') lines.push(`${label}：${String(value).slice(0, 240)}`)

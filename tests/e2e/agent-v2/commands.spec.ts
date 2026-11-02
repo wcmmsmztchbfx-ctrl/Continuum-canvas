@@ -1,0 +1,30 @@
+import { randomUUID } from 'node:crypto'
+import { test, expect } from '../../fixtures/e2e-env'
+
+test('v2 command discovery, commit receipts, reload and Agent undo preserve manual work', async ({ page, request }) => {
+  test.skip(process.env.CANVAS_AGENT_RUNTIME_VERSION !== '2', 'Run with CANVAS_AGENT_RUNTIME_VERSION=2')
+  const canvasId = 'e2e-reference-canvas'
+  const current = await (await request.get(`/api/canvases/${canvasId}`)).json()
+  const saved = await request.put(`/api/canvases/${canvasId}`, { data: { protocolVersion: 1, operationId: randomUUID(), kind: 'save-canvas', expectedRevision: current.revision, canvas: { ...current.canvas, nodes: [], edges: [] } } })
+  expect(saved.ok()).toBe(true)
+  await page.goto(`/canvas?spaceId=local&projectId=reference&canvasId=${canvasId}`)
+  await expect(page.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'true')
+  if (await page.getByRole('button', { name: '展开侧边栏', exact: true }).isVisible()) await page.getByRole('button', { name: '展开侧边栏', exact: true }).click()
+  await page.getByRole('button', { name: 'Agent 助手', exact: true }).click()
+  await page.getByLabel('Agent 指令输入框').fill('新版画布操作验收：创建标题并设置样式')
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(page.getByText('已创建标题、设置样式并回读核验', { exact: true })).toBeVisible()
+  await expect(page.getByText(/已提交并核验/)).toHaveCount(2)
+  await expect(page.locator('.react-flow__node-text')).toHaveCount(1)
+  await page.evaluate(() => window.__canvasStore!.getState().addNode({ id: 'manual-after-v2', type: 'text', name: '人工草稿', position: { x: 450, y: 200 }, size: { width: 150, height: 100 }, data: { text: '保留人工内容' } }))
+  await expect.poll(async () => (await (await request.get(`/api/canvases/${canvasId}`)).json()).canvas.nodes.length).toBe(2)
+  await page.reload()
+  await expect(page.getByTestId('app-shell')).toHaveAttribute('data-hydrated', 'true')
+  if (await page.getByRole('button', { name: '展开侧边栏', exact: true }).isVisible()) await page.getByRole('button', { name: '展开侧边栏', exact: true }).click()
+  await page.getByRole('button', { name: 'Agent 助手', exact: true }).click()
+  await expect(page.getByText(/已提交并核验/)).toHaveCount(2)
+  await page.getByRole('button', { name: '撤销本次操作', exact: true }).click()
+  await expect(page.locator('.react-flow__node-text')).toHaveCount(1)
+  await expect(page.locator('.react-flow__node[data-id="manual-after-v2"]')).toBeVisible()
+  await expect.poll(async () => (await (await request.get(`/api/canvases/${canvasId}`)).json()).canvas.nodes.map((n: { id: string }) => n.id)).toEqual(['manual-after-v2'])
+})

@@ -1,0 +1,77 @@
+{
+  "version": "2",
+  "resources": [
+    {
+      "skill": "canvas-base",
+      "path": "SKILL.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "commands/nodes.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "commands/geometry.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "commands/hierarchy.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "commands/styles.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "commands/edges.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "commands/references.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "commands/assets.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "commands/generation.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "workflows/layout.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "workflows/create-connect.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "workflows/prompt-reference.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "examples/tasks.md"
+    },
+    {
+      "skill": "canvas-base",
+      "path": "recovery/conflicts.md"
+    },
+    {
+      "skill": "image-generation",
+      "path": "SKILL.md"
+    },
+    {
+      "skill": "image-reference",
+      "path": "SKILL.md"
+    },
+    {
+      "skill": "video-generation",
+      "path": "SKILL.md"
+    },
+    {
+      "skill": "layout",
+      "path": "SKILL.md"
+    }
+  ]
+}

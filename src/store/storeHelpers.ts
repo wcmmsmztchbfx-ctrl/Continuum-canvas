@@ -4,8 +4,8 @@ import type {
   NodeSize,
   Point,
   ProjectSnapshot,
-} from '../model/project'
-import { compactPromptReferences } from '../model/project'
+} from '../model/project.ts'
+import { compactPromptReferences } from '../model/project.ts'
 
 export const MAX_UNDO_STACK_SIZE = 100
 

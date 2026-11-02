@@ -1102,13 +1102,14 @@ export class CollaborationService {
   }
 
   applyAgentChange(grant: { roomId: string; memberId: string; sessionId: string; epoch: string },
-    before: CanvasSnapshotV2, after: CanvasSnapshotV2): void {
+    before: CanvasSnapshotV2, after: CanvasSnapshotV2, protectedNodeIds?: readonly string[]): void {
     this.authorizeAgentGrant(grant, before.canvasId)
     const room = this.room(grant.roomId)
     if (JSON.stringify(exportCollaborativeCanvasSnapshot(room.document)) !== JSON.stringify(before)) {
       throw new CollaborationConflictError('Canvas changed before the Agent operation was applied')
     }
     const leased = this.agentLeasedNodes(grant.roomId)
+    if (protectedNodeIds?.some(id => leased.has(id))) throw new CollaborationConflictError('A collaborator is actively editing an affected Agent object')
     if (before.nodes.some(node => leased.has(node.id) && JSON.stringify(node) !== JSON.stringify(after.nodes.find(n => n.id === node.id)))) {
       throw new CollaborationConflictError('A collaborator is actively editing the Agent target')
     }

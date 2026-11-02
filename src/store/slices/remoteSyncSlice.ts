@@ -1,10 +1,10 @@
-import { normalizeCanvasHierarchy, parseProjectSnapshot } from '../../model/project'
-import type { CanvasEntityChangeSet } from '../../collaboration/entityChanges'
-import type { CanvasStoreState, StoreGet, StoreSet } from '../types'
-import { reconcileEntities, sameEntity } from '../storeHelpers'
-import type { HistoryContext } from './historySlice'
-import { mergeCanvasSnapshots } from '../../model/canvasMerge'
-import type { ProjectSnapshot } from '../../model/project'
+import { normalizeCanvasHierarchy, parseProjectSnapshot } from '../../model/project.ts'
+import type { CanvasEntityChangeSet } from '../../collaboration/entityChanges.ts'
+import type { CanvasStoreState, StoreGet, StoreSet } from '../types.ts'
+import { reconcileEntities, sameEntity } from '../storeHelpers.ts'
+import type { HistoryContext } from './historySlice.ts'
+import { mergeCanvasSnapshots } from '../../model/canvasMerge.ts'
+import type { ProjectSnapshot } from '../../model/project.ts'
 
 export function createRemoteSyncActions(
   set: StoreSet,

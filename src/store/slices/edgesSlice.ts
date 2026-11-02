@@ -1,8 +1,8 @@
-import type { CanvasEdge } from '../../model/project'
-import { getOrderedReferences } from '../../model/project'
-import type { CanvasStoreState, StoreGet, StoreSet } from '../types'
-import type { HistoryContext } from './historySlice'
-import { applyReferenceRemovals, referenceEdgeId } from '../storeHelpers'
+import type { CanvasEdge } from '../../model/project.ts'
+import { getOrderedReferences } from '../../model/project.ts'
+import type { CanvasStoreState, StoreGet, StoreSet } from '../types.ts'
+import type { HistoryContext } from './historySlice.ts'
+import { applyReferenceRemovals, referenceEdgeId } from '../storeHelpers.ts'
 
 export function createEdgesActions(
   set: StoreSet,
