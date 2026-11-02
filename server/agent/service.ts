@@ -487,12 +487,27 @@ export class CanvasAgentService {
   private async writeCanvas(record: StoredRun, operationId: string, before: CanvasSnapshotV2, after: CanvasSnapshotV2, track = true, expectedRevision?: number) {
     const changes = changesBetween(before, parseCanvasSnapshot(JSON.stringify(after)), record.executionVersion === 2)
     if (!changes.length) return
+    let dependencies: CanvasNode[] | undefined
+    const operation = record.operations.find(o => o.id === operationId)
+    if (record.executionVersion === 2 && operation?.call.name === 'run_canvas_command') {
+      const receipt = operation.result as { affectedNodeIds: string[] }
+      const ids = new Set(receipt.affectedNodeIds)
+      const command = String(operation.call.arguments.command)
+      if (command.startsWith('geometry.') || command.startsWith('hierarchy.')) {
+        for (const id of [...ids]) {
+          let parent = before.nodes.find(n => n.id === id)?.parentId
+          while (parent) { ids.add(parent); parent = before.nodes.find(n => n.id === parent)?.parentId }
+        }
+      }
+      dependencies = structuredClone(before.nodes.filter(n => ids.has(n.id)))
+    }
     const { revision, snapshot: current } = await readCanvas(this.runtime, record)
     if (expectedRevision !== undefined && revision !== expectedRevision) throw new AgentError(409, 'revision_conflict', '提交前修订已变化，请重新读取。')
+    if (dependencies?.some(original => !isDeepStrictEqual(original, current.nodes.find(n => n.id === original.id)))) throw new AgentError(409, 'target_changed', '候选变更的计算依赖已变化，请重新读取。')
     const merged = applyChanges(current, changes)
     if (merged.conflicts.length) throw new AgentError(409, 'canvas_conflict', '目标字段已被修改，已保留人工修改。')
     after = merged.snapshot; before = current
-    record.pendingWrite = { operationId, changes, trackChanges: track,
+    record.pendingWrite = { operationId, changes, trackChanges: track, ...(dependencies ? { dependencies, expectedRevision } : {}),
       ...(record.grant.kind === 'local-admin' ? { mutation: { protocolVersion: 1, operationId, kind: 'save-canvas', expectedRevision: revision, canvas: after } } : { before, after }) }
     await this.save(record)
     try { await this.applyPendingWrite(record, track) }
@@ -504,7 +519,7 @@ export class CanvasAgentService {
   private async applyPendingWrite(record: StoredRun, track = true) {
     const pending = record.pendingWrite
     if (!pending) return
-    await readCanvas(this.runtime, record)
+    const checked = await readCanvas(this.runtime, record)
     if (pending.mutation) {
       const receipt = await this.runtime.workspace.applyWorkspaceMutation(pending.mutation)
       record.run.appliedCanvasRevision = receipt.canvasRevisions[record.run.canvasId]
@@ -514,10 +529,11 @@ export class CanvasAgentService {
       const alreadyApplied = record.executionVersion === 2 ? changesMatch(current, pending.changes) : isDeepStrictEqual(current, pending.after)
       if (reapplied.conflicts.length && !alreadyApplied) throw new UncommittedCanvasConflict(409, 'canvas_conflict', '协作画布字段已被修改，已保留双方结果。')
       if (!alreadyApplied) {
+        if (pending.expectedRevision !== undefined && checked.revision !== pending.expectedRevision) throw new UncommittedCanvasConflict(409, 'revision_conflict', '提交前修订已变化，请重新读取。')
         let protectedIds: string[] | undefined
         if (record.executionVersion === 2) {
           const receipt = record.operations.find(o => o.id === pending.operationId)?.result as { affectedNodeIds?: string[] } | undefined
-          const ids = new Set(receipt?.affectedNodeIds ?? pending.changes.filter(c => c.collection === 'nodes').map(c => c.id))
+          const ids = new Set(pending.dependencies?.map(n => n.id) ?? receipt?.affectedNodeIds ?? pending.changes.filter(c => c.collection === 'nodes').map(c => c.id))
           const command = record.operations.find(o => o.id === pending.operationId)?.call.arguments.command
           if (typeof command === 'string' && (command.startsWith('geometry.') || command.startsWith('hierarchy.'))) {
             for (const id of [...ids]) {
@@ -526,7 +542,7 @@ export class CanvasAgentService {
             }
           }
           for (const id of ids) {
-            const original = pending.before.nodes.find(n => n.id === id)
+            const original = pending.dependencies?.find(n => n.id === id) ?? pending.before.nodes.find(n => n.id === id)
             if (original && !isDeepStrictEqual(original, current.nodes.find(n => n.id === id))) throw new UncommittedCanvasConflict(409, 'target_changed', '提交前目标或计算依赖已变化，请重新读取。')
           }
           for (const edge of [...current.edges, ...reapplied.snapshot.edges]) if (pending.changes.some(c => c.collection === 'edges' && c.id === edge.id)) { ids.add(edge.source); ids.add(edge.target) }

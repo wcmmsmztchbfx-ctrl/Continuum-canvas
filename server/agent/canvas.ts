@@ -54,30 +54,45 @@ export function changesMatch(snapshot: CanvasSnapshotV2, changes: FieldChange[])
 export function applyChanges(snapshot: CanvasSnapshotV2, changes: FieldChange[], reverse = false) {
   const result = structuredClone(snapshot); const conflicts: string[] = []
   const reorderedCreations = new Set<string>()
-  if (reverse) for (const change of changes) {
-    const key = change.path[0]
-    if (change.collection !== 'canvas' || (key !== 'nodes' && key !== 'edges') || !Array.isArray(change.before) || !Array.isArray(change.after)) continue
-    const expected = change.after; const currentIds = snapshot[key].map(n => n.id)
-    const live = new Set(currentIds)
-    if (!isDeepStrictEqual(currentIds.filter(id => expected.includes(id)), expected.filter(id => live.has(id)))) {
-      for (const id of expected) if (!change.before.includes(id)) reorderedCreations.add(`${key}:${id}`)
+  if (reverse) {
+    const finalOrders = new Map<'nodes' | 'edges', string[]>()
+    for (const change of changes) {
+      const key = change.path[0]
+      if (change.collection === 'canvas' && (key === 'nodes' || key === 'edges') && Array.isArray(change.after)) finalOrders.set(key, change.after)
+    }
+    for (const [key, expected] of finalOrders) {
+      const currentIds = snapshot[key].map(n => n.id); const live = new Set(currentIds); const tracked = new Set(expected)
+      for (const change of changes) {
+        if (change.collection !== key || change.path.length || change.before !== undefined || !live.has(change.id) || !tracked.has(change.id)) continue
+        // Only changed relationships involving this creation count. A later
+        // Agent reorder is in finalOrders; unrelated human reorders are safe.
+        const expectedPeers = expected.slice(0, expected.indexOf(change.id)).filter(id => live.has(id)).sort()
+        const actualPeers = currentIds.slice(0, currentIds.indexOf(change.id)).filter(id => tracked.has(id)).sort()
+        if (!isDeepStrictEqual(expectedPeers, actualPeers)) reorderedCreations.add(`${key}:${change.id}`)
+      }
     }
   }
+  const blocked: FieldChange[] = []
+  const overlaps = (a: string[], b: string[]) => a.slice(0, Math.min(a.length, b.length)).every((key, i) => key === b[i])
+  const conflict = (change: FieldChange, label: string) => { conflicts.push(label); if (reverse) blocked.push(change) }
   const ordered = (reverse ? [...changes].reverse() : [...changes]).sort((a, b) => Number(a.collection === 'canvas') - Number(b.collection === 'canvas'))
   for (const change of ordered) {
+    // Once the newest value is a human edit, an older intermediate value must
+    // never match and overwrite it. Parent/child field paths overlap too.
+    if (reverse && blocked.some(c => c.collection === change.collection && c.id === change.id && overlaps(c.path, change.path))) continue
     if (change.collection === 'canvas') {
       const expected = reverse ? change.after : change.before; const desired = reverse ? change.before : change.after
       const key = change.path[0]
       if (key === 'name') {
         if (result.name === expected) result.name = String(desired)
-        else conflicts.push('canvas:name')
+        else conflict(change, 'canvas:name')
       } else if ((key === 'nodes' || key === 'edges') && Array.isArray(expected) && Array.isArray(desired)) {
         const list = result[key]; const live = new Set(list.map(n => n.id))
         // Added/deleted objects are handled separately; compare order only among
         // identities present in both versions and in the current document.
         const common = new Set(expected.filter(id => desired.includes(id) && live.has(id)))
         const currentOrder = list.filter(n => common.has(n.id)).map(n => n.id)
-        if (!isDeepStrictEqual(currentOrder, expected.filter(id => common.has(id)))) conflicts.push(`canvas:${key}`)
+        if (!isDeepStrictEqual(currentOrder, expected.filter(id => common.has(id)))) conflict(change, `canvas:${key}`)
         else {
           const tracked = new Set(desired); const byId = new Map(list.map(n => [n.id, n]))
           const ordered = desired.filter(id => live.has(id)).map(id => byId.get(id)!)
@@ -91,9 +106,9 @@ export function applyChanges(snapshot: CanvasSnapshotV2, changes: FieldChange[],
     const list = result[change.collection] as unknown as RecordValue[]
     const index = list.findIndex(n => n.id === change.id); const current = list[index]
     const expected = reverse ? change.after : change.before; const desired = reverse ? change.before : change.after
-    if (reverse && !change.path.length && desired === undefined && reorderedCreations.has(`${change.collection}:${change.id}`)) { conflicts.push(`${change.id}:reordered`); continue }
-    if (!current && change.path.length) { conflicts.push(`${change.id}:missing`); continue }
-    if (!isDeepStrictEqual(valueAt(current, change.path), expected)) { conflicts.push(`${change.id}:${change.path.join('.')}`); continue }
+    if (reverse && !change.path.length && desired === undefined && reorderedCreations.has(`${change.collection}:${change.id}`)) { conflict(change, `${change.id}:reordered`); continue }
+    if (!current && change.path.length) { conflict(change, `${change.id}:missing`); continue }
+    if (!isDeepStrictEqual(valueAt(current, change.path), expected)) { conflict(change, `${change.id}:${change.path.join('.')}`); continue }
     if (change.path.length === 0) {
       if (desired === undefined) { if (index >= 0) list.splice(index, 1) }
       else if (index >= 0) list[index] = structuredClone(desired as RecordValue)

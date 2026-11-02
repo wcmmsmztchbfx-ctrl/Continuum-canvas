@@ -172,6 +172,33 @@ describe('v2 durable execution', () => {
     await vi.waitFor(() => expect(['partial', 'complete']).toContain(f.runtime.agent.get(run.id).status))
     expect(f.runtime.collaboration.exportSnapshot(owner.room.roomId).nodes[0].data).toHaveProperty('fontSize', 32)
   })
+  it('rejects stale world geometry when an uncheckpointed parent changes on the commit reread', async () => {
+    const f = await fixture([]); const canvas = (await f.read()).snapshot!
+    canvas.nodes[0].parentId = 'g'; canvas.nodes[0].position.x = 100
+    canvas.nodes.push({ id: 'g', type: 'group', name: 'G', position: { x: 100, y: 0 }, size: { width: 400, height: 300 }, data: { childIds: ['a'] } })
+    await f.runtime.workspace.applyWorkspaceMutation({ protocolVersion: 1, operationId: 'group-seed', kind: 'save-canvas', expectedRevision: 1, canvas })
+    const owner = await f.runtime.collaboration.enableRoom({ projectId: canvas.projectId, canvasId: canvas.canvasId, snapshot: canvas, deviceId: 'owner', displayName: 'Owner' })
+    const grant = f.runtime.collaboration.createAgentGrant(owner.room.roomId, owner.sessionToken)
+    const exported = f.runtime.collaboration.exportSnapshot.bind(f.runtime.collaboration)
+    let armed = false; let reads = 0; let turn = 0
+    f.runtime.collaboration.exportSnapshot = id => {
+      if (armed && ++reads === 2) {
+        const before = exported(id); const human = structuredClone(before); human.nodes.find(n => n.id === 'g')!.position.x = 500
+        f.runtime.collaboration.applyAgentChange(grant, before, human)
+      }
+      return exported(id)
+    }
+    f.runtime.agent.setModelForTesting(async () => {
+      if (turn++) return { text: '保留人工父级移动，需重读', calls: [] }
+      armed = true; return runCommand('geometry.align', { nodeIds: ['a', 'b'], alignment: 'left' }, 2)
+    })
+    const run = await f.runtime.agent.create({ ...f.input, expectedRevision: 2 }, grant)
+    await vi.waitFor(() => expect(['partial', 'complete']).toContain(f.runtime.agent.get(run.id).status))
+    const actual = exported(owner.room.roomId)
+    expect(f.runtime.agent.get(run.id).status).toBe('partial')
+    expect(actual.nodes.find(n => n.id === 'g')!.position.x).toBe(500)
+    expect(actual.nodes.find(n => n.id === 'a')!.position.x).toBe(100)
+  })
   it.each([false, true])('retains the original generation pipeline and stable request identity (stop=%s)', async stop => {
     const f = await fixture([])
     await f.runtime.providers.upsert({ id: 'agent-test', name: 'Test', adapterType: 'openai-compatible', baseUrl: 'http://127.0.0.1:1', enabled: true, preferred: true })

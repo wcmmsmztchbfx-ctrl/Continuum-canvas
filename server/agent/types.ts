@@ -1,6 +1,6 @@
 import type { AgentRun } from '../../src/contracts/agent.ts'
 import type { GenerationRequest } from '../../src/contracts/generation.ts'
-import type { CanvasSnapshotV2 } from '../../src/model/project.ts'
+import type { CanvasNode, CanvasSnapshotV2 } from '../../src/model/project.ts'
 import type { WorkspaceMutation } from '../../src/workspace/persistenceProtocol.ts'
 import type { ModelMessage, ToolCall } from './model.ts'
 import type { SkillPackage } from './skills.ts'
@@ -11,7 +11,7 @@ export class AgentError extends Error {
 }
 export type AgentGrant = { kind: 'local-admin'; tokenDigest?: string } | { kind: 'collaboration'; roomId: string; epoch: string; memberId: string; sessionId: string }
 export interface FieldChange { collection: 'nodes' | 'edges' | 'canvas'; id: string; path: string[]; before?: unknown; after?: unknown }
-export interface PendingCanvasWrite { operationId: string; changes: FieldChange[]; trackChanges?: boolean; mutation?: WorkspaceMutation; before?: CanvasSnapshotV2; after?: CanvasSnapshotV2 }
+export interface PendingCanvasWrite { operationId: string; changes: FieldChange[]; trackChanges?: boolean; mutation?: WorkspaceMutation; before?: CanvasSnapshotV2; after?: CanvasSnapshotV2; dependencies?: CanvasNode[]; expectedRevision?: number }
 export interface StoredOperation { id: string; call: ToolCall; state: 'pending' | 'complete'; result?: unknown }
 export interface GenerationBinding { operationId: string; nodeId: string; request: GenerationRequest; jobId?: string; settled?: boolean; applied?: boolean; notSubmitted?: boolean; expectedFields: Record<string, unknown> }
 export interface StoredRun {

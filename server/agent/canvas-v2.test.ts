@@ -48,4 +48,29 @@ describe('v2 complete document changes', () => {
     expect(result.snapshot.nodes.map(n => n.id)).toEqual(['agent', 'a', 'b', 'c'])
     expect(result.conflicts.length).toBeGreaterThan(0)
   })
+  it('undoes a task creation followed by that same task moving it backward', () => {
+    const a = before(); const created = { ...a, nodes: [...a.nodes, text('agent')] }
+    const moved = { ...created, nodes: [created.nodes[3], ...a.nodes] }
+    const history = [...changesBetween(a, created, true), ...changesBetween(created, moved, true)]
+    const result = applyChanges(moved, history, true)
+    expect(result.snapshot).toEqual(a); expect(result.conflicts).toEqual([])
+  })
+  it('undoes an untouched creation while preserving an unrelated human reorder', () => {
+    const a = before(); const created = { ...a, nodes: [...a.nodes, text('agent')] }
+    const later = { ...created, nodes: [a.nodes[1], a.nodes[0], a.nodes[2], created.nodes[3]] }
+    expect(applyChanges(later, changesBetween(a, created, true), true).snapshot.nodes.map(n => n.id)).toEqual(['b', 'a', 'c'])
+  })
+  it('never applies an older order change after a newer order conflicts', () => {
+    const a = before(); const first = { ...a, nodes: [a.nodes[1], a.nodes[2], a.nodes[0]] }
+    const second = { ...a, nodes: [a.nodes[2], a.nodes[0], a.nodes[1]] }
+    const history = [...changesBetween(a, first, true), ...changesBetween(first, second, true)]
+    expect(applyChanges(first, history, true).snapshot.nodes.map(n => n.id)).toEqual(['b', 'c', 'a'])
+  })
+  it('preserves a human canvas name or field equal to an intermediate task value', () => {
+    const a = before(); const first = structuredClone(a); first.name = 'First'; first.nodes[0].name = 'First node'
+    const second = structuredClone(first); second.name = 'Second'; second.nodes[0].name = 'Second node'
+    const history = [...changesBetween(a, first, true), ...changesBetween(first, second, true)]
+    const result = applyChanges(first, history, true)
+    expect(result.snapshot.name).toBe('First'); expect(result.snapshot.nodes[0].name).toBe('First node')
+  })
 })
