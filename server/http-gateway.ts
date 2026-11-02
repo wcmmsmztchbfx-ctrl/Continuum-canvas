@@ -1770,6 +1770,9 @@ export async function startGateway(options: {
           anonymousLocalChatAllowed: localHostOnly && isLoopbackHost(host) && !dynamicPublicOrigin && isLoopbackRemoteAddress(request.socket.remoteAddress),
           frontendPort,
           onReset: async () => {
+            await runtime.tunnel.stopTunnel()
+            dynamicPublicOrigin = publicOrigin
+            dynamicAllowedOrigins.splice(0, dynamicAllowedOrigins.length, ...allowedOrigins)
             await runtime.agent.reset()
             await runtime.workspace.reset()
             runtime.jobs.clear?.()

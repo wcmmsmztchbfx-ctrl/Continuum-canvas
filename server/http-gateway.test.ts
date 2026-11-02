@@ -458,6 +458,31 @@ describe('HTTP gateway', () => {
     expect(resumed.headers.get('set-cookie')).toBeNull()
   })
 
+  it.each([false, true])('restores configured exposure after an E2E fixture reset (public origin configured: %s)', async (configuredPublicOrigin) => {
+    const gateway = await start({
+      processEnv: { CONTINUUM_E2E: '1' },
+      ...(configuredPublicOrigin ? { publicOrigin: 'https://configured.example', allowedOrigins: ['https://configured.example'] } : {}),
+    }, false)
+    await gateway.runtime.tunnel.setCustomUrl('https://transient.example')
+    await gateway.runtime.tunnel.startCustomMode()
+    const localHeaders = { origin: 'http://127.0.0.1:4173' }
+    expect((await fetch(`${gateway.origin}/api/local-admin/session`, { method: 'POST', headers: localHeaders })).status).toBe(403)
+    const reset = await fetch(`${gateway.origin}/api/dev/reset-e2e-fixtures`, { method: 'POST', headers: localHeaders })
+    expect(reset.status).toBe(200)
+    expect(gateway.runtime.tunnel.getStatus().enabled).toBe(false)
+    const registration = await fetch(`${gateway.origin}/api/local-admin/session`, { method: 'POST', headers: localHeaders })
+    expect(registration.status).toBe(configuredPublicOrigin ? 403 : 200)
+    if (configuredPublicOrigin) expect(registration.headers.get('set-cookie')).toBeNull()
+    const oldTunnelOrigin = await fetch(`${gateway.origin}/api/local-admin/session`, { method: 'POST', headers: { origin: 'https://transient.example' } })
+    expect(oldTunnelOrigin.status).toBe(403)
+    expect((await json(oldTunnelOrigin)).error.code).toBe('origin_not_allowed')
+    if (configuredPublicOrigin) {
+      const configured = await fetch(`${gateway.origin}/api/local-admin/session`, { method: 'POST', headers: { origin: 'https://configured.example' } })
+      expect(configured.status).toBe(403)
+      expect((await json(configured)).error.code).toBe('local_admin_unauthorized')
+    }
+  })
+
   it('accepts projectId on new generation job submissions', async () => {
     const gateway = await start()
     await fetch(`${gateway.origin}/api/providers/aistartlab/sync`, { method: 'POST', headers: adminHeaders(gateway) })
