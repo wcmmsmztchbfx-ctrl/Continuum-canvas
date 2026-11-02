@@ -9,6 +9,23 @@ permissions:
   contents: read
 
 jobs:
+  launcher:
+    name: Launcher (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run server/launcher.test.ts
+
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 35

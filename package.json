@@ -14,6 +14,7 @@
     "npm": ">=10"
   },
   "scripts": {
+    "launch": "node scripts/launch.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:service": "node scripts/dev-service.mjs start",
     "dev:status": "node scripts/dev-service.mjs status",
